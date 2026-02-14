@@ -521,7 +521,8 @@ input:focus {
   color: var(--ink-soft);
 }
 
-.property-card input {
+.property-card input,
+.property-card select {
   width: 100%;
 }
 
