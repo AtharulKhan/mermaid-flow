@@ -101,8 +101,9 @@ function getIframeSrcDoc() {
       /* Gantt section backgrounds - make them more visible */
       .section0,.section2 { fill: rgba(37, 99, 235, 0.04) !important; }
       .section1,.section3 { fill: rgba(37, 99, 235, 0.08) !important; }
-      /* Gantt grid lines */
-      .grid .tick line { stroke: #e5e7eb !important; stroke-dasharray: 4 2; opacity: 0.5; }
+      /* Gantt grid lines - hidden by default, shown via .mf-show-grid class */
+      .grid .tick line { stroke: #e2e8f0 !important; stroke-dasharray: none; opacity: 0; transition: opacity 0.2s; }
+      .mf-show-grid .grid .tick line { opacity: 0.35; }
       .grid .tick text { fill: #6b7280 !important; font-size: 11px !important; }
       /* Gantt task text */
       .taskText { fill: #fff !important; font-weight: 500 !important; font-size: 12px !important; }
@@ -1421,6 +1422,18 @@ function getIframeSrcDoc() {
           return;
         }
 
+        if (data.type === "gantt:grid") {
+          const svg = canvas.querySelector("svg");
+          if (svg) {
+            if (data.payload?.show) {
+              svg.classList.add("mf-show-grid");
+            } else {
+              svg.classList.remove("mf-show-grid");
+            }
+          }
+          return;
+        }
+
         if (data.type === "mode:connect") {
           const sourceId = data.payload?.sourceId || "";
           connectMode = { sourceId };
@@ -1587,6 +1600,7 @@ function App() {
   const [presentMode, setPresentMode] = useState(false);
   const [editorWidth, setEditorWidth] = useState(30);
   const [showDates, setShowDates] = useState(true);
+  const [showGrid, setShowGrid] = useState(false);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -1799,6 +1813,13 @@ function App() {
               { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates } },
               "*"
             );
+            // Apply grid lines state
+            if (showGrid) {
+              frame.contentWindow.postMessage(
+                { channel: CHANNEL, type: "gantt:grid", payload: { show: true } },
+                "*"
+              );
+            }
           }
         }
 
@@ -2051,6 +2072,17 @@ function App() {
       "*"
     );
   }, [showDates, toolsetKey]);
+
+  /* ── Re-apply grid toggle on change ─────────────────── */
+  useEffect(() => {
+    if (toolsetKey !== "gantt") return;
+    const frame = iframeRef.current;
+    if (!frame?.contentWindow) return;
+    frame.contentWindow.postMessage(
+      { channel: CHANNEL, type: "gantt:grid", payload: { show: showGrid } },
+      "*"
+    );
+  }, [showGrid, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -2400,12 +2432,20 @@ function App() {
             <h2>Preview</h2>
             <span className="preview-hint">
               {toolsetKey === "gantt" && (
-                <button
-                  className="date-toggle-btn"
-                  onClick={() => setShowDates((prev) => !prev)}
-                >
-                  {showDates ? "Hide dates" : "Show dates"}
-                </button>
+                <>
+                  <button
+                    className="date-toggle-btn"
+                    onClick={() => setShowGrid((prev) => !prev)}
+                  >
+                    {showGrid ? "Hide grid" : "Show grid"}
+                  </button>
+                  <button
+                    className="date-toggle-btn"
+                    onClick={() => setShowDates((prev) => !prev)}
+                  >
+                    {showDates ? "Hide dates" : "Show dates"}
+                  </button>
+                </>
               )}
               Click, right-click, and drag to edit
             </span>
