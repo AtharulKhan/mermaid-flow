@@ -99,10 +99,19 @@ export function parseGanttTasks(code) {
       durationDays = Math.round((e - s) / (1000 * 60 * 60 * 24));
     }
 
-    // Check next line for assignee comment
-    const nextLineRaw = lines[lineIndex + 1] || "";
-    const assigneeMatch = nextLineRaw.trim().match(/^%%\s*assignee:\s*(.+)$/i);
-    const assignee = assigneeMatch ? assigneeMatch[1].trim() : "";
+    // Check subsequent lines for metadata comments (assignee, notes)
+    let assignee = "";
+    let notes = "";
+    let metaIdx = lineIndex + 1;
+    while (metaIdx < lines.length) {
+      const metaLine = lines[metaIdx].trim();
+      if (!metaLine.startsWith("%%")) break;
+      const aMatch = metaLine.match(/^%%\s*assignee:\s*(.+)$/i);
+      if (aMatch) assignee = aMatch[1].trim();
+      const nMatch = metaLine.match(/^%%\s*notes:\s*(.+)$/i);
+      if (nMatch) notes = nMatch[1].trim();
+      metaIdx++;
+    }
 
     tasks.push({
       lineIndex,
@@ -121,6 +130,7 @@ export function parseGanttTasks(code) {
       endDate,
       hasExplicitDate: dateIndex >= 0,
       assignee,
+      notes,
     });
   });
 
@@ -217,6 +227,39 @@ export function updateGanttAssignee(code, task, assignee) {
     }
   } else if (hasComment) {
     lines.splice(task.lineIndex + 1, 1);
+  }
+
+  return lines.join("\n");
+}
+
+export function updateGanttNotes(code, task, notes) {
+  if (!task) return code;
+  const lines = code.split("\n");
+
+  // Find existing notes comment line among metadata lines after task
+  let notesLineIdx = -1;
+  let searchIdx = task.lineIndex + 1;
+  while (searchIdx < lines.length && lines[searchIdx].trim().startsWith("%%")) {
+    if (/^%%\s*notes:/i.test(lines[searchIdx].trim())) {
+      notesLineIdx = searchIdx;
+    }
+    searchIdx++;
+  }
+
+  if (notes) {
+    const commentLine = `${task.indent}%% notes: ${notes}`;
+    if (notesLineIdx >= 0) {
+      lines[notesLineIdx] = commentLine;
+    } else {
+      // Insert after last metadata comment (or after task line)
+      let insertIdx = task.lineIndex + 1;
+      while (insertIdx < lines.length && lines[insertIdx].trim().startsWith("%%")) {
+        insertIdx++;
+      }
+      lines.splice(insertIdx, 0, commentLine);
+    }
+  } else if (notesLineIdx >= 0) {
+    lines.splice(notesLineIdx, 1);
   }
 
   return lines.join("\n");
