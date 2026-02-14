@@ -511,10 +511,10 @@ function getIframeSrcDoc() {
             const nodeCTM = node.getScreenCTM();
             const svgCTM = svg.getScreenCTM();
             if (nodeCTM && svgCTM) {
-              // Convert node's local origin to SVG coordinate space
+              // Convert node's bbox origin to SVG coordinate space
               const svgInv = svgCTM.inverse();
               const pt = svg.createSVGPoint();
-              pt.x = 0; pt.y = 0;
+              pt.x = bbox.x; pt.y = bbox.y;
               const nodePt = pt.matrixTransform(nodeCTM).matrixTransform(svgInv);
               tx = nodePt.x;
               ty = nodePt.y;
@@ -1766,7 +1766,8 @@ function App() {
               const node = flowchartData.nodes.find(n => n.id === nodeId);
               if (node) {
                 shape = node.shape || "rect";
-                if (!label || label.length < 2) label = node.label || nodeId;
+                // Always prefer parsed label from code over SVG text extraction
+                label = node.label || label || nodeId;
               }
             }
             // For ER/class/state: use nodeId as label if no meaningful label found
