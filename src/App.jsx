@@ -50,27 +50,20 @@ function getIframeSrcDoc() {
         margin: 0;
         width: 100%;
         height: 100%;
-        background: #eef6f8;
+        background: #f5f7fa;
         font-family: "Manrope", system-ui, sans-serif;
-      }
-      body {
-        background-image:
-          radial-gradient(circle at 15px 15px, rgba(122, 180, 196, 0.21) 2px, transparent 2.5px),
-          radial-gradient(circle at 15px 15px, rgba(122, 180, 196, 0.13) 1px, transparent 1.5px);
-        background-size: 38px 38px, 38px 38px;
       }
       #wrap {
         width: 100%;
         height: 100%;
         overflow: auto;
-        padding: 20px;
+        padding: 16px;
         box-sizing: border-box;
       }
       #canvas {
         min-height: 100%;
-        border-radius: 16px;
-        border: 2px solid #b8d7df;
-        background: #f7fdffcc;
+        border-radius: 12px;
+        background: #ffffff;
         padding: 18px;
         box-sizing: border-box;
       }
@@ -259,9 +252,52 @@ function getIframeSrcDoc() {
 </html>`;
 }
 
+/* ── SVG Icon Components ──────────────────────────────── */
+const IconSidebar = () => (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="3" width="16" height="14" rx="2" />
+    <line x1="7" y1="3" x2="7" y2="17" />
+  </svg>
+);
+
+const IconExport = () => (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 10l4-4 4 4" />
+    <line x1="10" y1="6" x2="10" y2="16" />
+    <path d="M3 14v2a2 2 0 002 2h10a2 2 0 002-2v-2" />
+  </svg>
+);
+
+const IconTools = () => (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="6" height="6" rx="1" />
+    <rect x="11" y="3" width="6" height="6" rx="1" />
+    <rect x="3" y="11" width="6" height="6" rx="1" />
+    <rect x="11" y="11" width="6" height="6" rx="1" />
+  </svg>
+);
+
+const IconSettings = () => (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="10" cy="10" r="3" />
+    <path d="M10 2v2m0 12v2M2 10h2m12 0h2M4.93 4.93l1.41 1.41m7.32 7.32l1.41 1.41M15.07 4.93l-1.41 1.41m-7.32 7.32l-1.41 1.41" />
+  </svg>
+);
+
+const IconPresent = () => (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="16" height="12" rx="2" />
+    <path d="M7 9l3 2 3-2" />
+  </svg>
+);
+
+/* ── Main App ─────────────────────────────────────────── */
 function App() {
   const iframeRef = useRef(null);
   const editorRef = useRef(null);
+  const exportMenuRef = useRef(null);
+
+  // Core state
   const [code, setCode] = useState(DEFAULT_CODE);
   const [theme, setTheme] = useState("neo");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -278,6 +314,15 @@ function App() {
   const [dragFeedback, setDragFeedback] = useState("");
   const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", duration: "" });
 
+  // UI state
+  const [editorCollapsed, setEditorCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [presentMode, setPresentMode] = useState(false);
+  const [editorWidth, setEditorWidth] = useState(30);
+
+  // Derived
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
   const lineCount = code.split("\n").length;
   const toolsetKey = classifyDiagramType(diagramType);
@@ -292,6 +337,7 @@ function App() {
     DIAGRAM_LIBRARY.find((entry) => entry.id === "flowchart")?.quickTools ||
     [];
 
+  /* ── Render ──────────────────────────────────────────── */
   const postRender = () => {
     const frame = iframeRef.current;
     if (!frame?.contentWindow) return;
@@ -314,18 +360,19 @@ function App() {
     );
   };
 
+  /* ── Auto-render ─────────────────────────────────────── */
   useEffect(() => {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
   }, [code, autoRender, theme, securityLevel, renderer]);
 
+  /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
       setGanttDraft({ label: "", startDate: "", duration: "" });
       return;
     }
-
     setGanttDraft({
       label: selectedGanttTask.label || "",
       startDate: selectedGanttTask.startDate || "",
@@ -333,6 +380,7 @@ function App() {
     });
   }, [selectedGanttTask]);
 
+  /* ── PostMessage listener ────────────────────────────── */
   useEffect(() => {
     const listener = (event) => {
       const data = event.data;
@@ -402,6 +450,60 @@ function App() {
     return () => window.removeEventListener("message", listener);
   }, [code, ganttTasks]);
 
+  /* ── Resizable divider ───────────────────────────────── */
+  const onDividerPointerDown = (e) => {
+    e.preventDefault();
+    const workspace = document.querySelector(".workspace");
+    if (!workspace) return;
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (moveEvent) => {
+      const rect = workspace.getBoundingClientRect();
+      const pct = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.min(Math.max(pct, 15), 55);
+      setEditorWidth(clamped);
+    };
+
+    const onUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+    };
+
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  };
+
+  /* ── Outside click for export dropdown ───────────────── */
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const handler = (e) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [exportMenuOpen]);
+
+  /* ── Escape key handler ──────────────────────────────── */
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "Escape") {
+        if (presentMode) { setPresentMode(false); return; }
+        if (settingsOpen) { setSettingsOpen(false); return; }
+        if (drawerOpen) { setDrawerOpen(false); return; }
+        if (exportMenuOpen) { setExportMenuOpen(false); return; }
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [presentMode, settingsOpen, drawerOpen, exportMenuOpen]);
+
+  /* ── Actions ─────────────────────────────────────────── */
   const insertSnippet = (snippet) => {
     const editor = editorRef.current;
     if (!editor) {
@@ -504,86 +606,103 @@ function App() {
     img.src = url;
   };
 
+  /* ── Render ──────────────────────────────────────────── */
   return (
     <main className="app-shell">
+      {/* ── Header ──────────────────────────────────────── */}
       <header className="top-strip">
         <div className="brand">
           <div className="brand-mark">MF</div>
-          <div>
-            <h1>Mermaid Flow</h1>
-            <p>Visual-first Mermaid editor with source-safe patching</p>
-          </div>
+          <h1>Mermaid Flow</h1>
         </div>
+
         <div className="toolbar">
-          <button className="soft-btn" onClick={postRender}>
-            Render
+          {/* Editor toggle */}
+          <button
+            className="icon-btn"
+            title={editorCollapsed ? "Show editor" : "Hide editor"}
+            onClick={() => setEditorCollapsed(!editorCollapsed)}
+          >
+            <IconSidebar />
           </button>
-          <button className="soft-btn" onClick={copyCode}>
-            Copy code
+
+          <div className="toolbar-sep" />
+
+          {/* Render (only when auto-render is off) */}
+          {!autoRender && (
+            <button className="soft-btn primary" onClick={postRender}>
+              Render
+            </button>
+          )}
+
+          {/* Export dropdown */}
+          <div className="dropdown-wrap" ref={exportMenuRef}>
+            <button
+              className="soft-btn"
+              onClick={() => setExportMenuOpen(!exportMenuOpen)}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <IconExport />
+                Export
+              </span>
+            </button>
+            <div className={`dropdown-menu ${exportMenuOpen ? "open" : ""}`}>
+              <button className="dropdown-item" onClick={() => { copyCode(); setExportMenuOpen(false); }}>
+                Copy Mermaid code
+              </button>
+              <button className="dropdown-item" onClick={() => { copyEmbed(); setExportMenuOpen(false); }}>
+                Copy iframe embed
+              </button>
+              <button className="dropdown-item" onClick={() => { downloadSvg(); setExportMenuOpen(false); }}>
+                Download SVG
+              </button>
+              <button className="dropdown-item" onClick={() => { downloadPng(); setExportMenuOpen(false); }}>
+                Download PNG
+              </button>
+            </div>
+          </div>
+
+          <div className="toolbar-sep" />
+
+          {/* Quick Tools drawer */}
+          <button
+            className="icon-btn"
+            title="Quick tools"
+            onClick={() => setDrawerOpen(!drawerOpen)}
+          >
+            <IconTools />
           </button>
-          <button className="soft-btn" onClick={copyEmbed}>
-            Copy iframe embed
+
+          {/* Settings */}
+          <button
+            className="icon-btn"
+            title="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <IconSettings />
           </button>
-          <button className="soft-btn" onClick={downloadSvg}>
-            SVG
-          </button>
-          <button className="soft-btn" onClick={downloadPng}>
-            PNG
+
+          {/* Present mode */}
+          <button
+            className="icon-btn"
+            title="Present mode"
+            onClick={() => setPresentMode(true)}
+          >
+            <IconPresent />
           </button>
         </div>
       </header>
 
-      <section className="control-row">
-        <label>
-          Theme
-          <select value={theme} onChange={(e) => setTheme(e.target.value)}>
-            <option value="default">Default</option>
-            <option value="neutral">Neutral</option>
-            <option value="base">Base</option>
-            <option value="dark">Dark</option>
-            <option value="forest">Forest</option>
-            <option value="neo">Neo</option>
-          </select>
-        </label>
-        <label>
-          Security
-          <select value={securityLevel} onChange={(e) => setSecurityLevel(e.target.value)}>
-            <option value="strict">strict</option>
-            <option value="sandbox">sandbox</option>
-            <option value="loose">loose (for click callbacks)</option>
-          </select>
-        </label>
-        <label>
-          Layout
-          <select value={renderer} onChange={(e) => setRenderer(e.target.value)}>
-            <option value="dagre">dagre</option>
-            <option value="elk">elk</option>
-          </select>
-        </label>
-        <label className="auto-toggle">
-          <input type="checkbox" checked={autoRender} onChange={(e) => setAutoRender(e.target.checked)} />
-          Auto-render
-        </label>
-        <label>
-          Starter
-          <select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
-            {DIAGRAM_LIBRARY.map((diagram) => (
-              <option key={diagram.id} value={diagram.id}>
-                {diagram.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="soft-btn" onClick={replaceWithTemplate}>
-          Load starter
-        </button>
-      </section>
-
+      {/* ── Workspace ───────────────────────────────────── */}
       <section className="workspace">
-        <article className="editor-panel">
+        {/* Editor Panel */}
+        <article
+          className={`editor-panel ${editorCollapsed ? "collapsed" : ""}`}
+          style={editorCollapsed ? undefined : { width: `${editorWidth}%` }}
+        >
           <div className="panel-header">
             <h2>Code</h2>
-            <span>{lineCount} lines</span>
+            <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
           </div>
           <div className="editor-wrap">
             <pre className="line-gutter" aria-hidden="true">
@@ -605,12 +724,17 @@ function App() {
             />
           </div>
           <div className="panel-footer">
-            <p>Detected: {diagramType || "unknown"}</p>
             <p className={`status-${renderStatus}`}>{renderMessage}</p>
-            <p className="drag-note">{dragFeedback || "Drag elements in preview to interact visually"}</p>
+            {dragFeedback && <p className="drag-note">{dragFeedback}</p>}
           </div>
         </article>
 
+        {/* Resizable Divider */}
+        {!editorCollapsed && (
+          <div className="resize-divider" onPointerDown={onDividerPointerDown} />
+        )}
+
+        {/* Preview Panel */}
         <article className="preview-panel">
           <div className="panel-header">
             <h2>Preview</h2>
@@ -624,112 +748,199 @@ function App() {
             className="preview-frame"
           />
         </article>
+      </section>
 
-        <aside className="tools-panel">
-          <div className="panel-header">
-            <h2>Quick Tools</h2>
-            <span>{toolsetKey}</span>
-          </div>
-          <div className="tool-grid">
-            {quickTools.map((tool) => (
-              <button key={tool.label} className="tool-btn" onClick={() => insertSnippet(tool.snippet)}>
-                {tool.label}
+      {/* ── Tools Drawer (Right Overlay) ────────────────── */}
+      <div
+        className={`tools-drawer-backdrop ${drawerOpen ? "open" : ""}`}
+        onClick={() => setDrawerOpen(false)}
+      />
+      <aside className={`tools-drawer ${drawerOpen ? "open" : ""}`}>
+        <div className="drawer-header">
+          <h2>Quick Tools</h2>
+          <button className="drawer-close-btn" onClick={() => setDrawerOpen(false)}>
+            &times;
+          </button>
+        </div>
+
+        {/* Snippet buttons */}
+        <div className="tool-grid">
+          {quickTools.map((tool) => (
+            <button key={tool.label} className="tool-btn" onClick={() => insertSnippet(tool.snippet)}>
+              {tool.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Selection Inspector */}
+        <div className="property-card">
+          <h3>Selection</h3>
+          {selectedElement ? (
+            <>
+              <p><strong>Label:</strong> {selectedElement.label}</p>
+              <p><strong>ID:</strong> {selectedElement.id || "n/a"}</p>
+              <label>
+                New label
+                <input value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} />
+              </label>
+              <button className="soft-btn full" onClick={applyLabelPatch}>
+                Apply patch
               </button>
-            ))}
-          </div>
+            </>
+          ) : (
+            <p className="muted">Pick an element in preview to edit properties.</p>
+          )}
+        </div>
 
+        {/* Gantt Task Editor */}
+        {toolsetKey === "gantt" && (
           <div className="property-card">
-            <h3>Selection</h3>
-            {selectedElement ? (
+            <h3>Gantt Task Editor</h3>
+            {selectedGanttTask ? (
               <>
-                <p>
-                  <strong>Label:</strong> {selectedElement.label}
-                </p>
-                <p>
-                  <strong>ID:</strong> {selectedElement.id || "n/a"}
-                </p>
                 <label>
-                  New label
-                  <input value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} />
+                  Task label
+                  <input
+                    value={ganttDraft.label}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, label: e.target.value }))}
+                  />
                 </label>
-                <button className="soft-btn full" onClick={applyLabelPatch}>
-                  Apply patch
+                <label>
+                  Start date
+                  <input
+                    type="date"
+                    value={ganttDraft.startDate}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, startDate: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Duration (e.g. 3d, 2w)
+                  <input
+                    value={ganttDraft.duration}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, duration: e.target.value }))}
+                  />
+                </label>
+                <button className="soft-btn full" onClick={applyGanttTaskPatch}>
+                  Apply task update
                 </button>
-                <p className="muted">
-                  Tip: right-click elements to focus them quickly before patching.
-                </p>
               </>
             ) : (
-              <p className="muted">Pick an element in preview to edit properties.</p>
+              <p className="muted">Select a Gantt task from preview first.</p>
             )}
           </div>
+        )}
 
-          {toolsetKey === "gantt" && (
-            <div className="property-card">
-              <h3>Gantt Task Editor</h3>
-              {selectedGanttTask ? (
-                <>
-                  <p>
-                    Drag task bars horizontally to shift dates. Right-click any task to target it.
-                  </p>
-                  <label>
-                    Task label
-                    <input
-                      value={ganttDraft.label}
-                      onChange={(e) =>
-                        setGanttDraft((prev) => ({
-                          ...prev,
-                          label: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label>
-                    Start date (YYYY-MM-DD)
-                    <input
-                      value={ganttDraft.startDate}
-                      onChange={(e) =>
-                        setGanttDraft((prev) => ({
-                          ...prev,
-                          startDate: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label>
-                    Duration (e.g. 3d, 2w)
-                    <input
-                      value={ganttDraft.duration}
-                      onChange={(e) =>
-                        setGanttDraft((prev) => ({
-                          ...prev,
-                          duration: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <button className="soft-btn full" onClick={applyGanttTaskPatch}>
-                    Apply task update
-                  </button>
-                </>
-              ) : (
-                <p className="muted">Select a Gantt task from preview first.</p>
-              )}
-            </div>
-          )}
-
-          <div className="property-card">
-            <h3>Supported Types</h3>
-            <ul>
-              {DIAGRAM_LIBRARY.map((item) => (
-                <li key={item.id}>
-                  <code>{item.keyword}</code> - {item.label}
-                </li>
+        {/* Starter Templates */}
+        <div className="property-card">
+          <h3>Templates</h3>
+          <label>
+            Diagram type
+            <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} style={{ width: "100%" }}>
+              {DIAGRAM_LIBRARY.map((diagram) => (
+                <option key={diagram.id} value={diagram.id}>
+                  {diagram.label}
+                </option>
               ))}
-            </ul>
+            </select>
+          </label>
+          <button className="soft-btn full" onClick={replaceWithTemplate}>
+            Load template
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Settings Modal ──────────────────────────────── */}
+      {settingsOpen && (
+        <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h2>Settings</h2>
+            <div className="settings-group">
+              <label>
+                Theme
+                <select value={theme} onChange={(e) => setTheme(e.target.value)}>
+                  <option value="default">Default</option>
+                  <option value="neutral">Neutral</option>
+                  <option value="base">Base</option>
+                  <option value="dark">Dark</option>
+                  <option value="forest">Forest</option>
+                  <option value="neo">Neo</option>
+                </select>
+              </label>
+              <label>
+                Security Level
+                <select value={securityLevel} onChange={(e) => setSecurityLevel(e.target.value)}>
+                  <option value="strict">strict</option>
+                  <option value="sandbox">sandbox</option>
+                  <option value="loose">loose (for click callbacks)</option>
+                </select>
+              </label>
+              <label>
+                Layout Engine
+                <select value={renderer} onChange={(e) => setRenderer(e.target.value)}>
+                  <option value="dagre">dagre</option>
+                  <option value="elk">elk</option>
+                </select>
+              </label>
+              <label className="auto-toggle">
+                <input
+                  type="checkbox"
+                  checked={autoRender}
+                  onChange={(e) => setAutoRender(e.target.checked)}
+                />
+                Auto-render on code change
+              </label>
+            </div>
+            <div className="modal-actions">
+              <button className="soft-btn" onClick={() => setSettingsOpen(false)}>
+                Close
+              </button>
+            </div>
           </div>
-        </aside>
-      </section>
+        </div>
+      )}
+
+      {/* ── Present Mode ────────────────────────────────── */}
+      {presentMode && (
+        <div className="present-mode">
+          <div className="present-toolbar">
+            <button className="soft-btn" onClick={() => setPresentMode(false)}>
+              Exit
+            </button>
+            <button className="soft-btn" onClick={downloadSvg}>
+              SVG
+            </button>
+            <button className="soft-btn" onClick={downloadPng}>
+              PNG
+            </button>
+          </div>
+          <iframe
+            title="Mermaid present"
+            sandbox="allow-scripts"
+            srcDoc={srcDoc}
+            ref={(el) => {
+              if (!el) return;
+              const onLoad = () => {
+                el.contentWindow?.postMessage(
+                  {
+                    channel: CHANNEL,
+                    type: "render",
+                    payload: {
+                      code,
+                      config: {
+                        theme,
+                        securityLevel,
+                        flowchart: { defaultRenderer: renderer },
+                      },
+                    },
+                  },
+                  "*"
+                );
+              };
+              el.addEventListener("load", onLoad, { once: true });
+            }}
+          />
+        </div>
+      )}
     </main>
   );
 }
