@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
-import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus } from "./ganttUtils";
+import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus, updateGanttAssignee } from "./ganttUtils";
 
 const CHANNEL = "mermaid-flow";
 
@@ -289,7 +289,8 @@ function getIframeSrcDoc() {
           };
           const startStr = fmt(t.startDate);
           const endStr = t.endDate ? fmt(t.endDate) : (t.durationDays && t.startDate ? fmt(t.computedEnd) : "");
-          const dateStr = endStr ? startStr + " – " + endStr : startStr;
+          let dateStr = endStr ? startStr + " – " + endStr : startStr;
+          if (t.assignee) dateStr = (dateStr ? dateStr + " · " : "") + t.assignee;
           if (!dateStr) return;
 
           const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -404,7 +405,7 @@ function App() {
   const [highlightLine, setHighlightLine] = useState(null);
   const [templateId, setTemplateId] = useState("flowchart");
   const [dragFeedback, setDragFeedback] = useState("");
-  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", duration: "", status: [] });
+  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", duration: "", status: [], assignee: "" });
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(false);
@@ -463,7 +464,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", duration: "", status: [] });
+      setGanttDraft({ label: "", startDate: "", endDate: "", duration: "", status: [], assignee: "" });
       return;
     }
     setGanttDraft({
@@ -472,6 +473,7 @@ function App() {
       endDate: selectedGanttTask.endDate || "",
       duration: selectedGanttTask.durationToken || "",
       status: selectedGanttTask.statusTokens || [],
+      assignee: selectedGanttTask.assignee || "",
     });
   }, [selectedGanttTask]);
 
@@ -498,7 +500,7 @@ function App() {
               d.setUTCDate(d.getUTCDate() + t.durationDays);
               computedEnd = d.toISOString().slice(0, 10);
             }
-            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd };
+            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "" };
           });
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
@@ -529,13 +531,7 @@ function App() {
         setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
 
         if (toolsetKey === "gantt" && selected) {
-          const iframe = iframeRef.current;
-          const iframeRect = iframe?.getBoundingClientRect();
-          const rawX = (iframeRect?.left || 0) + (selected.pointerX || 0);
-          const rawY = (iframeRect?.top || 0) + (selected.pointerY || 0);
-          const x = Math.min(rawX, window.innerWidth - 200);
-          const y = Math.min(rawY, window.innerHeight - 260);
-          setContextMenu({ x, y, label: selected.label });
+          setContextMenu({ label: selected.label });
         } else {
           setDrawerOpen(true);
         }
@@ -631,17 +627,6 @@ function App() {
     return () => document.removeEventListener("keydown", handler);
   }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen]);
 
-  /* ── Outside click for context menu ──────────────────── */
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handler = (e) => {
-      const menu = document.querySelector(".gantt-context-menu");
-      if (menu && !menu.contains(e.target)) setContextMenu(null);
-    };
-    document.addEventListener("pointerdown", handler);
-    return () => document.removeEventListener("pointerdown", handler);
-  }, [contextMenu]);
-
   /* ── Actions ─────────────────────────────────────────── */
   const insertSnippet = (snippet) => {
     const editor = editorRef.current;
@@ -692,6 +677,13 @@ function App() {
         const currentTask = findTaskByLabel(currentTasks, nextLabel);
         if (currentTask) updated = toggleGanttStatus(updated, currentTask, flag);
       }
+    }
+
+    // Apply assignee
+    const finalTasks = parseGanttTasks(updated);
+    const finalTask = findTaskByLabel(finalTasks, nextLabel);
+    if (finalTask) {
+      updated = updateGanttAssignee(updated, finalTask, ganttDraft.assignee.trim());
     }
 
     setCode(updated);
@@ -1005,6 +997,14 @@ function App() {
                     />
                   </label>
                 )}
+                <label>
+                  Assignee
+                  <input
+                    value={ganttDraft.assignee}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
+                    placeholder="e.g. Mohammed"
+                  />
+                </label>
                 <label>Status</label>
                 <div className="status-toggle-group">
                   {["done", "active", "crit"].map((flag) => (
@@ -1105,33 +1105,101 @@ function App() {
         </div>
       )}
 
-      {/* ── Gantt Context Menu ─────────────────────────── */}
+      {/* ── Task Edit Modal (Gantt right-click) ──────── */}
       {contextMenu && (() => {
         const task = findTaskByLabel(ganttTasks, contextMenu.label);
-        const currentStatus = task?.statusTokens || [];
         return (
-          <div className="gantt-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
-            <div className="context-menu-title">{contextMenu.label}</div>
-            <div className="context-menu-divider" />
-            {["done", "active", "crit"].map((flag) => (
-              <button
-                key={flag}
-                className={`context-menu-item ${currentStatus.includes(flag) ? "active" : ""}`}
-                onClick={() => { handleStatusToggle(flag); setContextMenu(null); }}
-              >
-                <span className={`status-dot status-${flag}`} />
-                {flag === "crit" ? "Critical" : flag.charAt(0).toUpperCase() + flag.slice(1)}
-                {currentStatus.includes(flag) && <span className="check-mark">&#10003;</span>}
-              </button>
-            ))}
-            <div className="context-menu-divider" />
-            <button className="context-menu-item" onClick={() => { handleStatusClear(); setContextMenu(null); }}>
-              Clear status
-            </button>
-            <div className="context-menu-divider" />
-            <button className="context-menu-item" onClick={() => { setContextMenu(null); setDrawerOpen(true); }}>
-              Edit task&hellip;
-            </button>
+          <div className="modal-backdrop" onClick={() => setContextMenu(null)}>
+            <div className="task-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="task-modal-header">
+                <h2>{ganttDraft.label || contextMenu.label}</h2>
+                <button className="drawer-close-btn" onClick={() => setContextMenu(null)}>
+                  &times;
+                </button>
+              </div>
+
+              <div className="task-modal-body">
+                <label>Status</label>
+                <div className="status-toggle-group">
+                  {["done", "active", "crit"].map((flag) => (
+                    <button
+                      key={flag}
+                      className={`status-toggle-btn ${ganttDraft.status.includes(flag) ? "on" : ""} status-${flag}`}
+                      onClick={() => {
+                        setGanttDraft((prev) => ({
+                          ...prev,
+                          status: prev.status.includes(flag)
+                            ? prev.status.filter((s) => s !== flag)
+                            : [...prev.status, flag],
+                        }));
+                      }}
+                    >
+                      <span className={`status-dot status-${flag}`} />
+                      {flag === "crit" ? "Critical" : flag.charAt(0).toUpperCase() + flag.slice(1)}
+                    </button>
+                  ))}
+                </div>
+
+                <label>
+                  Assignee
+                  <input
+                    value={ganttDraft.assignee}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
+                    placeholder="e.g. Mohammed"
+                  />
+                </label>
+
+                <label>
+                  Task name
+                  <input
+                    value={ganttDraft.label}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, label: e.target.value }))}
+                  />
+                </label>
+
+                <div className="task-modal-dates">
+                  <label>
+                    Start date
+                    <input
+                      type="date"
+                      value={ganttDraft.startDate}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, startDate: e.target.value }))}
+                    />
+                  </label>
+                  {task?.endDateIndex >= 0 ? (
+                    <label>
+                      End date
+                      <input
+                        type="date"
+                        value={ganttDraft.endDate}
+                        onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
+                      />
+                    </label>
+                  ) : (
+                    <label>
+                      Duration
+                      <input
+                        value={ganttDraft.duration}
+                        onChange={(e) => setGanttDraft((prev) => ({ ...prev, duration: e.target.value }))}
+                        placeholder="e.g. 3d, 2w"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              <div className="task-modal-actions">
+                <button className="soft-btn" onClick={() => setContextMenu(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="soft-btn primary"
+                  onClick={() => { applyGanttTaskPatch(); setContextMenu(null); }}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
           </div>
         );
       })()}
