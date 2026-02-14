@@ -30,7 +30,7 @@
   --radius-lg: 16px;
 
   --transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  --header-height: 52px;
+  --header-height: 48px;
   --drawer-width: 360px;
   --overlay-bg: rgba(0, 0, 0, 0.3);
 }
@@ -403,7 +403,9 @@ input:focus {
   width: 100%;
   flex: 1;
   border: 0;
-  background: transparent;
+  background: #f8f9fb;
+  background-image: radial-gradient(circle, #d4d8e0 0.75px, transparent 0.75px);
+  background-size: 20px 20px;
 }
 
 /* ── Dropdown Menu ─────────────────────────────────────── */
