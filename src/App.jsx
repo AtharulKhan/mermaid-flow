@@ -122,6 +122,22 @@ function getIframeSrcDoc() {
       const tooltipEl = document.getElementById("mf-tooltip");
       const TASK_TEXT_SEL = "text.taskText, text.taskTextOutsideRight, text.taskTextOutsideLeft";
 
+      const shiftIso = (iso, days) => {
+        if (!iso || !days) return iso;
+        const [y, m, d] = iso.split("-").map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, d + days));
+        const yy = dt.getUTCFullYear();
+        const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+        const dd = String(dt.getUTCDate()).padStart(2, "0");
+        return yy + "-" + mm + "-" + dd;
+      };
+      const fmtFullDate = (iso) => {
+        if (!iso) return "";
+        const parts = iso.split("-");
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10) + ", " + parts[0];
+      };
+
       canvas.addEventListener("mouseover", (e) => {
         let tip = "";
         const tag = e.target.nodeName;
@@ -286,6 +302,7 @@ function getIframeSrcDoc() {
           if (dragState.textNode) {
             dragState.textNode.removeAttribute("transform");
           }
+          tooltipEl.style.display = "none";
           dragState = null;
           suppressClick = false;
         };
@@ -457,6 +474,41 @@ function getIframeSrcDoc() {
                 dragState.textNode.setAttribute("transform", "translate(" + dx + " 0)");
               }
             }
+
+            // Live tooltip with projected dates
+            const rect = dragState.node;
+            const origStart = rect.getAttribute("data-mf-start") || "";
+            const origEnd = rect.getAttribute("data-mf-end") || "";
+            const days = parseInt(rect.getAttribute("data-mf-days") || "0", 10);
+            const bw = dragState.origWidth || 1;
+            const pxPerDay = days ? bw / days : 0;
+            const dayShift = pxPerDay ? Math.round(svgDx / pxPerDay) : 0;
+
+            let projStart = origStart;
+            let projEnd = origEnd;
+            if (mode === "resize-end") {
+              projEnd = shiftIso(origEnd, dayShift);
+            } else if (mode === "resize-start") {
+              projStart = shiftIso(origStart, dayShift);
+            } else {
+              projStart = shiftIso(origStart, dayShift);
+              projEnd = shiftIso(origEnd, dayShift);
+            }
+
+            const label = dragState.textNode
+              ? (() => { const c = dragState.textNode.cloneNode(true); c.querySelectorAll(".mf-date-tspan").forEach(el => el.remove()); return c.textContent?.trim() || ""; })()
+              : "";
+            let tipText = label || "Dragging...";
+            tipText += "\\nStart: " + fmtFullDate(projStart);
+            tipText += "\\nEnd: " + fmtFullDate(projEnd);
+            const shift = mode === "resize-end" || mode === "resize-start" ? dayShift : dayShift;
+            if (dayShift !== 0) {
+              tipText += "\\n" + (dayShift > 0 ? "+" : "") + dayShift + " day" + (Math.abs(dayShift) !== 1 ? "s" : "");
+            }
+            tooltipEl.textContent = tipText;
+            tooltipEl.style.display = "block";
+            tooltipEl.style.left = (event.clientX + 14) + "px";
+            tooltipEl.style.top = (event.clientY + 14) + "px";
           } else {
             dragState.node.setAttribute(
               "transform",
@@ -541,6 +593,10 @@ function getIframeSrcDoc() {
             if (t.assignee) tip += "\\nAssignee: " + t.assignee;
             if (t.notes) tip += "\\nNotes: " + t.notes;
             rectEl.setAttribute("data-mf-tip", tip);
+            // Store task metadata for live drag tooltip
+            if (t.startDate) rectEl.setAttribute("data-mf-start", t.startDate);
+            if (endDate) rectEl.setAttribute("data-mf-end", endDate);
+            if (t.durationDays) rectEl.setAttribute("data-mf-days", String(t.durationDays));
             // Also set on text element so tooltip works when hovering labels
             if (textEl) textEl.setAttribute("data-mf-tip", tip);
 
