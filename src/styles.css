@@ -1191,6 +1191,64 @@ input:focus {
   background: var(--danger-soft);
 }
 
+/* ── Node Navigation Bar ─────────────────────────────── */
+.node-nav-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.node-nav-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.node-nav-current {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+}
+
+.node-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg-card);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.node-nav-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.nav-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* ── Scrollbar ────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;

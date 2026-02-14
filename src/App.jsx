@@ -330,7 +330,7 @@ function getIframeSrcDoc() {
 
       const updateEdgesForOverrides = (svg) => {
         if (!svg || Object.keys(positionOverrides).length === 0) return;
-        // Build list of moved nodes with their ORIGINAL bounding boxes
+        // Build list of moved nodes with their ORIGINAL bounding boxes in SVG viewport space
         const movedNodes = [];
         const skipSel = "g.node, g.entity, g.classGroup, g.cluster, g.mindmap-node, g.stateGroup, defs, marker";
         for (const [nodeId, offset] of Object.entries(positionOverrides)) {
@@ -338,15 +338,32 @@ function getIframeSrcDoc() {
           if (!el) continue;
           try {
             const bbox = el.getBBox();
-            const tr = el.getAttribute("transform") || "";
-            const m = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-            const tx = m ? parseFloat(m[1]) : 0;
-            const ty = m ? parseFloat(m[2]) : 0;
-            // Subtract offset to get original position (before applyPositionOverrides moved it)
-            movedNodes.push({ offset, origBox: {
-              left: bbox.x + tx - offset.dx, right: bbox.x + bbox.width + tx - offset.dx,
-              top: bbox.y + ty - offset.dy, bottom: bbox.y + bbox.height + ty - offset.dy,
-            }});
+            const ctm = el.getCTM();
+            let origBox;
+            if (ctm) {
+              // Current position in SVG viewport space (includes the override offset)
+              const p1 = svg.createSVGPoint();
+              p1.x = bbox.x; p1.y = bbox.y;
+              const tl = p1.matrixTransform(ctm);
+              const p2 = svg.createSVGPoint();
+              p2.x = bbox.x + bbox.width; p2.y = bbox.y + bbox.height;
+              const br = p2.matrixTransform(ctm);
+              // Subtract offset to get ORIGINAL position before override
+              origBox = {
+                left: Math.min(tl.x, br.x) - offset.dx, right: Math.max(tl.x, br.x) - offset.dx,
+                top: Math.min(tl.y, br.y) - offset.dy, bottom: Math.max(tl.y, br.y) - offset.dy,
+              };
+            } else {
+              const tr = el.getAttribute("transform") || "";
+              const m = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+              const tx = m ? parseFloat(m[1]) : 0;
+              const ty = m ? parseFloat(m[2]) : 0;
+              origBox = {
+                left: bbox.x + tx - offset.dx, right: bbox.x + bbox.width + tx - offset.dx,
+                top: bbox.y + ty - offset.dy, bottom: bbox.y + bbox.height + ty - offset.dy,
+              };
+            }
+            movedNodes.push({ offset, origBox });
           } catch (e) {}
         }
         if (movedNodes.length === 0) return;
@@ -354,6 +371,7 @@ function getIframeSrcDoc() {
         // Update all edge paths/lines using geometric proximity
         svg.querySelectorAll("path, line").forEach(el => {
           if (el.closest(skipSel)) return;
+          const elCTM = el.getCTM();
           if (el.tagName === "path") {
             const d = el.getAttribute("d");
             if (!d) return;
@@ -361,9 +379,20 @@ function getIframeSrcDoc() {
             const points = getPathPoints(cmds);
             if (points.length < 2) return;
             const fp = points[0];
-            const firstX = cmds[fp.ci].params[fp.pi], firstY = cmds[fp.ci].params[fp.pi + 1];
+            let firstX = cmds[fp.ci].params[fp.pi], firstY = cmds[fp.ci].params[fp.pi + 1];
             const lp = points[points.length - 1];
-            const lastX = cmds[lp.ci].params[lp.pi], lastY = cmds[lp.ci].params[lp.pi + 1];
+            let lastX = cmds[lp.ci].params[lp.pi], lastY = cmds[lp.ci].params[lp.pi + 1];
+            // Transform path endpoints to SVG viewport space for comparison
+            if (elCTM) {
+              const q1 = svg.createSVGPoint();
+              q1.x = firstX; q1.y = firstY;
+              const t1 = q1.matrixTransform(elCTM);
+              firstX = t1.x; firstY = t1.y;
+              const q2 = svg.createSVGPoint();
+              q2.x = lastX; q2.y = lastY;
+              const t2 = q2.matrixTransform(elCTM);
+              lastX = t2.x; lastY = t2.y;
+            }
             let srcDx = 0, srcDy = 0, tgtDx = 0, tgtDy = 0;
             for (const mn of movedNodes) {
               const b = mn.origBox;
@@ -382,13 +411,25 @@ function getIframeSrcDoc() {
           } else if (el.tagName === "line") {
             const x1 = parseFloat(el.getAttribute("x1")) || 0, y1 = parseFloat(el.getAttribute("y1")) || 0;
             const x2 = parseFloat(el.getAttribute("x2")) || 0, y2 = parseFloat(el.getAttribute("y2")) || 0;
+            // Transform for comparison
+            let cx1 = x1, cy1 = y1, cx2 = x2, cy2 = y2;
+            if (elCTM) {
+              const q1 = svg.createSVGPoint();
+              q1.x = x1; q1.y = y1;
+              const t1 = q1.matrixTransform(elCTM);
+              cx1 = t1.x; cy1 = t1.y;
+              const q2 = svg.createSVGPoint();
+              q2.x = x2; q2.y = y2;
+              const t2 = q2.matrixTransform(elCTM);
+              cx2 = t2.x; cy2 = t2.y;
+            }
             let srcDx = 0, srcDy = 0, tgtDx = 0, tgtDy = 0;
             for (const mn of movedNodes) {
               const b = mn.origBox;
-              if (x1 >= b.left - margin && x1 <= b.right + margin && y1 >= b.top - margin && y1 <= b.bottom + margin) {
+              if (cx1 >= b.left - margin && cx1 <= b.right + margin && cy1 >= b.top - margin && cy1 <= b.bottom + margin) {
                 srcDx += mn.offset.dx; srcDy += mn.offset.dy;
               }
-              if (x2 >= b.left - margin && x2 <= b.right + margin && y2 >= b.top - margin && y2 <= b.bottom + margin) {
+              if (cx2 >= b.left - margin && cx2 <= b.right + margin && cy2 >= b.top - margin && cy2 <= b.bottom + margin) {
                 tgtDx += mn.offset.dx; tgtDy += mn.offset.dy;
               }
             }
@@ -501,36 +542,32 @@ function getIframeSrcDoc() {
       };
 
       // Universal: find all edge paths/lines connected to a node using geometric proximity
+      // Both node bbox AND path/line endpoints are transformed to SVG viewport space
+      // via getCTM() so coordinates are always in the same system regardless of nesting.
       const findConnectedEdges = (svg, node) => {
         const connections = [];
         try {
           const bbox = node.getBBox();
-          // Use getCTM for direct element-to-SVG-viewport coordinate conversion
-          let tx = 0, ty = 0;
-          try {
-            const ctm = node.getCTM();
-            if (ctm) {
-              const pt = svg.createSVGPoint();
-              pt.x = bbox.x; pt.y = bbox.y;
-              const transformed = pt.matrixTransform(ctm);
-              tx = transformed.x;
-              ty = transformed.y;
-            } else {
-              const transform = node.getAttribute("transform") || "";
-              const tm = transform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-              tx = tm ? parseFloat(tm[1]) + bbox.x : bbox.x;
-              ty = tm ? parseFloat(tm[2]) + bbox.y : bbox.y;
-            }
-          } catch (_) {
+          const nodeCTM = node.getCTM();
+          let nodeBox;
+          if (nodeCTM) {
+            const p1 = svg.createSVGPoint();
+            p1.x = bbox.x; p1.y = bbox.y;
+            const tl = p1.matrixTransform(nodeCTM);
+            const p2 = svg.createSVGPoint();
+            p2.x = bbox.x + bbox.width; p2.y = bbox.y + bbox.height;
+            const br = p2.matrixTransform(nodeCTM);
+            nodeBox = {
+              left: Math.min(tl.x, br.x), right: Math.max(tl.x, br.x),
+              top: Math.min(tl.y, br.y), bottom: Math.max(tl.y, br.y),
+            };
+          } else {
             const transform = node.getAttribute("transform") || "";
             const tm = transform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-            tx = tm ? parseFloat(tm[1]) + bbox.x : bbox.x;
-            ty = tm ? parseFloat(tm[2]) + bbox.y : bbox.y;
+            const tx = tm ? parseFloat(tm[1]) + bbox.x : bbox.x;
+            const ty = tm ? parseFloat(tm[2]) + bbox.y : bbox.y;
+            nodeBox = { left: tx, right: tx + bbox.width, top: ty, bottom: ty + bbox.height };
           }
-          const nodeBox = {
-            left: tx, right: tx + bbox.width,
-            top: ty, bottom: ty + bbox.height,
-          };
           const margin = Math.max(bbox.width, bbox.height) * 0.4 + 30;
           const isNear = (px, py) => {
             return px >= nodeBox.left - margin && px <= nodeBox.right + margin &&
@@ -541,6 +578,7 @@ function getIframeSrcDoc() {
           svg.querySelectorAll("path, line").forEach(el => {
             if (el.closest(skipSel)) return;
             if (node.contains(el)) return;
+            const elCTM = el.getCTM();
             if (el.tagName === "path") {
               const d = el.getAttribute("d");
               if (!d) return;
@@ -548,25 +586,48 @@ function getIframeSrcDoc() {
               const points = getPathPoints(cmds);
               if (points.length < 2) return;
               const fp = points[0];
-              const firstX = cmds[fp.ci].params[fp.pi];
-              const firstY = cmds[fp.ci].params[fp.pi + 1];
+              let firstX = cmds[fp.ci].params[fp.pi];
+              let firstY = cmds[fp.ci].params[fp.pi + 1];
               const lp = points[points.length - 1];
-              const lastX = cmds[lp.ci].params[lp.pi];
-              const lastY = cmds[lp.ci].params[lp.pi + 1];
+              let lastX = cmds[lp.ci].params[lp.pi];
+              let lastY = cmds[lp.ci].params[lp.pi + 1];
+              // Transform path endpoints to SVG viewport space (same as node)
+              if (elCTM && nodeCTM) {
+                const q1 = svg.createSVGPoint();
+                q1.x = firstX; q1.y = firstY;
+                const t1 = q1.matrixTransform(elCTM);
+                firstX = t1.x; firstY = t1.y;
+                const q2 = svg.createSVGPoint();
+                q2.x = lastX; q2.y = lastY;
+                const t2 = q2.matrixTransform(elCTM);
+                lastX = t2.x; lastY = t2.y;
+              }
               const srcConn = isNear(firstX, firstY);
               const tgtConn = isNear(lastX, lastY);
               if (srcConn || tgtConn) {
                 connections.push({ el, type: "path", isSource: srcConn, isTarget: tgtConn, origD: d });
               }
             } else if (el.tagName === "line") {
-              const x1 = parseFloat(el.getAttribute("x1")) || 0;
-              const y1 = parseFloat(el.getAttribute("y1")) || 0;
-              const x2 = parseFloat(el.getAttribute("x2")) || 0;
-              const y2 = parseFloat(el.getAttribute("y2")) || 0;
+              let x1 = parseFloat(el.getAttribute("x1")) || 0;
+              let y1 = parseFloat(el.getAttribute("y1")) || 0;
+              let x2 = parseFloat(el.getAttribute("x2")) || 0;
+              let y2 = parseFloat(el.getAttribute("y2")) || 0;
+              // Keep original values for rubber-band, use transformed for comparison
+              const ox1 = x1, oy1 = y1, ox2 = x2, oy2 = y2;
+              if (elCTM && nodeCTM) {
+                const q1 = svg.createSVGPoint();
+                q1.x = x1; q1.y = y1;
+                const t1 = q1.matrixTransform(elCTM);
+                x1 = t1.x; y1 = t1.y;
+                const q2 = svg.createSVGPoint();
+                q2.x = x2; q2.y = y2;
+                const t2 = q2.matrixTransform(elCTM);
+                x2 = t2.x; y2 = t2.y;
+              }
               const srcConn = isNear(x1, y1);
               const tgtConn = isNear(x2, y2);
               if (srcConn || tgtConn) {
-                connections.push({ el, type: "line", isSource: srcConn, isTarget: tgtConn, origX1: x1, origY1: y1, origX2: x2, origY2: y2 });
+                connections.push({ el, type: "line", isSource: srcConn, isTarget: tgtConn, origX1: ox1, origY1: oy1, origX2: ox2, origY2: oy2 });
               }
             }
           });
@@ -1631,6 +1692,106 @@ function App() {
     DIAGRAM_LIBRARY.find((entry) => entry.id === "flowchart")?.quickTools ||
     [];
 
+  // Get connected nodes for any diagram type (for edit modal navigation)
+  const getNodeConnections = (nodeId) => {
+    const inputs = [];
+    const outputs = [];
+    if (toolsetKey === "flowchart") {
+      for (const edge of flowchartData.edges) {
+        if (edge.target === nodeId) {
+          const node = flowchartData.nodes.find(n => n.id === edge.source);
+          const rawLabel = node?.label || edge.source;
+          inputs.push({ id: edge.source, label: rawLabel.split(/<br\s*\/?>/i)[0].trim() });
+        }
+        if (edge.source === nodeId) {
+          const node = flowchartData.nodes.find(n => n.id === edge.target);
+          const rawLabel = node?.label || edge.target;
+          outputs.push({ id: edge.target, label: rawLabel.split(/<br\s*\/?>/i)[0].trim() });
+        }
+      }
+    } else if (toolsetKey === "erDiagram") {
+      const erData = parseErDiagram(code);
+      for (const rel of erData.relationships) {
+        if (rel.target === nodeId) inputs.push({ id: rel.source, label: rel.source });
+        if (rel.source === nodeId) outputs.push({ id: rel.target, label: rel.target });
+      }
+    } else if (toolsetKey === "stateDiagram") {
+      const adapter = getDiagramAdapter(toolsetKey);
+      if (adapter?.parse) {
+        const data = adapter.parse(code);
+        for (const t of (data.transitions || [])) {
+          if (t.target === nodeId) {
+            const state = (data.states || []).find(s => s.id === t.source);
+            inputs.push({ id: t.source, label: state?.label || t.source });
+          }
+          if (t.source === nodeId) {
+            const state = (data.states || []).find(s => s.id === t.target);
+            outputs.push({ id: t.target, label: state?.label || t.target });
+          }
+        }
+      }
+    } else if (toolsetKey === "classDiagram") {
+      const adapter = getDiagramAdapter(toolsetKey);
+      if (adapter?.parse) {
+        const data = adapter.parse(code);
+        for (const r of (data.relationships || [])) {
+          if (r.target === nodeId) inputs.push({ id: r.source, label: r.source });
+          if (r.source === nodeId) outputs.push({ id: r.target, label: r.target });
+        }
+      }
+    } else if (toolsetKey === "sequenceDiagram") {
+      const adapter = getDiagramAdapter(toolsetKey);
+      if (adapter?.parse) {
+        const data = adapter.parse(code);
+        for (const m of (data.messages || [])) {
+          if (m.target === nodeId) {
+            const part = (data.participants || []).find(p => p.id === m.source);
+            inputs.push({ id: m.source, label: part?.label || m.source });
+          }
+          if (m.source === nodeId) {
+            const part = (data.participants || []).find(p => p.id === m.target);
+            outputs.push({ id: m.target, label: part?.label || m.target });
+          }
+        }
+      }
+    }
+    // Deduplicate by id
+    const dedup = (arr) => [...new Map(arr.map(x => [x.id, x])).values()];
+    return { inputs: dedup(inputs), outputs: dedup(outputs) };
+  };
+
+  // Build node edit modal data for a given nodeId (used for navigation)
+  const buildNodeEditData = (nodeId) => {
+    const connections = getNodeConnections(nodeId);
+    if (toolsetKey === "flowchart") {
+      const node = flowchartData.nodes.find(n => n.id === nodeId);
+      const shape = node?.shape || "rect";
+      const fullLabel = node?.label || nodeId;
+      const parts = fullLabel.split(/<br\s*\/?>/i);
+      const label = parts[0].trim();
+      const description = parts.slice(1).map(p => p.trim()).join("\n");
+      return { type: "node", nodeId, label, description, shape, connections };
+    }
+    if (toolsetKey === "erDiagram") {
+      const erData = parseErDiagram(code);
+      const entity = erData.entities.find(e => e.id === nodeId);
+      if (entity) {
+        return { type: "node", nodeId, label: entity.id, shape: "rect", attributes: [...entity.attributes], connections };
+      }
+    }
+    // State/class/sequence: try to get label from adapter
+    const adapter = getDiagramAdapter(toolsetKey);
+    if (adapter?.parse) {
+      const data = adapter.parse(code);
+      const items = data.states || data.classes || data.participants || [];
+      const item = items.find(i => i.id === nodeId);
+      if (item) {
+        return { type: "node", nodeId, label: item.label || item.id || nodeId, shape: "rect", connections };
+      }
+    }
+    return { type: "node", nodeId, label: nodeId, shape: "rect", connections };
+  };
+
   /* ── Render ──────────────────────────────────────────── */
   const postRender = () => {
     const frame = iframeRef.current;
@@ -1753,41 +1914,8 @@ function App() {
           const elementType = selected?.elementType || "canvas";
 
           if (elementType === "node") {
-            // Open full modal for node editing
             const nodeId = selected?.nodeId || "";
-            let label = selected?.label || "";
-            let shape = "rect";
-            if (toolsetKey === "flowchart") {
-              const node = flowchartData.nodes.find(n => n.id === nodeId);
-              if (node) {
-                shape = node.shape || "rect";
-                // Always prefer parsed label from code over SVG text extraction
-                label = node.label || label || nodeId;
-              }
-            }
-            // ER diagram: include entity attributes in modal
-            if (toolsetKey === "erDiagram") {
-              const erData = parseErDiagram(code);
-              const entity = erData.entities.find(e => e.id === nodeId);
-              if (entity) {
-                setNodeEditModal({
-                  type: "node",
-                  nodeId,
-                  label: entity.id,
-                  shape: "rect",
-                  attributes: [...entity.attributes],
-                });
-                return;
-              }
-            }
-            // For ER/class/state: use nodeId as label if no meaningful label found
-            if (!label || label.length < 2) label = nodeId;
-            setNodeEditModal({
-              type: "node",
-              nodeId,
-              label,
-              shape,
-            });
+            setNodeEditModal(buildNodeEditData(nodeId));
           } else if (elementType === "edge") {
             // Open full modal for edge editing
             const src = selected?.edgeSource || "";
@@ -2647,6 +2775,8 @@ function App() {
         const adapter = getDiagramAdapter(toolsetKey);
         const isFlowchart = toolsetKey === "flowchart";
         const nodeLabel = adapter?.nodeLabel || "node";
+        const conn = nodeEditModal.connections || { inputs: [], outputs: [] };
+        const hasConnections = conn.inputs.length > 0 || conn.outputs.length > 0;
         return (
           <div className="modal-backdrop" onClick={() => setNodeEditModal(null)}>
             <div className="node-edit-modal" onClick={(e) => e.stopPropagation()}>
@@ -2655,6 +2785,36 @@ function App() {
                 <button className="drawer-close-btn" onClick={() => setNodeEditModal(null)}>&times;</button>
               </div>
               <div className="task-modal-body">
+                {/* Connected nodes navigation */}
+                {hasConnections && (
+                  <div className="node-nav-bar">
+                    <div className="node-nav-group">
+                      {conn.inputs.map((inp) => (
+                        <button
+                          key={inp.id}
+                          className="node-nav-btn nav-input"
+                          title={`Navigate to ${inp.label}`}
+                          onClick={() => setNodeEditModal(buildNodeEditData(inp.id))}
+                        >
+                          <span className="nav-arrow">&larr;</span> {inp.label}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="node-nav-current">{nodeEditModal.nodeId}</span>
+                    <div className="node-nav-group">
+                      {conn.outputs.map((out) => (
+                        <button
+                          key={out.id}
+                          className="node-nav-btn nav-output"
+                          title={`Navigate to ${out.label}`}
+                          onClick={() => setNodeEditModal(buildNodeEditData(out.id))}
+                        >
+                          {out.label} <span className="nav-arrow">&rarr;</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <label>
                   Label
                   <input
@@ -2663,6 +2823,19 @@ function App() {
                     autoFocus
                   />
                 </label>
+                {/* Flowchart description (body text after title) */}
+                {isFlowchart && nodeEditModal.description !== undefined && (
+                  <label>
+                    Description
+                    <textarea
+                      className="task-notes-input"
+                      value={nodeEditModal.description}
+                      onChange={(e) => setNodeEditModal((prev) => ({ ...prev, description: e.target.value }))}
+                      placeholder="Additional content (each line becomes a new line in the node)..."
+                      rows={3}
+                    />
+                  </label>
+                )}
                 {isFlowchart && (
                   <>
                     <label>Shape</label>
@@ -2759,8 +2932,12 @@ function App() {
                       attributes: nodeEditModal.attributes,
                     }));
                   } else if (isFlowchart) {
-                    const updates = {};
-                    if (nodeEditModal.label) updates.label = nodeEditModal.label;
+                    // Recombine label + description with <br> tags
+                    let combinedLabel = nodeEditModal.label || "";
+                    if (nodeEditModal.description) {
+                      combinedLabel += "<br>" + nodeEditModal.description.split("\n").join("<br>");
+                    }
+                    const updates = { label: combinedLabel };
                     if (nodeEditModal.shape) updates.shape = nodeEditModal.shape;
                     setCode((prev) => updateFlowchartNode(prev, nodeEditModal.nodeId, updates));
                   } else {
