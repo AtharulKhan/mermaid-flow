@@ -1,5 +1,6 @@
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DURATION = /^(\d+)([dwmy])$/i;
+const STATUS_TOKENS = new Set(["done", "active", "crit"]);
 
 function isDirectiveLine(trimmed) {
   return (
@@ -57,6 +58,21 @@ export function parseGanttTasks(code) {
       .filter(Boolean);
     if (!tokens.length) return;
 
+    // Identify leading status tokens (done, active, crit)
+    const statusTokens = [];
+    const statusIndices = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const lower = tokens[i].toLowerCase();
+      if (STATUS_TOKENS.has(lower)) {
+        statusTokens.push(lower);
+        statusIndices.push(i);
+      } else if (lower === "milestone") {
+        continue;
+      } else {
+        break;
+      }
+    }
+
     const dateIndex = tokens.findIndex((token) => ISO_DATE.test(token));
     const startDate = dateIndex >= 0 ? tokens[dateIndex] : "";
 
@@ -89,6 +105,8 @@ export function parseGanttTasks(code) {
       indent,
       label,
       tokens,
+      statusTokens,
+      statusIndices,
       dateIndex,
       durationIndex,
       startDate,
@@ -139,5 +157,35 @@ export function updateGanttTask(code, task, updates) {
   }
 
   lines[task.lineIndex] = `${task.indent}${nextLabel} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
+export function toggleGanttStatus(code, task, flag) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const nextTokens = [...task.tokens];
+  const hasFlag = task.statusTokens.includes(flag);
+
+  if (hasFlag) {
+    const idx = nextTokens.findIndex((t) => t.toLowerCase() === flag);
+    if (idx >= 0) nextTokens.splice(idx, 1);
+  } else {
+    nextTokens.unshift(flag);
+  }
+
+  lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
+export function clearGanttStatus(code, task) {
+  if (!task || !task.statusIndices.length) return code;
+  const lines = code.split("\n");
+  const nextTokens = [...task.tokens];
+
+  for (let i = task.statusIndices.length - 1; i >= 0; i--) {
+    nextTokens.splice(task.statusIndices[i], 1);
+  }
+
+  lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
   return lines.join("\n");
 }

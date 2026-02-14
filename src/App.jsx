@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
-import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask } from "./ganttUtils";
+import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus } from "./ganttUtils";
 
 const CHANNEL = "mermaid-flow";
 
@@ -258,9 +258,64 @@ function getIframeSrcDoc() {
         svg.addEventListener("pointerleave", clearDrag);
       };
 
+      const annotateGanttBars = (tasks) => {
+        const svg = canvas.querySelector("svg");
+        if (!svg) return;
+        // Remove previous annotations
+        svg.querySelectorAll(".mf-date-label").forEach(el => el.remove());
+
+        const rects = Array.from(svg.querySelectorAll("rect"));
+        const taskRects = rects.filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
+        const texts = Array.from(svg.querySelectorAll("text.taskText"));
+
+        tasks.forEach((t) => {
+          if (!t.startDate && !t.endDate) return;
+          // Match by label text
+          const textIdx = texts.findIndex(el => el.textContent?.trim() === t.label);
+          const rect = textIdx >= 0 && textIdx < taskRects.length ? taskRects[textIdx] : null;
+          if (!rect) return;
+
+          const rx = parseFloat(rect.getAttribute("x") || 0);
+          const ry = parseFloat(rect.getAttribute("y") || 0);
+          const rw = parseFloat(rect.getAttribute("width") || 0);
+          const rh = parseFloat(rect.getAttribute("height") || 0);
+
+          // Format dates as "Feb 10 - Feb 14"
+          const fmt = (iso) => {
+            if (!iso) return "";
+            const [y, m, d] = iso.split("-");
+            const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+            return months[parseInt(m, 10) - 1] + " " + parseInt(d, 10);
+          };
+          const startStr = fmt(t.startDate);
+          const endStr = t.endDate ? fmt(t.endDate) : (t.durationDays && t.startDate ? fmt(t.computedEnd) : "");
+          const dateStr = endStr ? startStr + " – " + endStr : startStr;
+          if (!dateStr) return;
+
+          const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          label.setAttribute("class", "mf-date-label");
+          label.setAttribute("x", String(rx + rw / 2));
+          label.setAttribute("y", String(ry + rh + 14));
+          label.setAttribute("text-anchor", "middle");
+          label.setAttribute("fill", "#6b7280");
+          label.setAttribute("font-size", "10");
+          label.setAttribute("font-family", "system-ui, sans-serif");
+          label.setAttribute("pointer-events", "none");
+          label.textContent = dateStr;
+          rect.parentElement.appendChild(label);
+        });
+      };
+
       window.addEventListener("message", async (event) => {
         const data = event.data;
-        if (!data || data.channel !== "${CHANNEL}" || data.type !== "render") return;
+        if (!data || data.channel !== "${CHANNEL}") return;
+
+        if (data.type === "gantt:annotate") {
+          annotateGanttBars(data.payload?.tasks || []);
+          return;
+        }
+
+        if (data.type !== "render") return;
 
         const { code, config } = data.payload || {};
         if (!code) return;
@@ -349,11 +404,12 @@ function App() {
   const [highlightLine, setHighlightLine] = useState(null);
   const [templateId, setTemplateId] = useState("flowchart");
   const [dragFeedback, setDragFeedback] = useState("");
-  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", duration: "" });
+  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", duration: "", status: [] });
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presentMode, setPresentMode] = useState(false);
@@ -407,7 +463,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", duration: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", duration: "", status: [] });
       return;
     }
     setGanttDraft({
@@ -415,6 +471,7 @@ function App() {
       startDate: selectedGanttTask.startDate || "",
       endDate: selectedGanttTask.endDate || "",
       duration: selectedGanttTask.durationToken || "",
+      status: selectedGanttTask.statusTokens || [],
     });
   }, [selectedGanttTask]);
 
@@ -430,6 +487,27 @@ function App() {
         setRenderMessage("Rendered successfully");
         setDiagramType(payload.diagramType || "unknown");
         setRenderSvg(payload.svg || "");
+
+        // Send date annotations for Gantt charts
+        if ((payload.diagramType || "").toLowerCase().includes("gantt")) {
+          const tasks = parseGanttTasks(code);
+          const annotationData = tasks.map((t) => {
+            let computedEnd = t.endDate || "";
+            if (!computedEnd && t.startDate && t.durationDays) {
+              const d = new Date(t.startDate + "T00:00:00Z");
+              d.setUTCDate(d.getUTCDate() + t.durationDays);
+              computedEnd = d.toISOString().slice(0, 10);
+            }
+            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd };
+          });
+          const frame = iframeRef.current;
+          if (frame?.contentWindow) {
+            frame.contentWindow.postMessage(
+              { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData } },
+              "*"
+            );
+          }
+        }
       }
 
       if (data.type === "render:error") {
@@ -449,8 +527,18 @@ function App() {
         setSelectedElement(selected);
         setLabelDraft(selected?.label || "");
         setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
-        setRenderMessage("Context target selected");
-        setDrawerOpen(true);
+
+        if (toolsetKey === "gantt" && selected) {
+          const iframe = iframeRef.current;
+          const iframeRect = iframe?.getBoundingClientRect();
+          const rawX = (iframeRect?.left || 0) + (selected.pointerX || 0);
+          const rawY = (iframeRect?.top || 0) + (selected.pointerY || 0);
+          const x = Math.min(rawX, window.innerWidth - 200);
+          const y = Math.min(rawY, window.innerHeight - 260);
+          setContextMenu({ x, y, label: selected.label });
+        } else {
+          setDrawerOpen(true);
+        }
       }
 
       if (data.type === "element:dragged") {
@@ -487,7 +575,7 @@ function App() {
 
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [code, ganttTasks]);
+  }, [code, ganttTasks, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -532,6 +620,7 @@ function App() {
   useEffect(() => {
     const handler = (e) => {
       if (e.key === "Escape") {
+        if (contextMenu) { setContextMenu(null); return; }
         if (presentMode) { setPresentMode(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (drawerOpen) { setDrawerOpen(false); return; }
@@ -540,7 +629,18 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [presentMode, settingsOpen, drawerOpen, exportMenuOpen]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen]);
+
+  /* ── Outside click for context menu ──────────────────── */
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = (e) => {
+      const menu = document.querySelector(".gantt-context-menu");
+      if (menu && !menu.contains(e.target)) setContextMenu(null);
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [contextMenu]);
 
   /* ── Actions ─────────────────────────────────────────── */
   const insertSnippet = (snippet) => {
@@ -575,16 +675,48 @@ function App() {
     const nextStartDate = ganttDraft.startDate.trim();
     const nextEndDate = ganttDraft.endDate.trim();
     const nextDuration = ganttDraft.duration.trim();
-    const updated = updateGanttTask(code, selectedGanttTask, {
+    let updated = updateGanttTask(code, selectedGanttTask, {
       label: nextLabel,
       startDate: nextStartDate || selectedGanttTask.startDate,
       endDate: nextEndDate || selectedGanttTask.endDate,
       duration: nextDuration || selectedGanttTask.durationToken,
     });
 
+    // Apply status changes: clear existing, then add desired flags
+    const freshTasks = parseGanttTasks(updated);
+    const freshTask = findTaskByLabel(freshTasks, nextLabel);
+    if (freshTask) {
+      updated = clearGanttStatus(updated, freshTask);
+      for (const flag of ganttDraft.status) {
+        const currentTasks = parseGanttTasks(updated);
+        const currentTask = findTaskByLabel(currentTasks, nextLabel);
+        if (currentTask) updated = toggleGanttStatus(updated, currentTask, flag);
+      }
+    }
+
     setCode(updated);
     setRenderMessage(`Updated "${nextLabel}"`);
     setHighlightLine(selectedGanttTask.lineIndex + 1);
+  };
+
+  const handleStatusToggle = (flag) => {
+    const label = contextMenu?.label || selectedElement?.label;
+    const task = findTaskByLabel(ganttTasks, label);
+    if (!task) return;
+    const updated = toggleGanttStatus(code, task, flag);
+    setCode(updated);
+    setRenderMessage(`Toggled "${flag}" on "${task.label}"`);
+    setHighlightLine(task.lineIndex + 1);
+  };
+
+  const handleStatusClear = () => {
+    const label = contextMenu?.label || selectedElement?.label;
+    const task = findTaskByLabel(ganttTasks, label);
+    if (!task) return;
+    const updated = clearGanttStatus(code, task);
+    setCode(updated);
+    setRenderMessage(`Cleared status on "${task.label}"`);
+    setHighlightLine(task.lineIndex + 1);
   };
 
   const replaceWithTemplate = () => {
@@ -873,6 +1005,25 @@ function App() {
                     />
                   </label>
                 )}
+                <label>Status</label>
+                <div className="status-toggle-group">
+                  {["done", "active", "crit"].map((flag) => (
+                    <button
+                      key={flag}
+                      className={`status-toggle-btn ${ganttDraft.status.includes(flag) ? "on" : ""} status-${flag}`}
+                      onClick={() => {
+                        setGanttDraft((prev) => ({
+                          ...prev,
+                          status: prev.status.includes(flag)
+                            ? prev.status.filter((s) => s !== flag)
+                            : [...prev.status, flag],
+                        }));
+                      }}
+                    >
+                      {flag === "crit" ? "Critical" : flag.charAt(0).toUpperCase() + flag.slice(1)}
+                    </button>
+                  ))}
+                </div>
                 <button className="soft-btn primary full" onClick={applyGanttTaskPatch}>
                   Apply update
                 </button>
@@ -953,6 +1104,37 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* ── Gantt Context Menu ─────────────────────────── */}
+      {contextMenu && (() => {
+        const task = findTaskByLabel(ganttTasks, contextMenu.label);
+        const currentStatus = task?.statusTokens || [];
+        return (
+          <div className="gantt-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+            <div className="context-menu-title">{contextMenu.label}</div>
+            <div className="context-menu-divider" />
+            {["done", "active", "crit"].map((flag) => (
+              <button
+                key={flag}
+                className={`context-menu-item ${currentStatus.includes(flag) ? "active" : ""}`}
+                onClick={() => { handleStatusToggle(flag); setContextMenu(null); }}
+              >
+                <span className={`status-dot status-${flag}`} />
+                {flag === "crit" ? "Critical" : flag.charAt(0).toUpperCase() + flag.slice(1)}
+                {currentStatus.includes(flag) && <span className="check-mark">&#10003;</span>}
+              </button>
+            ))}
+            <div className="context-menu-divider" />
+            <button className="context-menu-item" onClick={() => { handleStatusClear(); setContextMenu(null); }}>
+              Clear status
+            </button>
+            <div className="context-menu-divider" />
+            <button className="context-menu-item" onClick={() => { setContextMenu(null); setDrawerOpen(true); }}>
+              Edit task&hellip;
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ── Present Mode ────────────────────────────────── */}
       {presentMode && (
