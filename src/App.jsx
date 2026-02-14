@@ -412,6 +412,7 @@ function App() {
         setLabelDraft(selected?.label || "");
         setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
         setRenderMessage("Context target selected");
+        setDrawerOpen(true);
       }
 
       if (data.type === "element:dragged") {
