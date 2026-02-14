@@ -1,28 +1,28 @@
 /* ── Design Tokens ──────────────────────────────────────── */
 :root {
-  --bg: #0c0e14;
-  --bg-raised: #12141c;
-  --panel: #181a24;
-  --panel-soft: #1e2030;
-  --panel-hover: #252738;
-  --line: #2a2d3e;
-  --line-strong: #3d4155;
-  --ink: #e2e4ed;
-  --ink-soft: #8b8fa4;
-  --ink-muted: #5c6078;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --accent-soft: rgba(59, 130, 246, 0.15);
-  --accent-glow: rgba(59, 130, 246, 0.25);
-  --success: #22c55e;
-  --success-soft: rgba(34, 197, 94, 0.12);
-  --danger: #ef4444;
-  --danger-soft: rgba(239, 68, 68, 0.12);
-  --warning: #f59e0b;
+  --bg: #f0f2f5;
+  --bg-raised: #f7f8fa;
+  --panel: #ffffff;
+  --panel-soft: #f5f6f8;
+  --panel-hover: #eceef2;
+  --line: #e0e3e9;
+  --line-strong: #c8ccd4;
+  --ink: #1a1d26;
+  --ink-soft: #5a5f72;
+  --ink-muted: #8e93a4;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: rgba(37, 99, 235, 0.08);
+  --accent-glow: rgba(37, 99, 235, 0.18);
+  --success: #16a34a;
+  --success-soft: rgba(22, 163, 74, 0.08);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.06);
+  --warning: #d97706;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08), 0 12px 40px rgba(0, 0, 0, 0.06);
 
   --radius-xs: 6px;
   --radius-sm: 8px;
@@ -32,7 +32,7 @@
   --transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   --header-height: 52px;
   --drawer-width: 360px;
-  --overlay-bg: rgba(0, 0, 0, 0.6);
+  --overlay-bg: rgba(0, 0, 0, 0.3);
 }
 
 * {
@@ -50,7 +50,6 @@ body,
 body {
   background-color: var(--bg);
   color: var(--ink);
-  color-scheme: dark;
   font-family: "Manrope", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -118,7 +117,7 @@ body {
 .tool-btn {
   border-radius: var(--radius-xs);
   border: 1px solid var(--line);
-  background: var(--panel-soft);
+  background: var(--panel);
   color: var(--ink);
   font: inherit;
   padding: 6px 14px;
@@ -175,7 +174,7 @@ select,
 input {
   border-radius: var(--radius-xs);
   border: 1px solid var(--line);
-  background: var(--bg-raised);
+  background: var(--panel);
   padding: 7px 10px;
   color: var(--ink);
   font: inherit;
@@ -279,7 +278,7 @@ input:focus {
 .panel-header h2 {
   margin: 0;
   font-family: "Manrope", sans-serif;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -464,7 +463,6 @@ input:focus {
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--transition);
-  backdrop-filter: blur(4px);
 }
 
 .tools-drawer-backdrop.open {
@@ -551,7 +549,7 @@ input:focus {
 .property-card h3 {
   margin: 0 0 10px;
   font-family: "Manrope", sans-serif;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -601,7 +599,6 @@ input:focus {
   display: grid;
   place-items: center;
   animation: fadeIn 0.12s ease;
-  backdrop-filter: blur(4px);
 }
 
 @keyframes fadeIn {
@@ -653,10 +650,6 @@ input:focus {
   gap: 8px;
 }
 
-.auto-toggle input[type="checkbox"] {
-  accent-color: var(--accent);
-}
-
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -669,7 +662,7 @@ input:focus {
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: var(--bg);
+  background: #ffffff;
   animation: fadeIn 0.2s ease;
 }
 
@@ -781,7 +774,7 @@ input:focus {
   width: 100%;
   border-radius: var(--radius-xs);
   border: 1px solid var(--line);
-  background: var(--bg-raised);
+  background: var(--panel);
   padding: 8px 10px;
   color: var(--ink);
   font: inherit;
@@ -829,12 +822,12 @@ input:focus {
 .status-toggle-btn.on.status-active .status-check {
   background: #f59e0b;
   border-color: #f59e0b;
-  color: #1a1a1a;
+  color: #fff;
 }
 
 .status-toggle-btn.on.status-crit .status-check {
-  background: #ef4444;
-  border-color: #ef4444;
+  background: #dc2626;
+  border-color: #dc2626;
   color: #fff;
 }
 
@@ -849,7 +842,7 @@ input:focus {
 
 .status-dot.status-done { background: #22c55e; }
 .status-dot.status-active { background: #f59e0b; }
-.status-dot.status-crit { background: #ef4444; }
+.status-dot.status-crit { background: #dc2626; }
 
 /* ── Status Toggle Group (Drawer) ─────────────────────── */
 .status-toggle-group {
@@ -863,7 +856,7 @@ input:focus {
   padding: 7px 8px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--line);
-  background: var(--panel-soft);
+  background: var(--panel);
   font: inherit;
   font-size: 0.75rem;
   font-weight: 600;
@@ -879,21 +872,21 @@ input:focus {
 }
 
 .status-toggle-btn.on.status-done {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.4);
-  color: #4ade80;
+  background: #dcfce7;
+  border-color: #22c55e;
+  color: #166534;
 }
 
 .status-toggle-btn.on.status-active {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.4);
-  color: #fbbf24;
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
 }
 
 .status-toggle-btn.on.status-crit {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.4);
-  color: #f87171;
+  background: #fee2e2;
+  border-color: #dc2626;
+  color: #991b1b;
 }
 
 /* ── Context Menu ──────────────────────────────────────── */
