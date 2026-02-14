@@ -109,11 +109,48 @@ function getIframeSrcDoc() {
 
       const extractInfo = (target) => {
         const group = target.closest("g") || target;
-        const textNode = group.querySelector("text") || target.closest("text");
+        const svg = target.closest("svg");
+        let textNode = null;
+
+        // Gantt-specific: bars and labels are flat siblings in one <g>.
+        // Mermaid sets rect id="X" and text id="X-text".
+        if (currentDiagramType.toLowerCase().includes("gantt") && svg) {
+          const targetId = target.getAttribute("id") || "";
+          const cls = target.className?.baseVal || "";
+
+          if (target.nodeName === "rect" && /\\btask\\b/.test(cls) && targetId) {
+            // Primary: use Mermaid's id convention
+            textNode = svg.querySelector("#" + CSS.escape(targetId + "-text"));
+          }
+
+          if (!textNode && target.nodeName === "rect" && /\\btask\\b/.test(cls)) {
+            // Fallback: positional index matching among siblings
+            const parent = target.parentElement;
+            if (parent) {
+              const rects = Array.from(parent.querySelectorAll("rect"));
+              const texts = Array.from(parent.querySelectorAll("text.taskText"));
+              const idx = rects.filter(r => /\\btask\\b/.test(r.className?.baseVal || "")).indexOf(target);
+              if (idx >= 0 && idx < texts.length) {
+                textNode = texts[idx];
+              }
+            }
+          }
+
+          if (!textNode && target.nodeName === "text" && /\\btaskText\\b/.test(cls)) {
+            // User clicked the label text directly
+            textNode = target;
+          }
+        }
+
+        // Non-Gantt fallback
+        if (!textNode) {
+          textNode = group.querySelector("text") || target.closest("text");
+        }
+
         const label = textNode?.textContent?.trim() || target.getAttribute("id") || target.nodeName;
         const rect = target.getBBox ? target.getBBox() : null;
         return {
-          id: group.id || target.id || "",
+          id: target.id || group.id || "",
           className: group.className?.baseVal || target.className?.baseVal || "",
           label,
           nodeName: target.nodeName,
@@ -412,6 +449,7 @@ function App() {
         setLabelDraft(selected?.label || "");
         setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
         setRenderMessage("Context target selected");
+        setDrawerOpen(true);
       }
 
       if (data.type === "element:dragged") {
