@@ -47,12 +47,11 @@ function getIframeSrcDoc() {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
-      :root { color-scheme: dark only; }
       html, body {
         margin: 0;
         width: 100%;
         height: 100%;
-        background: #12141c;
+        background: #f5f7fa;
         font-family: "Manrope", system-ui, sans-serif;
       }
       #wrap {
@@ -65,7 +64,7 @@ function getIframeSrcDoc() {
       #canvas {
         min-height: 100%;
         border-radius: 8px;
-        background: #181a24;
+        background: #ffffff;
         padding: 16px;
         box-sizing: border-box;
       }
@@ -74,14 +73,14 @@ function getIframeSrcDoc() {
         height: auto;
       }
       .mf-selected * {
-        stroke: #3b82f6 !important;
+        stroke: #2563eb !important;
         stroke-width: 2.5px !important;
-        filter: drop-shadow(0 0 3px rgba(59, 130, 246, 0.4));
+        filter: drop-shadow(0 0 3px rgba(37, 99, 235, 0.35));
       }
       .mf-connect-source * {
-        stroke: #22c55e !important;
+        stroke: #16a34a !important;
         stroke-width: 3px !important;
-        filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.5));
+        filter: drop-shadow(0 0 6px rgba(22, 163, 74, 0.4));
       }
       text.taskTextOutsideRight, text.taskTextOutsideLeft { pointer-events: all; cursor: pointer; }
       .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #16a34a !important; }
@@ -92,24 +91,24 @@ function getIframeSrcDoc() {
       #error {
         margin-top: 12px;
         font-size: 13px;
-        color: #f87171;
+        color: #b91c1c;
         font-weight: 600;
       }
       #mf-tooltip {
         position: fixed;
-        background: rgba(24, 26, 36, 0.95);
-        color: #e2e4ed;
+        background: rgba(255, 255, 255, 0.97);
+        color: #1a1d26;
         font-size: 12px;
         line-height: 1.5;
         padding: 8px 12px;
         border-radius: 6px;
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid rgba(0,0,0,0.1);
         pointer-events: none;
         z-index: 1000;
         max-width: 280px;
         white-space: pre-line;
         display: none;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
       }
     </style>
   </head>
@@ -298,9 +297,23 @@ function getIframeSrcDoc() {
           const srcOff = srcId ? positionOverrides[srcId] : null;
           const tgtOff = tgtId ? positionOverrides[tgtId] : null;
           if (!srcOff && !tgtOff) return;
-          const dx = ((srcOff?.dx || 0) + (tgtOff?.dx || 0)) / 2;
-          const dy = ((srcOff?.dy || 0) + (tgtOff?.dy || 0)) / 2;
-          ep.setAttribute("transform", "translate(" + dx + ", " + dy + ")");
+          // Use rubber-band path modification instead of transform
+          const pathEl = ep.querySelector("path");
+          if (pathEl) {
+            const origD = pathEl.getAttribute("d") || "";
+            const origCmds = parsePathD(origD);
+            const newCmds = parsePathD(origD);
+            applyRubberBand(newCmds, origCmds,
+              srcOff?.dx || 0, srcOff?.dy || 0,
+              tgtOff?.dx || 0, tgtOff?.dy || 0
+            );
+            pathEl.setAttribute("d", serializePathD(newCmds));
+          } else {
+            // Fallback to transform if no path element found
+            const dx = ((srcOff?.dx || 0) + (tgtOff?.dx || 0)) / 2;
+            const dy = ((srcOff?.dy || 0) + (tgtOff?.dy || 0)) / 2;
+            ep.setAttribute("transform", "translate(" + dx + ", " + dy + ")");
+          }
         });
         // Also move edge labels
         const edgeLabels = svg.querySelectorAll(".edgeLabel");
@@ -331,6 +344,108 @@ function getIframeSrcDoc() {
         const direct = svg.querySelector("#" + CSS.escape(shortId));
         if (direct) return shortId;
         return null;
+      };
+
+      /* ── SVG path parsing for rubber-band edge following ── */
+      const parsePathD = (d) => {
+        if (!d) return [];
+        const tokens = [];
+        const re = /([MLCQSTAZHVmlcqstahvz])|(-?\\d*\\.?\\d+(?:e[+-]?\\d+)?)/gi;
+        let m;
+        while ((m = re.exec(d)) !== null) {
+          if (m[1]) tokens.push({ type: 'cmd', value: m[1] });
+          else tokens.push({ type: 'num', value: parseFloat(m[2]) });
+        }
+        const commands = [];
+        let i = 0;
+        while (i < tokens.length) {
+          if (tokens[i].type !== 'cmd') { i++; continue; }
+          const cmd = tokens[i].value;
+          i++;
+          const nums = [];
+          while (i < tokens.length && tokens[i].type === 'num') {
+            nums.push(tokens[i].value);
+            i++;
+          }
+          commands.push({ cmd, params: [...nums] });
+        }
+        return commands;
+      };
+
+      const serializePathD = (commands) => {
+        return commands.map(c => c.cmd + ' ' + c.params.join(',')).join(' ');
+      };
+
+      // Collect all x,y coordinate pairs from path commands with their indices
+      const getPathPoints = (commands) => {
+        const points = [];
+        commands.forEach((c, ci) => {
+          const p = c.params;
+          switch (c.cmd) {
+            case 'M': case 'L': case 'T':
+              for (let j = 0; j + 1 < p.length; j += 2) {
+                points.push({ ci, pi: j });
+              }
+              break;
+            case 'C':
+              for (let j = 0; j + 5 < p.length; j += 6) {
+                points.push({ ci, pi: j });     // cp1
+                points.push({ ci, pi: j + 2 }); // cp2
+                points.push({ ci, pi: j + 4 }); // end
+              }
+              break;
+            case 'Q': case 'S':
+              for (let j = 0; j + 3 < p.length; j += 4) {
+                points.push({ ci, pi: j });
+                points.push({ ci, pi: j + 2 });
+              }
+              break;
+          }
+        });
+        return points;
+      };
+
+      // Apply weighted interpolation: source-end points follow source, target-end follow target
+      const applyRubberBand = (commands, origCommands, srcDx, srcDy, tgtDx, tgtDy) => {
+        const points = getPathPoints(origCommands);
+        if (points.length < 2) return;
+        const total = points.length - 1;
+        points.forEach((pt, idx) => {
+          const t = idx / total; // 0 = source end, 1 = target end
+          const dx = srcDx * (1 - t) + tgtDx * t;
+          const dy = srcDy * (1 - t) + tgtDy * t;
+          commands[pt.ci].params[pt.pi] = origCommands[pt.ci].params[pt.pi] + dx;
+          commands[pt.ci].params[pt.pi + 1] = origCommands[pt.ci].params[pt.pi + 1] + dy;
+        });
+      };
+
+      // Store original path d attributes for all edges connected to a node
+      const storeOriginalEdgePaths = (svg, shortId) => {
+        svg.querySelectorAll(".edgePath").forEach(ep => {
+          const endpoints = getEdgeEndpoints(ep.id);
+          if (!endpoints) return;
+          if (endpoints.source === shortId || endpoints.target === shortId) {
+            const pathEl = ep.querySelector("path");
+            if (pathEl && !pathEl.dataset.mfOrigD) {
+              pathEl.dataset.mfOrigD = pathEl.getAttribute("d") || "";
+            }
+          }
+        });
+      };
+
+      // Clean up stored original path data
+      const clearOriginalEdgePaths = (svg) => {
+        svg.querySelectorAll(".edgePath path[data-mf-orig-d]").forEach(el => {
+          delete el.dataset.mfOrigD;
+        });
+      };
+
+      // Restore original paths (for cancelled drags)
+      const restoreOriginalEdgePaths = (svg) => {
+        svg.querySelectorAll(".edgePath path[data-mf-orig-d]").forEach(el => {
+          el.setAttribute("d", el.dataset.mfOrigD);
+          delete el.dataset.mfOrigD;
+        });
       };
 
       /* ── Connect mode state ────────────────────────────── */
@@ -463,9 +578,12 @@ function getIframeSrcDoc() {
               // Non-Gantt: restore to original transform (NOT removeAttribute,
               // which would snap the node to 0,0 since Mermaid positions via translate)
               if (dragState.committed) {
-                // Position was committed - keep new position
+                // Position was committed - keep new position, clear stored path data
+                clearOriginalEdgePaths(svg);
               } else {
                 dragState.node.setAttribute("transform", dragState.origTransform || "");
+                // Restore original edge paths since drag was cancelled
+                restoreOriginalEdgePaths(svg);
               }
             }
             dragState.node.style.cursor = "";
@@ -646,6 +764,14 @@ function getIframeSrcDoc() {
             origTy,
             committed: false,
           };
+
+          // Store original edge path data for rubber-band following
+          if (!isGantt) {
+            const shortId = getNodeShortId(dragNode.id || "");
+            if (shortId) {
+              storeOriginalEdgePaths(svg, shortId);
+            }
+          }
         });
 
         svg.addEventListener("pointermove", (event) => {
@@ -722,46 +848,45 @@ function getIframeSrcDoc() {
             const newTy = dragState.origTy + svgDy;
             dragState.node.setAttribute("transform", "translate(" + newTx + ", " + newTy + ")");
 
-            // Move connected edges to follow the node
+            // Move connected edges using rubber-band path modification
             const nodeId = dragState.node.id || "";
             const shortId = getNodeShortId(nodeId);
             if (shortId) {
-              const edgePaths = svg.querySelectorAll(".edgePath");
-              edgePaths.forEach(ep => {
+              svg.querySelectorAll(".edgePath").forEach(ep => {
                 const endpoints = getEdgeEndpoints(ep.id);
                 if (!endpoints) return;
-                if (endpoints.source === shortId || endpoints.target === shortId) {
-                  // Calculate weighted offset: if both endpoints moved, average; if only one, use half
-                  let eDx = svgDx, eDy = svgDy;
-                  if (endpoints.source === shortId && endpoints.target !== shortId) {
-                    // Only source moved - shift by half
-                    eDx = svgDx / 2; eDy = svgDy / 2;
-                  } else if (endpoints.target === shortId && endpoints.source !== shortId) {
-                    eDx = svgDx / 2; eDy = svgDy / 2;
-                  }
-                  ep.setAttribute("transform", "translate(" + eDx + ", " + eDy + ")");
-                }
+                const isSource = endpoints.source === shortId;
+                const isTarget = endpoints.target === shortId;
+                if (!isSource && !isTarget) return;
+                const pathEl = ep.querySelector("path");
+                if (!pathEl || !pathEl.dataset.mfOrigD) return;
+                const origCmds = parsePathD(pathEl.dataset.mfOrigD);
+                const newCmds = parsePathD(pathEl.dataset.mfOrigD);
+                applyRubberBand(newCmds, origCmds,
+                  isSource ? svgDx : 0, isSource ? svgDy : 0,
+                  isTarget ? svgDx : 0, isTarget ? svgDy : 0
+                );
+                pathEl.setAttribute("d", serializePathD(newCmds));
               });
-              // Move edge labels too (store original transform to avoid cumulative drift)
-              const edgeLabels = svg.querySelectorAll(".edgeLabel");
-              edgeLabels.forEach(el => {
+              // Move edge labels with interpolated offset
+              svg.querySelectorAll(".edgeLabel").forEach(el => {
                 const eid = (el.id || "").replace(/^label-/, "L-");
                 const endpoints = getEdgeEndpoints(eid);
                 if (!endpoints) return;
-                if (endpoints.source === shortId || endpoints.target === shortId) {
-                  if (!el.dataset.mfOrigTransform) {
-                    el.dataset.mfOrigTransform = el.getAttribute("transform") || "";
-                  }
-                  const origT = el.dataset.mfOrigTransform;
-                  const om = origT.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-                  const ox = om ? parseFloat(om[1]) : 0;
-                  const oy = om ? parseFloat(om[2]) : 0;
-                  let eDx = svgDx, eDy = svgDy;
-                  if (endpoints.source !== shortId || endpoints.target !== shortId) {
-                    eDx = svgDx * 0.5; eDy = svgDy * 0.5;
-                  }
-                  el.setAttribute("transform", "translate(" + (ox + eDx) + ", " + (oy + eDy) + ")");
+                const isSource = endpoints.source === shortId;
+                const isTarget = endpoints.target === shortId;
+                if (!isSource && !isTarget) return;
+                if (!el.dataset.mfOrigTransform) {
+                  el.dataset.mfOrigTransform = el.getAttribute("transform") || "";
                 }
+                const origT = el.dataset.mfOrigTransform;
+                const om = origT.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+                const ox = om ? parseFloat(om[1]) : 0;
+                const oy = om ? parseFloat(om[2]) : 0;
+                // Label sits at midpoint (t=0.5)
+                const dx = (isSource ? svgDx * 0.5 : 0) + (isTarget ? svgDx * 0.5 : 0);
+                const dy = (isSource ? svgDy * 0.5 : 0) + (isTarget ? svgDy * 0.5 : 0);
+                el.setAttribute("transform", "translate(" + (ox + dx) + ", " + (oy + dy) + ")");
               });
             }
           }
@@ -1036,7 +1161,7 @@ function App() {
 
   // Core state
   const [code, setCode] = useState(DEFAULT_CODE);
-  const [theme, setTheme] = useState("dark");
+  const [theme, setTheme] = useState("neo");
   const [securityLevel, setSecurityLevel] = useState("strict");
   const [renderer, setRenderer] = useState("dagre");
   const [autoRender, setAutoRender] = useState(true);
