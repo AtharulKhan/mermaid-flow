@@ -47,26 +47,26 @@ function getIframeSrcDoc() {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
-      :root { color-scheme: light only; }
+      :root { color-scheme: dark only; }
       html, body {
         margin: 0;
         width: 100%;
         height: 100%;
-        background: #f5f7fa;
+        background: #12141c;
         font-family: "Manrope", system-ui, sans-serif;
       }
       #wrap {
         width: 100%;
         height: 100%;
         overflow: auto;
-        padding: 16px;
+        padding: 12px;
         box-sizing: border-box;
       }
       #canvas {
         min-height: 100%;
-        border-radius: 12px;
-        background: #ffffff;
-        padding: 18px;
+        border-radius: 8px;
+        background: #181a24;
+        padding: 16px;
         box-sizing: border-box;
       }
       #canvas > svg {
@@ -74,40 +74,42 @@ function getIframeSrcDoc() {
         height: auto;
       }
       .mf-selected * {
-        stroke: #1f5da3 !important;
-        stroke-width: 2.2px !important;
+        stroke: #3b82f6 !important;
+        stroke-width: 2.5px !important;
+        filter: drop-shadow(0 0 3px rgba(59, 130, 246, 0.4));
       }
       .mf-connect-source * {
-        stroke: #16a34a !important;
+        stroke: #22c55e !important;
         stroke-width: 3px !important;
-        filter: drop-shadow(0 0 4px rgba(22, 163, 74, 0.5));
+        filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.5));
       }
       text.taskTextOutsideRight, text.taskTextOutsideLeft { pointer-events: all; cursor: pointer; }
-      .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #22c55e !important; }
-      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #fde68a !important; }
-      .crit0,.crit1,.crit2,.crit3,.crit4,.crit5,.crit6,.crit7,.crit8,.crit9 { fill: #991b1b !important; }
+      .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #16a34a !important; }
+      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #ca8a04 !important; }
+      .crit0,.crit1,.crit2,.crit3,.crit4,.crit5,.crit6,.crit7,.crit8,.crit9 { fill: #dc2626 !important; }
       .activeCrit0,.activeCrit1,.activeCrit2,.activeCrit3 { fill: #b91c1c !important; }
-      .doneCrit0,.doneCrit1,.doneCrit2,.doneCrit3 { fill: #166534 !important; }
+      .doneCrit0,.doneCrit1,.doneCrit2,.doneCrit3 { fill: #15803d !important; }
       #error {
         margin-top: 12px;
         font-size: 13px;
-        color: #7e1f34;
-        font-weight: 700;
+        color: #f87171;
+        font-weight: 600;
       }
       #mf-tooltip {
         position: fixed;
-        background: rgba(30, 30, 30, 0.92);
-        color: #fff;
+        background: rgba(24, 26, 36, 0.95);
+        color: #e2e4ed;
         font-size: 12px;
         line-height: 1.5;
         padding: 8px 12px;
         border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.08);
         pointer-events: none;
         z-index: 1000;
         max-width: 280px;
         white-space: pre-line;
         display: none;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
       }
     </style>
   </head>
@@ -211,16 +213,23 @@ function getIframeSrcDoc() {
         }
         if (node) return node;
         // Fallback: walk up g elements, prefer one with an id
+        // Skip edge-related groups to avoid dragging edges
         let g = target.closest("g");
         while (g) {
-          if (g.id || g.classList.contains("node") || g.classList.contains("cluster") || g.classList.contains("entity")) {
+          if (g.classList.contains("edgePath") || g.classList.contains("edgeLabel") || g.classList.contains("edgePaths") || g.classList.contains("edgeLabels")) {
+            return null;
+          }
+          if (g.classList.contains("node") || g.classList.contains("cluster") || g.classList.contains("entity")) {
+            return g;
+          }
+          if (g.id && !g.classList.contains("nodes") && !g.classList.contains("root") && !g.classList.contains("output")) {
             return g;
           }
           const parent = g.parentElement?.closest("g");
-          if (!parent || parent.classList.contains("nodes") || parent.classList.contains("root") || parent.classList.contains("edgePaths")) break;
+          if (!parent || parent === g || parent.classList.contains("nodes") || parent.classList.contains("root") || parent.classList.contains("edgePaths")) break;
           g = parent;
         }
-        return target.closest("g") || target;
+        return null;
       };
 
       const getElementType = (target) => {
@@ -574,8 +583,11 @@ function getIframeSrcDoc() {
               dragNode.style.cursor = dragMode.startsWith("resize") ? "ew-resize" : "grabbing";
             }
           } else {
-            // Non-Gantt: use diagram-aware node resolution
+            // Non-Gantt: only allow dragging actual nodes, not edges or background
+            const elemType = getElementType(target);
+            if (elemType !== "node") return;
             dragNode = findDragRoot(target);
+            if (!dragNode || dragNode === svg || dragNode.nodeName === "svg") return;
             dragNode.style.cursor = "grabbing";
             dragMode = "move";
           }
@@ -678,22 +690,25 @@ function getIframeSrcDoc() {
                   ep.setAttribute("transform", "translate(" + eDx + ", " + eDy + ")");
                 }
               });
-              // Move edge labels too
+              // Move edge labels too (store original transform to avoid cumulative drift)
               const edgeLabels = svg.querySelectorAll(".edgeLabel");
               edgeLabels.forEach(el => {
                 const eid = (el.id || "").replace(/^label-/, "L-");
                 const endpoints = getEdgeEndpoints(eid);
                 if (!endpoints) return;
                 if (endpoints.source === shortId || endpoints.target === shortId) {
-                  const curT = el.getAttribute("transform") || "";
-                  const cm = curT.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-                  const cx = cm ? parseFloat(cm[1]) : 0;
-                  const cy = cm ? parseFloat(cm[2]) : 0;
+                  if (!el.dataset.mfOrigTransform) {
+                    el.dataset.mfOrigTransform = el.getAttribute("transform") || "";
+                  }
+                  const origT = el.dataset.mfOrigTransform;
+                  const om = origT.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+                  const ox = om ? parseFloat(om[1]) : 0;
+                  const oy = om ? parseFloat(om[2]) : 0;
                   let eDx = svgDx, eDy = svgDy;
                   if (endpoints.source !== shortId || endpoints.target !== shortId) {
-                    eDx = svgDx / 2; eDy = svgDy / 2;
+                    eDx = svgDx * 0.5; eDy = svgDy * 0.5;
                   }
-                  el.setAttribute("transform", "translate(" + (cx + eDx) + ", " + (cy + eDy) + ")");
+                  el.setAttribute("transform", "translate(" + (ox + eDx) + ", " + (oy + eDy) + ")");
                 }
               });
             }
@@ -703,6 +718,24 @@ function getIframeSrcDoc() {
         svg.addEventListener("pointerup", () => {
           if (!dragState) return;
           const threshold = Math.abs(dragState.deltaX) + Math.abs(dragState.deltaY);
+
+          // Compute accumulated position BEFORE building payload
+          let accDx = 0, accDy = 0;
+          if (!dragState.ganttTask && threshold > 4) {
+            const nodeId = dragState.node?.id || "";
+            if (nodeId) {
+              const scale = dragState.svgScale || 1;
+              const svgDx = dragState.deltaX / scale;
+              const svgDy = dragState.deltaY / scale;
+              positionOverrides[nodeId] = positionOverrides[nodeId] || { dx: 0, dy: 0 };
+              positionOverrides[nodeId].dx += svgDx;
+              positionOverrides[nodeId].dy += svgDy;
+              accDx = positionOverrides[nodeId].dx;
+              accDy = positionOverrides[nodeId].dy;
+              dragState.committed = true;
+            }
+          }
+
           const payload = {
             ...extractInfo(dragState.target),
             deltaX: dragState.deltaX,
@@ -710,26 +743,21 @@ function getIframeSrcDoc() {
             isGanttTask: dragState.ganttTask,
             dragMode: dragState.dragMode || "shift",
             nodeId: dragState.node?.id || "",
+            accumulatedDx: accDx,
+            accumulatedDy: accDy,
           };
           if (threshold > 4) {
             send("element:dragged", payload);
             if (dragState.ganttTask) {
               send("gantt:dragged", payload);
-            } else {
-              // Persist position for non-Gantt nodes
-              const nodeId = dragState.node?.id || "";
-              if (nodeId) {
-                const scale = dragState.svgScale || 1;
-                const svgDx = dragState.deltaX / scale;
-                const svgDy = dragState.deltaY / scale;
-                positionOverrides[nodeId] = positionOverrides[nodeId] || { dx: 0, dy: 0 };
-                positionOverrides[nodeId].dx += svgDx;
-                positionOverrides[nodeId].dy += svgDy;
-                dragState.committed = true;
-              }
             }
           }
           clearDrag();
+
+          // Clear stored original transforms on edge labels
+          svg.querySelectorAll(".edgeLabel[data-mf-orig-transform]").forEach(el => {
+            delete el.dataset.mfOrigTransform;
+          });
         });
 
         svg.addEventListener("pointerleave", clearDrag);
@@ -839,7 +867,11 @@ function getIframeSrcDoc() {
         }
 
         if (data.type === "apply:positions") {
-          positionOverrides = data.payload?.overrides || {};
+          // Merge parent overrides with any existing iframe-side overrides
+          const incoming = data.payload?.overrides || {};
+          for (const [key, val] of Object.entries(incoming)) {
+            positionOverrides[key] = val;
+          }
           applyPositionOverrides();
           return;
         }
@@ -948,7 +980,7 @@ function App() {
 
   // Core state
   const [code, setCode] = useState(DEFAULT_CODE);
-  const [theme, setTheme] = useState("neo");
+  const [theme, setTheme] = useState("dark");
   const [securityLevel, setSecurityLevel] = useState("strict");
   const [renderer, setRenderer] = useState("dagre");
   const [autoRender, setAutoRender] = useState(true);
@@ -1143,18 +1175,14 @@ function App() {
       if (data.type === "element:dragged") {
         const payload = data.payload || {};
         if (!payload.isGanttTask && payload.nodeId) {
-          // Store position override for non-Gantt nodes
-          setPositionOverrides((prev) => {
-            const existing = prev[payload.nodeId] || { dx: 0, dy: 0 };
-            const scale = 1; // Scale already applied in iframe
-            return {
-              ...prev,
-              [payload.nodeId]: {
-                dx: existing.dx,
-                dy: existing.dy,
-              },
-            };
-          });
+          // Store accumulated position override from iframe (SVG-space values)
+          setPositionOverrides((prev) => ({
+            ...prev,
+            [payload.nodeId]: {
+              dx: payload.accumulatedDx || 0,
+              dy: payload.accumulatedDy || 0,
+            },
+          }));
         }
         setDragFeedback(
           `Dragged ${payload.label || payload.id || "element"} by ${Math.round(payload.deltaX || 0)}px x ${Math.round(
