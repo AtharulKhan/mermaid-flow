@@ -526,6 +526,130 @@ function getIframeSrcDoc() {
       /* ── Connect mode state ────────────────────────────── */
       let connectMode = null; // null or { sourceId }
 
+      /* ── Zoom & Pan state ──────────────────────────────── */
+      let zoomLevel = 1;
+      let panX = 0, panY = 0;
+      let isPanning = false, panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0;
+
+      const applyCanvasTransform = () => {
+        canvas.style.transformOrigin = "0 0";
+        canvas.style.transform = "translate(" + panX + "px, " + panY + "px) scale(" + zoomLevel + ")";
+        send("zoom:changed", { zoom: zoomLevel });
+      };
+
+      /* ── Reconnect state ────────────────────────────────── */
+      let reconnectState = null;
+
+      const findEdgeEndpointNear = (cx, cy) => {
+        const svg = canvas.querySelector("svg");
+        if (!svg) return null;
+        const pt = svg.createSVGPoint();
+        pt.x = cx; pt.y = cy;
+        let svgPt;
+        try {
+          svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+        } catch (_) { return null; }
+        const threshold = 14;
+        const skipSel = "g.node, g.entity, g.classGroup, g.cluster, g.mindmap-node, g.stateGroup, defs, marker";
+        const paths = svg.querySelectorAll("path");
+        for (const path of paths) {
+          if (path.closest(skipSel)) continue;
+          const d = path.getAttribute("d");
+          if (!d) continue;
+          const cmds = parsePathD(d);
+          const points = getPathPoints(cmds);
+          if (points.length < 2) continue;
+          const fp = points[0];
+          const fx = cmds[fp.ci].params[fp.pi], fy = cmds[fp.ci].params[fp.pi + 1];
+          const lp = points[points.length - 1];
+          const lx = cmds[lp.ci].params[lp.pi], ly = cmds[lp.ci].params[lp.pi + 1];
+          // Also determine which nodes this edge connects (for code mutation)
+          let srcNodeId = "", tgtNodeId = "";
+          const allNodes = svg.querySelectorAll("g.node, g.entity, g.classGroup");
+          const margin = 30;
+          for (const n of allNodes) {
+            try {
+              const bb = n.getBBox();
+              const tr = n.getAttribute("transform") || "";
+              const tm = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+              const ntx = tm ? parseFloat(tm[1]) : 0;
+              const nty = tm ? parseFloat(tm[2]) : 0;
+              const box = { left: bb.x + ntx - margin, right: bb.x + bb.width + ntx + margin, top: bb.y + nty - margin, bottom: bb.y + bb.height + nty + margin };
+              if (fx >= box.left && fx <= box.right && fy >= box.top && fy <= box.bottom) srcNodeId = getNodeShortId(n.id || "");
+              if (lx >= box.left && lx <= box.right && ly >= box.top && ly <= box.bottom) tgtNodeId = getNodeShortId(n.id || "");
+            } catch (_) {}
+          }
+          if (Math.hypot(svgPt.x - fx, svgPt.y - fy) < threshold) {
+            return { pathEl: path, end: "source", origD: d, srcNodeId, tgtNodeId };
+          }
+          if (Math.hypot(svgPt.x - lx, svgPt.y - ly) < threshold) {
+            return { pathEl: path, end: "target", origD: d, srcNodeId, tgtNodeId };
+          }
+        }
+        return null;
+      };
+
+      /* ── Port indicators ────────────────────────────────── */
+      let portTimeout = null;
+      const showPorts = (nodeEl) => {
+        clearPorts();
+        const svg = canvas.querySelector("svg");
+        if (!svg) return;
+        try {
+          const bbox = nodeEl.getBBox();
+          const tr = nodeEl.getAttribute("transform") || "";
+          const tm = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+          const tx = tm ? parseFloat(tm[1]) : 0;
+          const ty = tm ? parseFloat(tm[2]) : 0;
+          const cx = bbox.x + tx + bbox.width / 2;
+          const cy = bbox.y + ty + bbox.height / 2;
+          const positions = [
+            { name: "top",    px: cx, py: bbox.y + ty - 4 },
+            { name: "bottom", px: cx, py: bbox.y + ty + bbox.height + 4 },
+            { name: "left",   px: bbox.x + tx - 4, py: cy },
+            { name: "right",  px: bbox.x + tx + bbox.width + 4, py: cy },
+          ];
+          const nid = getNodeShortId(nodeEl.id || "");
+          positions.forEach(pos => {
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            g.classList.add("mf-port");
+            g.setAttribute("data-port", pos.name);
+            g.setAttribute("data-node-id", nid);
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            circle.setAttribute("cx", pos.px);
+            circle.setAttribute("cy", pos.py);
+            circle.setAttribute("r", "9");
+            circle.setAttribute("fill", "#2563eb");
+            circle.setAttribute("stroke", "#ffffff");
+            circle.setAttribute("stroke-width", "2");
+            circle.setAttribute("cursor", "pointer");
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            text.setAttribute("x", pos.px);
+            text.setAttribute("y", pos.py);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("dominant-baseline", "central");
+            text.setAttribute("fill", "#ffffff");
+            text.setAttribute("font-size", "13");
+            text.setAttribute("font-weight", "bold");
+            text.setAttribute("pointer-events", "none");
+            text.textContent = "+";
+            g.appendChild(circle);
+            g.appendChild(text);
+            svg.appendChild(g);
+            g.addEventListener("pointerdown", (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              send("port:clicked", { nodeId: nid, port: pos.name });
+              clearPorts();
+            });
+          });
+        } catch (_) {}
+      };
+      const clearPorts = () => {
+        if (portTimeout) { clearTimeout(portTimeout); portTimeout = null; }
+        document.querySelectorAll(".mf-port").forEach(p => p.remove());
+      };
+
       const extractInfo = (target) => {
         const group = target.closest("g") || target;
         const svg = target.closest("svg");
@@ -752,6 +876,19 @@ function getIframeSrcDoc() {
           const target = event.target;
           if (!target || target.nodeName === "svg") return;
 
+          clearPorts(); // Hide port indicators during interaction
+
+          // Edge reconnection: detect click near edge endpoint
+          if (!connectMode) {
+            const nearEdge = findEdgeEndpointNear(event.clientX, event.clientY);
+            if (nearEdge) {
+              reconnectState = nearEdge;
+              document.body.style.cursor = "crosshair";
+              event.preventDefault();
+              return;
+            }
+          }
+
           // In connect mode, clicking a node completes the connection
           if (connectMode) {
             const nodeGroup = findDragRoot(target);
@@ -856,6 +993,26 @@ function getIframeSrcDoc() {
         });
 
         svg.addEventListener("pointermove", (event) => {
+          // Edge reconnect: drag endpoint to follow cursor
+          if (reconnectState) {
+            const svg = canvas.querySelector("svg");
+            if (svg) {
+              try {
+                const pt = svg.createSVGPoint();
+                pt.x = event.clientX; pt.y = event.clientY;
+                const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+                const cmds = parsePathD(reconnectState.origD);
+                const points = getPathPoints(cmds);
+                if (points.length >= 2) {
+                  const idx = reconnectState.end === "source" ? points[0] : points[points.length - 1];
+                  cmds[idx.ci].params[idx.pi] = svgPt.x;
+                  cmds[idx.ci].params[idx.pi + 1] = svgPt.y;
+                  reconnectState.pathEl.setAttribute("d", serializePathD(cmds));
+                }
+              } catch (_) {}
+            }
+            return;
+          }
           if (!dragState) return;
           dragState.deltaX = event.clientX - dragState.startX;
           dragState.deltaY = event.clientY - dragState.startY;
@@ -916,7 +1073,29 @@ function getIframeSrcDoc() {
           }
         });
 
-        svg.addEventListener("pointerup", () => {
+        svg.addEventListener("pointerup", (event) => {
+          // Edge reconnect: complete or cancel
+          if (reconnectState) {
+            const dropTarget = document.elementFromPoint(event.clientX, event.clientY);
+            const nodeGroup = dropTarget ? findDragRoot(dropTarget) : null;
+            if (nodeGroup) {
+              const newNodeId = getNodeShortId(nodeGroup.id || "");
+              if (newNodeId) {
+                send("edge:reconnect", {
+                  end: reconnectState.end,
+                  srcNodeId: reconnectState.srcNodeId,
+                  tgtNodeId: reconnectState.tgtNodeId,
+                  newNodeId,
+                });
+              }
+            } else {
+              // Restore original path
+              reconnectState.pathEl.setAttribute("d", reconnectState.origD);
+            }
+            reconnectState = null;
+            document.body.style.cursor = "";
+            return;
+          }
           if (!dragState) return;
           const threshold = Math.abs(dragState.deltaX) + Math.abs(dragState.deltaY);
 
@@ -957,7 +1136,75 @@ function getIframeSrcDoc() {
         });
 
         svg.addEventListener("pointerleave", clearDrag);
+
+        // Port indicators: show on mouseenter, hide on mouseleave with delay
+        const nodeGroups = svg.querySelectorAll("g.node, g.entity, g.classGroup");
+        nodeGroups.forEach(nodeEl => {
+          nodeEl.addEventListener("mouseenter", () => {
+            if (dragState || isPanning || reconnectState) return;
+            if (currentDiagramType.toLowerCase().includes("gantt")) return;
+            showPorts(nodeEl);
+          });
+          nodeEl.addEventListener("mouseleave", () => {
+            portTimeout = setTimeout(() => {
+              if (!document.querySelector(".mf-port:hover")) clearPorts();
+            }, 300);
+          });
+        });
       };
+
+      /* ── Zoom/Pan handlers on #wrap ────────────────────── */
+      const wrap = document.getElementById("wrap");
+      wrap.addEventListener("wheel", (e) => {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();
+        const oldZoom = zoomLevel;
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        zoomLevel = Math.min(3, Math.max(0.1, zoomLevel + delta));
+        // Zoom toward cursor position
+        const rect = wrap.getBoundingClientRect();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        const ratio = zoomLevel / oldZoom;
+        panX = cx - (cx - panX) * ratio;
+        panY = cy - (cy - panY) * ratio;
+        applyCanvasTransform();
+      }, { passive: false });
+
+      wrap.addEventListener("pointerdown", (e) => {
+        if (e.button === 1) {
+          // Middle mouse: pan
+          e.preventDefault();
+          isPanning = true;
+          panStartX = e.clientX;
+          panStartY = e.clientY;
+          panOrigX = panX;
+          panOrigY = panY;
+          wrap.style.cursor = "grabbing";
+          wrap.setPointerCapture(e.pointerId);
+        }
+      });
+      wrap.addEventListener("pointermove", (e) => {
+        if (!isPanning) return;
+        panX = panOrigX + (e.clientX - panStartX);
+        panY = panOrigY + (e.clientY - panStartY);
+        applyCanvasTransform();
+      });
+      wrap.addEventListener("pointerup", (e) => {
+        if (isPanning) {
+          isPanning = false;
+          wrap.style.cursor = "";
+          wrap.releasePointerCapture(e.pointerId);
+        }
+      });
+
+      wrap.addEventListener("dblclick", (e) => {
+        // Only reset if double-clicking on background, not on SVG elements
+        if (e.target === wrap || e.target === canvas) {
+          zoomLevel = 1; panX = 0; panY = 0;
+          applyCanvasTransform();
+        }
+      });
 
       const annotateGanttBars = (tasks, showDates) => {
         const svg = canvas.querySelector("svg");
@@ -1100,6 +1347,26 @@ function getIframeSrcDoc() {
           return;
         }
 
+        if (data.type === "zoom:set") {
+          const oldZoom = zoomLevel;
+          const delta = data.payload?.delta || 0;
+          zoomLevel = Math.min(3, Math.max(0.1, zoomLevel + delta));
+          const rect = wrap.getBoundingClientRect();
+          const cx = rect.width / 2;
+          const cy = rect.height / 2;
+          const ratio = zoomLevel / oldZoom;
+          panX = cx - (cx - panX) * ratio;
+          panY = cy - (cy - panY) * ratio;
+          applyCanvasTransform();
+          return;
+        }
+
+        if (data.type === "zoom:reset") {
+          zoomLevel = 1; panX = 0; panY = 0;
+          applyCanvasTransform();
+          return;
+        }
+
         if (data.type !== "render") return;
 
         const { code, config } = data.payload || {};
@@ -1206,6 +1473,8 @@ function App() {
   const [connectMode, setConnectMode] = useState(null);
   const [shapePickerNode, setShapePickerNode] = useState(null);
   const [edgeLabelEdit, setEdgeLabelEdit] = useState(null);
+  const [nodeEditModal, setNodeEditModal] = useState(null); // { type: "node"|"edge", nodeId?, label, shape?, edgeSource?, edgeTarget?, arrowType? }
+  const [zoomLevel, setZoomLevel] = useState(1);
   const contextMenuRef = useRef(null);
 
   // Derived
@@ -1346,18 +1615,45 @@ function App() {
         if (toolsetKey === "gantt" && selected) {
           setContextMenu({ type: "gantt", label: selected.label });
         } else {
-          // Position context menu at click location (convert iframe coords to parent coords)
-          const iframeRect = iframeRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
-          const menuX = iframeRect.left + (selected?.pointerX || 0);
-          const menuY = iframeRect.top + (selected?.pointerY || 0);
           const elementType = selected?.elementType || "canvas";
 
-          if (elementType === "node" || elementType === "edge" || elementType === "canvas") {
+          if (elementType === "node") {
+            // Open full modal for node editing
+            const nodeId = selected?.nodeId || "";
+            let shape = "rect";
+            if (toolsetKey === "flowchart") {
+              const node = flowchartData.nodes.find(n => n.id === nodeId);
+              if (node) shape = node.shape || "rect";
+            }
+            setNodeEditModal({
+              type: "node",
+              nodeId,
+              label: selected?.label || "",
+              shape,
+            });
+          } else if (elementType === "edge") {
+            // Open full modal for edge editing
+            const src = selected?.edgeSource || "";
+            const tgt = selected?.edgeTarget || "";
+            let arrowType = "-->";
+            if (toolsetKey === "flowchart") {
+              const edge = flowchartData.edges.find(e => e.source === src && e.target === tgt);
+              if (edge) arrowType = edge.arrowType || "-->";
+            }
+            setNodeEditModal({
+              type: "edge",
+              edgeSource: src,
+              edgeTarget: tgt,
+              label: selected?.label || "",
+              arrowType,
+            });
+          } else if (elementType === "canvas") {
+            // Canvas right-click: keep as small context menu
+            const iframeRect = iframeRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
+            const menuX = iframeRect.left + (selected?.pointerX || 0);
+            const menuY = iframeRect.top + (selected?.pointerY || 0);
             setContextMenu({
-              type: elementType,
-              nodeId: selected?.nodeId || "",
-              edgeSource: selected?.edgeSource || "",
-              edgeTarget: selected?.edgeTarget || "",
+              type: "canvas",
               label: selected?.label || "",
               x: menuX,
               y: menuY,
@@ -1385,6 +1681,58 @@ function App() {
             payload.deltaY || 0
           )}px`
         );
+      }
+
+      if (data.type === "zoom:changed") {
+        setZoomLevel(data.payload?.zoom || 1);
+      }
+
+      if (data.type === "port:clicked") {
+        const payload = data.payload || {};
+        const { nodeId, port } = payload;
+        if (!nodeId) return;
+        if (toolsetKey === "flowchart") {
+          const parsed = parseFlowchart(code);
+          const newId = generateNodeId(parsed.nodes);
+          let newCode = addFlowchartNode(code, { id: newId, label: "New Node", shape: "rect" });
+          if (port === "left" || port === "top") {
+            newCode = addFlowchartEdge(newCode, { source: newId, target: nodeId });
+          } else {
+            newCode = addFlowchartEdge(newCode, { source: nodeId, target: newId });
+          }
+          setCode(newCode);
+          setPositionOverrides({});
+          setRenderMessage("Added node " + newId + " connected to " + nodeId);
+        } else {
+          const adapter = getDiagramAdapter(toolsetKey);
+          if (adapter?.addNode && adapter?.addEdge) {
+            const newId = "New" + Date.now().toString(36).slice(-4);
+            let newCode = adapter.addNode(code, { id: newId, name: newId, label: "New " + (adapter.nodeLabel || "node"), type: "participant" });
+            newCode = adapter.addEdge(newCode, { source: nodeId, target: newId, label: "" });
+            setCode(newCode);
+            setPositionOverrides({});
+            setRenderMessage("Added " + (adapter.nodeLabel || "node"));
+          }
+        }
+      }
+
+      if (data.type === "edge:reconnect") {
+        const payload = data.payload || {};
+        const { end, srcNodeId, tgtNodeId, newNodeId } = payload;
+        if (!srcNodeId || !tgtNodeId || !newNodeId) return;
+        if (newNodeId === srcNodeId || newNodeId === tgtNodeId) return;
+        if (toolsetKey === "flowchart") {
+          let updated = removeFlowchartEdge(code, srcNodeId, tgtNodeId);
+          if (end === "source") {
+            updated = addFlowchartEdge(updated, { source: newNodeId, target: tgtNodeId });
+            setRenderMessage("Reconnected edge: " + newNodeId + " --> " + tgtNodeId);
+          } else {
+            updated = addFlowchartEdge(updated, { source: srcNodeId, target: newNodeId });
+            setRenderMessage("Reconnected edge: " + srcNodeId + " --> " + newNodeId);
+          }
+          setCode(updated);
+          setPositionOverrides({});
+        }
       }
 
       if (data.type === "connect:complete") {
@@ -1516,6 +1864,7 @@ function App() {
           }
           return;
         }
+        if (nodeEditModal) { setNodeEditModal(null); return; }
         if (contextMenu) { setContextMenu(null); return; }
         if (shapePickerNode) { setShapePickerNode(null); return; }
         if (edgeLabelEdit) { setEdgeLabelEdit(null); return; }
@@ -1527,7 +1876,7 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, connectMode, shapePickerNode, edgeLabelEdit]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal]);
 
   /* ── Actions ─────────────────────────────────────────── */
   const insertSnippet = (snippet) => {
@@ -1829,6 +2178,27 @@ function App() {
             srcDoc={srcDoc}
             className="preview-frame"
           />
+          <div className="zoom-controls">
+            <button title="Zoom out" onClick={() => {
+              const frame = iframeRef.current;
+              if (frame?.contentWindow) {
+                frame.contentWindow.postMessage({ channel: CHANNEL, type: "zoom:set", payload: { delta: -0.1 } }, "*");
+              }
+            }}>-</button>
+            <span className="zoom-pct">{Math.round(zoomLevel * 100)}%</span>
+            <button title="Zoom in" onClick={() => {
+              const frame = iframeRef.current;
+              if (frame?.contentWindow) {
+                frame.contentWindow.postMessage({ channel: CHANNEL, type: "zoom:set", payload: { delta: 0.1 } }, "*");
+              }
+            }}>+</button>
+            <button title="Reset zoom" onClick={() => {
+              const frame = iframeRef.current;
+              if (frame?.contentWindow) {
+                frame.contentWindow.postMessage({ channel: CHANNEL, type: "zoom:reset" }, "*");
+              }
+            }} style={{ fontSize: 12 }}>Fit</button>
+          </div>
         </article>
       </section>
 
@@ -2115,100 +2485,169 @@ function App() {
         );
       })()}
 
-      {/* ── Node Context Menu (right-click on node) ──── */}
-      {contextMenu?.type === "node" && (() => {
+      {/* ── Node Edit Modal (right-click on node) ──────── */}
+      {nodeEditModal?.type === "node" && (() => {
         const adapter = getDiagramAdapter(toolsetKey);
         const isFlowchart = toolsetKey === "flowchart";
         const nodeLabel = adapter?.nodeLabel || "node";
         return (
-          <div className="context-menu-backdrop" onClick={() => setContextMenu(null)}>
-            <div
-              ref={contextMenuRef}
-              className="context-menu"
-              style={{ top: contextMenu.y, left: contextMenu.x }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button className="context-menu-item" onClick={() => {
-                setLabelDraft(contextMenu.label || "");
-                setDrawerOpen(true);
-                setContextMenu(null);
-              }}>
-                Edit label
-              </button>
-              {isFlowchart && (
-                <button className="context-menu-item" onClick={() => {
-                  setShapePickerNode(contextMenu.nodeId);
-                  setContextMenu(null);
+          <div className="modal-backdrop" onClick={() => setNodeEditModal(null)}>
+            <div className="node-edit-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="task-modal-header">
+                <h2>Edit {nodeLabel}</h2>
+                <button className="drawer-close-btn" onClick={() => setNodeEditModal(null)}>&times;</button>
+              </div>
+              <div className="task-modal-body">
+                <label>
+                  Label
+                  <input
+                    value={nodeEditModal.label}
+                    onChange={(e) => setNodeEditModal((prev) => ({ ...prev, label: e.target.value }))}
+                    autoFocus
+                  />
+                </label>
+                {isFlowchart && (
+                  <>
+                    <label>Shape</label>
+                    <div className="shape-grid">
+                      {[
+                        { shape: "rect", label: "Rectangle", icon: "[ ]" },
+                        { shape: "rounded", label: "Rounded", icon: "( )" },
+                        { shape: "stadium", label: "Stadium", icon: "([ ])" },
+                        { shape: "diamond", label: "Diamond", icon: "{ }" },
+                        { shape: "circle", label: "Circle", icon: "(( ))" },
+                        { shape: "hexagon", label: "Hexagon", icon: "{{ }}" },
+                        { shape: "subroutine", label: "Subroutine", icon: "[[ ]]" },
+                        { shape: "cylinder", label: "Cylinder", icon: "[( )]" },
+                        { shape: "parallelogram", label: "Parallelogram", icon: "[/ /]" },
+                      ].map(({ shape, label: shapeLabel, icon }) => (
+                        <button
+                          key={shape}
+                          className={`shape-btn ${nodeEditModal.shape === shape ? "active" : ""}`}
+                          onClick={() => setNodeEditModal((prev) => ({ ...prev, shape }))}
+                        >
+                          <span className="shape-icon">{icon}</span>
+                          <span>{shapeLabel}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="task-modal-actions">
+                <button className="soft-btn" onClick={() => setNodeEditModal(null)}>Cancel</button>
+                <button className="soft-btn" onClick={() => {
+                  setConnectMode({ sourceId: nodeEditModal.nodeId });
+                  const frame = iframeRef.current;
+                  if (frame?.contentWindow) {
+                    frame.contentWindow.postMessage(
+                      { channel: CHANNEL, type: "mode:connect", payload: { sourceId: nodeEditModal.nodeId } },
+                      "*"
+                    );
+                  }
+                  setNodeEditModal(null);
+                  setRenderMessage(`Connect mode: click target node for edge from "${nodeEditModal.nodeId}"`);
                 }}>
-                  Change shape
+                  Connect to...
                 </button>
-              )}
-              <div className="context-menu-sep" />
-              <button className="context-menu-item" onClick={() => {
-                setConnectMode({ sourceId: contextMenu.nodeId });
-                const frame = iframeRef.current;
-                if (frame?.contentWindow) {
-                  frame.contentWindow.postMessage(
-                    { channel: CHANNEL, type: "mode:connect", payload: { sourceId: contextMenu.nodeId } },
-                    "*"
-                  );
-                }
-                setContextMenu(null);
-                setRenderMessage(`Connect mode: click target node for edge from "${contextMenu.nodeId}"`);
-              }}>
-                Connect to...
-              </button>
-              <div className="context-menu-sep" />
-              <button className="context-menu-item context-menu-danger" onClick={() => {
-                if (isFlowchart) {
-                  setCode((prev) => removeFlowchartNode(prev, contextMenu.nodeId));
-                } else if (adapter?.removeNode) {
-                  setCode((prev) => adapter.removeNode(prev, contextMenu.nodeId));
-                }
-                setPositionOverrides({});
-                setRenderMessage(`Deleted ${nodeLabel} "${contextMenu.nodeId}"`);
-                setContextMenu(null);
-              }}>
-                Delete {nodeLabel}
-              </button>
+                <button className="soft-btn danger" onClick={() => {
+                  if (isFlowchart) {
+                    setCode((prev) => removeFlowchartNode(prev, nodeEditModal.nodeId));
+                  } else if (adapter?.removeNode) {
+                    setCode((prev) => adapter.removeNode(prev, nodeEditModal.nodeId));
+                  }
+                  setPositionOverrides({});
+                  setRenderMessage(`Deleted ${nodeLabel} "${nodeEditModal.nodeId}"`);
+                  setNodeEditModal(null);
+                }}>
+                  Delete
+                </button>
+                <button className="soft-btn primary" onClick={() => {
+                  if (isFlowchart) {
+                    const updates = {};
+                    if (nodeEditModal.label) updates.label = nodeEditModal.label;
+                    if (nodeEditModal.shape) updates.shape = nodeEditModal.shape;
+                    setCode((prev) => updateFlowchartNode(prev, nodeEditModal.nodeId, updates));
+                  } else {
+                    setCode((prev) => replaceFirstLabel(prev, selectedElement?.label || "", nodeEditModal.label));
+                  }
+                  setPositionOverrides({});
+                  setRenderMessage(`Updated ${nodeLabel} "${nodeEditModal.nodeId}"`);
+                  setNodeEditModal(null);
+                }}>
+                  Apply
+                </button>
+              </div>
             </div>
           </div>
         );
       })()}
 
-      {/* ── Edge Context Menu (right-click on edge) ──── */}
-      {contextMenu?.type === "edge" && (
-        <div className="context-menu-backdrop" onClick={() => setContextMenu(null)}>
-          <div
-            className="context-menu"
-            style={{ top: contextMenu.y, left: contextMenu.x }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button className="context-menu-item" onClick={() => {
-              setEdgeLabelEdit({ source: contextMenu.edgeSource, target: contextMenu.edgeTarget, label: contextMenu.label || "" });
-              setContextMenu(null);
-            }}>
-              Edit label
-            </button>
-            <button className="context-menu-item" onClick={() => {
-              const nextArrow = contextMenu.label ? "--->" : "-.->"; // cycle
-              setCode((prev) => updateFlowchartEdge(prev, contextMenu.edgeSource, contextMenu.edgeTarget, { arrowType: nextArrow }));
-              setContextMenu(null);
-            }}>
-              Change arrow style
-            </button>
-            <div className="context-menu-sep" />
-            <button className="context-menu-item context-menu-danger" onClick={() => {
-              setCode((prev) => removeFlowchartEdge(prev, contextMenu.edgeSource, contextMenu.edgeTarget));
-              setPositionOverrides({});
-              setRenderMessage(`Deleted edge ${contextMenu.edgeSource} --> ${contextMenu.edgeTarget}`);
-              setContextMenu(null);
-            }}>
-              Delete edge
-            </button>
+      {/* ── Edge Edit Modal (right-click on edge) ────── */}
+      {nodeEditModal?.type === "edge" && (() => {
+        const arrowTypes = ["-->", "--->", "-.->", "==>", "---", "-.-", "==="];
+        return (
+          <div className="modal-backdrop" onClick={() => setNodeEditModal(null)}>
+            <div className="node-edit-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="task-modal-header">
+                <h2>Edit Edge</h2>
+                <button className="drawer-close-btn" onClick={() => setNodeEditModal(null)}>&times;</button>
+              </div>
+              <div className="task-modal-body">
+                <label>
+                  Label
+                  <input
+                    value={nodeEditModal.label}
+                    onChange={(e) => setNodeEditModal((prev) => ({ ...prev, label: e.target.value }))}
+                    placeholder="e.g. Yes, No..."
+                    autoFocus
+                  />
+                </label>
+                {toolsetKey === "flowchart" && (
+                  <>
+                    <label>Arrow Style</label>
+                    <div className="arrow-type-grid">
+                      {arrowTypes.map((arrow) => (
+                        <button
+                          key={arrow}
+                          className={`arrow-type-btn ${nodeEditModal.arrowType === arrow ? "active" : ""}`}
+                          onClick={() => setNodeEditModal((prev) => ({ ...prev, arrowType: arrow }))}
+                        >
+                          {arrow}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <p style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                  {nodeEditModal.edgeSource} {nodeEditModal.arrowType || "-->"} {nodeEditModal.edgeTarget}
+                </p>
+              </div>
+              <div className="task-modal-actions">
+                <button className="soft-btn" onClick={() => setNodeEditModal(null)}>Cancel</button>
+                <button className="soft-btn danger" onClick={() => {
+                  setCode((prev) => removeFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget));
+                  setPositionOverrides({});
+                  setRenderMessage(`Deleted edge ${nodeEditModal.edgeSource} --> ${nodeEditModal.edgeTarget}`);
+                  setNodeEditModal(null);
+                }}>
+                  Delete
+                </button>
+                <button className="soft-btn primary" onClick={() => {
+                  const updates = {};
+                  if (nodeEditModal.label !== undefined) updates.label = nodeEditModal.label;
+                  if (nodeEditModal.arrowType) updates.arrowType = nodeEditModal.arrowType;
+                  setCode((prev) => updateFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget, updates));
+                  setRenderMessage("Updated edge");
+                  setNodeEditModal(null);
+                }}>
+                  Apply
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Canvas Context Menu (right-click on empty area) */}
       {contextMenu?.type === "canvas" && (() => {

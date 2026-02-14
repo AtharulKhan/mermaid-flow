@@ -145,6 +145,15 @@ body {
   border-color: var(--accent-hover);
 }
 
+.soft-btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.soft-btn.danger:hover {
+  background: var(--danger-soft);
+}
+
 .icon-btn {
   width: 34px;
   height: 34px;
@@ -263,6 +272,7 @@ input:focus {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .panel-header {
@@ -982,6 +992,13 @@ input:focus {
   color: var(--ink);
 }
 
+.shape-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .shape-icon {
   font-size: 16px;
   font-weight: 600;
@@ -1028,6 +1045,111 @@ input:focus {
 @keyframes banner-in {
   from { opacity: 0; transform: translateX(-50%) translateY(8px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Zoom Indicator ───────────────────────────────────── */
+.zoom-controls {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  box-shadow: var(--shadow-sm);
+  z-index: 10;
+}
+
+.zoom-controls button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition);
+}
+
+.zoom-controls button:hover {
+  background: var(--panel-hover);
+  color: var(--ink);
+}
+
+.zoom-pct {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--ink-soft);
+  min-width: 40px;
+  text-align: center;
+  user-select: none;
+}
+
+/* ── Node/Edge Edit Modal ────────────────────────────── */
+.node-edit-modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 0;
+  width: 90%;
+  max-width: 440px;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: slideUp 0.15s ease;
+}
+
+.node-edit-modal .task-modal-body label {
+  display: block;
+}
+
+.node-edit-modal .task-modal-body label select,
+.node-edit-modal .task-modal-body label input {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.arrow-type-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.arrow-type-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--panel-soft);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.arrow-type-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.arrow-type-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ── Scrollbar ────────────────────────────────────────── */
