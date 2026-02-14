@@ -734,6 +734,25 @@ input:focus {
   color: var(--ink-soft);
 }
 
+.task-notes-input {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 8px 10px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.5;
+}
+
+.task-notes-input:focus {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: -1px;
+}
+
 .task-modal-actions {
   display: flex;
   justify-content: flex-end;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
-import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus, updateGanttAssignee } from "./ganttUtils";
+import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus, updateGanttAssignee, updateGanttNotes } from "./ganttUtils";
 
 const CHANNEL = "mermaid-flow";
 
@@ -123,26 +123,11 @@ function getIframeSrcDoc() {
       canvas.addEventListener("mouseover", (e) => {
         let tip = "";
         const tag = e.target.nodeName;
-        if (tag === "rect") {
+        if (tag === "rect" || tag === "text") {
           tip = e.target.getAttribute("data-mf-tip") || "";
-        } else if (tag === "text" || tag === "tspan") {
-          const textEl = tag === "tspan" ? (e.target.closest("text") || e.target.parentElement) : e.target;
-          if (textEl) {
-            const tId = textEl.getAttribute("id") || "";
-            if (tId && tId.endsWith("-text")) {
-              const rEl = canvas.querySelector("svg #" + CSS.escape(tId.slice(0, -5)));
-              if (rEl) tip = rEl.getAttribute("data-mf-tip") || "";
-            }
-            if (!tip) {
-              const svg = canvas.querySelector("svg");
-              if (svg) {
-                const txts = Array.from(svg.querySelectorAll("text.taskText"));
-                const bars = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
-                const idx = txts.indexOf(textEl);
-                if (idx >= 0 && idx < bars.length) tip = bars[idx].getAttribute("data-mf-tip") || "";
-              }
-            }
-          }
+        } else if (tag === "tspan") {
+          const textEl = e.target.closest("text") || e.target.parentElement;
+          if (textEl) tip = textEl.getAttribute("data-mf-tip") || "";
         }
         if (!tip) return;
         tooltipEl.textContent = tip;
@@ -259,12 +244,32 @@ function getIframeSrcDoc() {
         return target.nodeName === "rect" || target.nodeName === "text" || target.nodeName === "g";
       };
 
+      const findGanttTaskRect = (target) => {
+        if (target.nodeName === "rect") return target;
+        const textEl = target.nodeName === "tspan" ? (target.closest("text") || target.parentElement) : target;
+        if (!textEl || textEl.nodeName !== "text") return null;
+        const tId = textEl.getAttribute("id") || "";
+        if (tId && tId.endsWith("-text")) {
+          const r = canvas.querySelector("svg #" + CSS.escape(tId.slice(0, -5)));
+          if (r) return r;
+        }
+        const svgEl = canvas.querySelector("svg");
+        if (!svgEl) return null;
+        const allTexts = Array.from(svgEl.querySelectorAll("text.taskText"));
+        const allRects = Array.from(svgEl.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
+        const idx = allTexts.indexOf(textEl);
+        return (idx >= 0 && idx < allRects.length) ? allRects[idx] : null;
+      };
+
       const wireSelection = (svg) => {
         const clearDrag = () => {
           if (!dragState) return;
           if (dragState.node) {
             dragState.node.removeAttribute("transform");
             dragState.node.style.cursor = "";
+          }
+          if (dragState.textNode) {
+            dragState.textNode.removeAttribute("transform");
           }
           dragState = null;
           suppressClick = false;
@@ -302,19 +307,60 @@ function getIframeSrcDoc() {
           if (event.button !== 0) return;
           const target = event.target;
           if (!target || target.nodeName === "svg") return;
-          const dragNode = target.closest("g") || target;
-          if (!dragNode) return;
+
+          const isGantt = isGanttTaskTarget(target);
+          let dragNode = target.closest("g") || target;
+          let textNode = null;
+          let dragMode = "move";
+
+          if (isGantt) {
+            const taskRect = findGanttTaskRect(target);
+            if (taskRect) {
+              dragNode = taskRect;
+              // Find corresponding text element to move with rect
+              const rId = taskRect.getAttribute("id") || "";
+              if (rId) {
+                textNode = svg.querySelector("#" + CSS.escape(rId + "-text"));
+              }
+              // Detect edge clicks for resize vs shift
+              try {
+                const pt = svg.createSVGPoint();
+                pt.x = event.clientX;
+                pt.y = event.clientY;
+                const ctm = svg.getScreenCTM();
+                if (ctm) {
+                  const svgPt = pt.matrixTransform(ctm.inverse());
+                  const bbox = taskRect.getBBox();
+                  const relX = svgPt.x - bbox.x;
+                  const edgeZone = Math.max(bbox.width * 0.15, 8);
+                  if (relX > bbox.width - edgeZone) {
+                    dragMode = "resize-end";
+                  } else if (relX < edgeZone) {
+                    dragMode = "resize-start";
+                  } else {
+                    dragMode = "shift";
+                  }
+                }
+              } catch (_) {
+                dragMode = "shift";
+              }
+              dragNode.style.cursor = dragMode.startsWith("resize") ? "ew-resize" : "grabbing";
+            }
+          } else {
+            dragNode.style.cursor = "grabbing";
+          }
 
           dragState = {
             target,
             node: dragNode,
+            textNode,
             startX: event.clientX,
             startY: event.clientY,
             deltaX: 0,
             deltaY: 0,
-            ganttTask: isGanttTaskTarget(target),
+            ganttTask: isGantt,
+            dragMode,
           };
-          dragNode.style.cursor = "grabbing";
         });
 
         svg.addEventListener("pointermove", (event) => {
@@ -324,10 +370,19 @@ function getIframeSrcDoc() {
           if (Math.abs(dragState.deltaX) > 3 || Math.abs(dragState.deltaY) > 3) {
             suppressClick = true;
           }
-          dragState.node.setAttribute(
-            "transform",
-            "translate(" + dragState.deltaX + " " + dragState.deltaY + ")"
-          );
+          if (dragState.ganttTask) {
+            // Gantt: horizontal only, move just the rect (and its text)
+            const dx = dragState.deltaX;
+            dragState.node.setAttribute("transform", "translate(" + dx + " 0)");
+            if (dragState.textNode) {
+              dragState.textNode.setAttribute("transform", "translate(" + dx + " 0)");
+            }
+          } else {
+            dragState.node.setAttribute(
+              "transform",
+              "translate(" + dragState.deltaX + " " + dragState.deltaY + ")"
+            );
+          }
         });
 
         svg.addEventListener("pointerup", () => {
@@ -338,6 +393,7 @@ function getIframeSrcDoc() {
             deltaX: dragState.deltaX,
             deltaY: dragState.deltaY,
             isGanttTask: dragState.ganttTask,
+            dragMode: dragState.dragMode || "shift",
           };
           if (threshold > 4) {
             send("element:dragged", payload);
@@ -403,7 +459,10 @@ function getIframeSrcDoc() {
             if (endDate) tip += "\\nEnd: " + fmtFull(endDate);
             if (isOverdue) tip += "\\nOVERDUE";
             if (t.assignee) tip += "\\nAssignee: " + t.assignee;
+            if (t.notes) tip += "\\nNotes: " + t.notes;
             rectEl.setAttribute("data-mf-tip", tip);
+            // Also set on text element so tooltip works when hovering labels
+            if (textEl) textEl.setAttribute("data-mf-tip", tip);
 
             // White text on dark status bars (done=green, crit=maroon)
             if (textEl && (t.statusTokens || []).some(s => s === "done" || s === "crit")) {
@@ -540,7 +599,7 @@ function App() {
   const [highlightLine, setHighlightLine] = useState(null);
   const [templateId, setTemplateId] = useState("flowchart");
   const [dragFeedback, setDragFeedback] = useState("");
-  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", status: [], assignee: "" });
+  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "" });
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(false);
@@ -600,7 +659,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "" });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -615,6 +674,7 @@ function App() {
       endDate: computedEnd,
       status: selectedGanttTask.statusTokens || [],
       assignee: selectedGanttTask.assignee || "",
+      notes: selectedGanttTask.notes || "",
     });
   }, [selectedGanttTask]);
 
@@ -641,7 +701,7 @@ function App() {
               d.setUTCDate(d.getUTCDate() + t.durationDays);
               computedEnd = d.toISOString().slice(0, 10);
             }
-            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [] };
+            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [], notes: t.notes || "" };
           });
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
@@ -703,13 +763,25 @@ function App() {
         const dayShift = Math.round((payload.deltaX || 0) / pixelsPerDay);
         if (!dayShift) return;
 
-        const nextStart = shiftIsoDate(task.startDate, dayShift);
-        const updates = { startDate: nextStart };
-        if (task.endDate) {
-          updates.endDate = shiftIsoDate(task.endDate, dayShift);
+        const dragMode = payload.dragMode || "shift";
+        if (dragMode === "resize-end") {
+          const currentEnd = task.endDate || shiftIsoDate(task.startDate, task.durationDays);
+          const nextEnd = shiftIsoDate(currentEnd, dayShift);
+          setCode((prev) => updateGanttTask(prev, task, { endDate: nextEnd }));
+          setRenderMessage(`Updated "${task.label}" end date to ${nextEnd}`);
+        } else if (dragMode === "resize-start") {
+          const nextStart = shiftIsoDate(task.startDate, dayShift);
+          setCode((prev) => updateGanttTask(prev, task, { startDate: nextStart }));
+          setRenderMessage(`Updated "${task.label}" start date to ${nextStart}`);
+        } else {
+          const nextStart = shiftIsoDate(task.startDate, dayShift);
+          const updates = { startDate: nextStart };
+          if (task.endDate) {
+            updates.endDate = shiftIsoDate(task.endDate, dayShift);
+          }
+          setCode((prev) => updateGanttTask(prev, task, updates));
+          setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
         }
-        setCode((prev) => updateGanttTask(prev, task, updates));
-        setRenderMessage(`Updated "${task.label}" start date to ${nextStart}`);
         setHighlightLine(task.lineIndex + 1);
       }
     };
@@ -844,10 +916,17 @@ function App() {
     }
 
     // Apply assignee
-    const finalTasks = parseGanttTasks(updated);
-    const finalTask = findTaskByLabel(finalTasks, nextLabel);
-    if (finalTask) {
-      updated = updateGanttAssignee(updated, finalTask, ganttDraft.assignee.trim());
+    const assigneeTasks = parseGanttTasks(updated);
+    const assigneeTask = findTaskByLabel(assigneeTasks, nextLabel);
+    if (assigneeTask) {
+      updated = updateGanttAssignee(updated, assigneeTask, ganttDraft.assignee.trim());
+    }
+
+    // Apply notes
+    const notesTasks = parseGanttTasks(updated);
+    const notesTask = findTaskByLabel(notesTasks, nextLabel);
+    if (notesTask) {
+      updated = updateGanttNotes(updated, notesTask, ganttDraft.notes.trim());
     }
 
     setCode(updated);
@@ -1343,6 +1422,17 @@ function App() {
                     />
                   </label>
                 </div>
+
+                <label>
+                  Notes
+                  <textarea
+                    className="task-notes-input"
+                    value={ganttDraft.notes}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, notes: e.target.value }))}
+                    placeholder="Add notes about this task..."
+                    rows={3}
+                  />
+                </label>
               </div>
 
               <div className="task-modal-actions">
