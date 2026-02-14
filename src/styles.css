@@ -757,20 +757,20 @@ input:focus {
 }
 
 .status-toggle-btn.on.status-done .status-check {
-  background: #0b7f5a;
-  border-color: #0b7f5a;
+  background: #22c55e;
+  border-color: #22c55e;
   color: #fff;
 }
 
 .status-toggle-btn.on.status-active .status-check {
-  background: #2f6f92;
-  border-color: #2f6f92;
-  color: #fff;
+  background: #fde68a;
+  border-color: #fde68a;
+  color: #78350f;
 }
 
 .status-toggle-btn.on.status-crit .status-check {
-  background: #c0392b;
-  border-color: #c0392b;
+  background: #991b1b;
+  border-color: #991b1b;
   color: #fff;
 }
 
@@ -783,9 +783,9 @@ input:focus {
   flex-shrink: 0;
 }
 
-.status-dot.status-done { background: #0b7f5a; }
-.status-dot.status-active { background: #2f6f92; }
-.status-dot.status-crit { background: #c0392b; }
+.status-dot.status-done { background: #22c55e; }
+.status-dot.status-active { background: #fde68a; }
+.status-dot.status-crit { background: #991b1b; }
 
 /* ── Status Toggle Group (Drawer) ─────────────────────── */
 .status-toggle-group {
@@ -813,21 +813,21 @@ input:focus {
 }
 
 .status-toggle-btn.on.status-done {
-  background: #d4edda;
-  border-color: #0b7f5a;
-  color: #0b7f5a;
+  background: #dcfce7;
+  border-color: #22c55e;
+  color: #166534;
 }
 
 .status-toggle-btn.on.status-active {
-  background: #d6eaf8;
-  border-color: #2f6f92;
-  color: #2f6f92;
+  background: #fef9c3;
+  border-color: #fde68a;
+  color: #78350f;
 }
 
 .status-toggle-btn.on.status-crit {
-  background: #f8d7da;
-  border-color: #c0392b;
-  color: #c0392b;
+  background: #fecaca;
+  border-color: #991b1b;
+  color: #991b1b;
 }
 
 /* ── Responsive ────────────────────────────────────────── */

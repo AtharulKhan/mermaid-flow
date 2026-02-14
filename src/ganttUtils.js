@@ -148,8 +148,14 @@ export function updateGanttTask(code, task, updates) {
     nextTokens[task.dateIndex] = updates.startDate;
   }
 
-  if (updates.endDate && task.endDateIndex >= 0) {
-    nextTokens[task.endDateIndex] = updates.endDate;
+  if (updates.endDate) {
+    if (task.endDateIndex >= 0) {
+      nextTokens[task.endDateIndex] = updates.endDate;
+    } else if (task.durationIndex >= 0) {
+      nextTokens[task.durationIndex] = updates.endDate;
+    } else if (task.dateIndex >= 0) {
+      nextTokens.splice(task.dateIndex + 1, 0, updates.endDate);
+    }
   }
 
   if (updates.duration) {
