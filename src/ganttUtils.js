@@ -58,11 +58,30 @@ export function parseGanttTasks(code) {
     if (!tokens.length) return;
 
     const dateIndex = tokens.findIndex((token) => ISO_DATE.test(token));
-    const durationIndex =
-      dateIndex >= 0 && DURATION.test(tokens[dateIndex + 1] || "") ? dateIndex + 1 : -1;
     const startDate = dateIndex >= 0 ? tokens[dateIndex] : "";
+
+    // Check for end date (second ISO date after start date)
+    const endDateIndex =
+      dateIndex >= 0
+        ? tokens.findIndex((t, i) => i > dateIndex && ISO_DATE.test(t))
+        : -1;
+    const endDate = endDateIndex >= 0 ? tokens[endDateIndex] : "";
+
+    // Duration token: only valid if it's right after start date AND there's no end date at that position
+    const nextAfterDate = dateIndex >= 0 ? tokens[dateIndex + 1] || "" : "";
+    const durationIndex =
+      dateIndex >= 0 && endDateIndex !== dateIndex + 1 && DURATION.test(nextAfterDate)
+        ? dateIndex + 1
+        : -1;
     const durationToken = durationIndex >= 0 ? tokens[durationIndex] : "";
-    const durationDays = durationToken ? durationToDays(durationToken) : null;
+    let durationDays = durationToken ? durationToDays(durationToken) : null;
+
+    // Compute durationDays from date difference when using end date syntax
+    if (!durationDays && startDate && endDate) {
+      const s = new Date(startDate + "T00:00:00Z");
+      const e = new Date(endDate + "T00:00:00Z");
+      durationDays = Math.round((e - s) / (1000 * 60 * 60 * 24));
+    }
 
     tasks.push({
       lineIndex,
@@ -75,6 +94,8 @@ export function parseGanttTasks(code) {
       startDate,
       durationToken,
       durationDays,
+      endDateIndex,
+      endDate,
       hasExplicitDate: dateIndex >= 0,
     });
   });
@@ -101,6 +122,10 @@ export function updateGanttTask(code, task, updates) {
 
   if (updates.startDate && task.dateIndex >= 0) {
     nextTokens[task.dateIndex] = updates.startDate;
+  }
+
+  if (updates.endDate && task.endDateIndex >= 0) {
+    nextTokens[task.endDateIndex] = updates.endDate;
   }
 
   if (updates.duration) {

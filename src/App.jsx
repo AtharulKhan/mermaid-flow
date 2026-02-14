@@ -349,7 +349,7 @@ function App() {
   const [highlightLine, setHighlightLine] = useState(null);
   const [templateId, setTemplateId] = useState("flowchart");
   const [dragFeedback, setDragFeedback] = useState("");
-  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", duration: "" });
+  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", duration: "" });
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(false);
@@ -407,12 +407,13 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", duration: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", duration: "" });
       return;
     }
     setGanttDraft({
       label: selectedGanttTask.label || "",
       startDate: selectedGanttTask.startDate || "",
+      endDate: selectedGanttTask.endDate || "",
       duration: selectedGanttTask.durationToken || "",
     });
   }, [selectedGanttTask]);
@@ -572,15 +573,17 @@ function App() {
     if (!nextLabel) return;
 
     const nextStartDate = ganttDraft.startDate.trim();
+    const nextEndDate = ganttDraft.endDate.trim();
     const nextDuration = ganttDraft.duration.trim();
     const updated = updateGanttTask(code, selectedGanttTask, {
       label: nextLabel,
       startDate: nextStartDate || selectedGanttTask.startDate,
+      endDate: nextEndDate || selectedGanttTask.endDate,
       duration: nextDuration || selectedGanttTask.durationToken,
     });
 
     setCode(updated);
-    setRenderMessage("Gantt task updated");
+    setRenderMessage(`Updated "${nextLabel}"`);
     setHighlightLine(selectedGanttTask.lineIndex + 1);
   };
 
@@ -795,7 +798,7 @@ function App() {
       />
       <aside className={`tools-drawer ${drawerOpen ? "open" : ""}`}>
         <div className="drawer-header">
-          <h2>Quick Tools</h2>
+          <h2>{toolsetKey === "gantt" ? "Gantt Editor" : "Quick Tools"}</h2>
           <button className="drawer-close-btn" onClick={() => setDrawerOpen(false)}>
             &times;
           </button>
@@ -810,30 +813,31 @@ function App() {
           ))}
         </div>
 
-        {/* Selection Inspector */}
-        <div className="property-card">
-          <h3>Selection</h3>
-          {selectedElement ? (
-            <>
-              <p><strong>Label:</strong> {selectedElement.label}</p>
-              <p><strong>ID:</strong> {selectedElement.id || "n/a"}</p>
-              <label>
-                New label
-                <input value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} />
-              </label>
-              <button className="soft-btn full" onClick={applyLabelPatch}>
-                Apply patch
-              </button>
-            </>
-          ) : (
-            <p className="muted">Pick an element in preview to edit properties.</p>
-          )}
-        </div>
-
-        {/* Gantt Task Editor */}
-        {toolsetKey === "gantt" && (
+        {/* Gantt Task Editor (replaces Selection card for Gantt) */}
+        {toolsetKey === "gantt" ? (
           <div className="property-card">
-            <h3>Gantt Task Editor</h3>
+            <h3>Task Editor</h3>
+            {/* Task selector dropdown */}
+            <label>
+              Select task
+              <select
+                value={selectedGanttTask?.label || ""}
+                onChange={(e) => {
+                  const task = ganttTasks.find((t) => t.label === e.target.value);
+                  if (task) {
+                    setSelectedElement({ label: task.label, id: "" });
+                  }
+                }}
+              >
+                <option value="">-- pick a task --</option>
+                {ganttTasks.map((t) => (
+                  <option key={t.lineIndex} value={t.label}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             {selectedGanttTask ? (
               <>
                 <label>
@@ -851,40 +855,53 @@ function App() {
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, startDate: e.target.value }))}
                   />
                 </label>
-                <label>
-                  Duration (e.g. 3d, 2w)
-                  <input
-                    value={ganttDraft.duration}
-                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, duration: e.target.value }))}
-                  />
-                </label>
-                <button className="soft-btn full" onClick={applyGanttTaskPatch}>
-                  Apply task update
+                {selectedGanttTask.endDateIndex >= 0 ? (
+                  <label>
+                    End date
+                    <input
+                      type="date"
+                      value={ganttDraft.endDate}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    Duration (e.g. 3d, 2w)
+                    <input
+                      value={ganttDraft.duration}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, duration: e.target.value }))}
+                    />
+                  </label>
+                )}
+                <button className="soft-btn primary full" onClick={applyGanttTaskPatch}>
+                  Apply update
                 </button>
               </>
             ) : (
-              <p className="muted">Select a Gantt task from preview first.</p>
+              <p className="muted">Pick a task above or right-click one in the preview.</p>
+            )}
+          </div>
+        ) : (
+          /* Selection Inspector (non-Gantt diagrams) */
+          <div className="property-card">
+            <h3>Selection</h3>
+            {selectedElement ? (
+              <>
+                <p><strong>Label:</strong> {selectedElement.label}</p>
+                <p><strong>ID:</strong> {selectedElement.id || "n/a"}</p>
+                <label>
+                  New label
+                  <input value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} />
+                </label>
+                <button className="soft-btn full" onClick={applyLabelPatch}>
+                  Apply patch
+                </button>
+              </>
+            ) : (
+              <p className="muted">Pick an element in preview to edit properties.</p>
             )}
           </div>
         )}
-
-        {/* Starter Templates */}
-        <div className="property-card">
-          <h3>Templates</h3>
-          <label>
-            Diagram type
-            <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} style={{ width: "100%" }}>
-              {DIAGRAM_LIBRARY.map((diagram) => (
-                <option key={diagram.id} value={diagram.id}>
-                  {diagram.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="soft-btn full" onClick={replaceWithTemplate}>
-            Load template
-          </button>
-        </div>
       </aside>
 
       {/* ── Settings Modal ──────────────────────────────── */}
