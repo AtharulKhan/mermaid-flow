@@ -86,6 +86,21 @@ function getIframeSrcDoc() {
         color: #7e1f34;
         font-weight: 700;
       }
+      #mf-tooltip {
+        position: fixed;
+        background: rgba(30, 30, 30, 0.92);
+        color: #fff;
+        font-size: 12px;
+        line-height: 1.5;
+        padding: 8px 12px;
+        border-radius: 6px;
+        pointer-events: none;
+        z-index: 1000;
+        max-width: 280px;
+        white-space: pre-line;
+        display: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      }
     </style>
   </head>
   <body>
@@ -93,6 +108,7 @@ function getIframeSrcDoc() {
       <div id="canvas"></div>
       <div id="error"></div>
     </div>
+    <div id="mf-tooltip"></div>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 
@@ -102,6 +118,28 @@ function getIframeSrcDoc() {
       let currentDiagramType = "";
       const canvas = document.getElementById("canvas");
       const error = document.getElementById("error");
+      const tooltipEl = document.getElementById("mf-tooltip");
+
+      canvas.addEventListener("mouseover", (e) => {
+        if (e.target.nodeName !== "rect") return;
+        const tip = e.target.getAttribute("data-mf-tip");
+        if (!tip) return;
+        tooltipEl.textContent = tip;
+        tooltipEl.style.display = "block";
+        tooltipEl.style.left = (e.clientX + 12) + "px";
+        tooltipEl.style.top = (e.clientY + 12) + "px";
+      });
+      canvas.addEventListener("mousemove", (e) => {
+        if (tooltipEl.style.display === "block") {
+          tooltipEl.style.left = (e.clientX + 12) + "px";
+          tooltipEl.style.top = (e.clientY + 12) + "px";
+        }
+      });
+      canvas.addEventListener("mouseout", (e) => {
+        if (e.target.nodeName === "rect") {
+          tooltipEl.style.display = "none";
+        }
+      });
 
       const resetSelection = () => {
         if (selected) selected.classList.remove("mf-selected");
@@ -152,7 +190,13 @@ function getIframeSrcDoc() {
           textNode = group.querySelector("text") || target.closest("text");
         }
 
-        const label = textNode?.textContent?.trim() || target.getAttribute("id") || target.nodeName;
+        let label = "";
+        if (textNode) {
+          const clone = textNode.cloneNode(true);
+          clone.querySelectorAll(".mf-date-tspan").forEach(el => el.remove());
+          label = clone.textContent?.trim() || "";
+        }
+        if (!label) label = target.getAttribute("id") || target.nodeName;
         const rect = target.getBBox ? target.getBBox() : null;
         return {
           id: target.id || group.id || "",
@@ -306,10 +350,6 @@ function getIframeSrcDoc() {
           }
 
           if (rectEl) {
-            const old = rectEl.querySelector("title");
-            if (old) old.remove();
-            const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-            title.setAttribute("class", "mf-tooltip");
             let tip = t.label;
             if (t.statusTokens?.length) {
               const sMap = { done: "Done", active: "Active", crit: "Critical" };
@@ -319,8 +359,7 @@ function getIframeSrcDoc() {
             if (endDate) tip += "\\nEnd: " + fmtFull(endDate);
             if (isOverdue) tip += "\\nOVERDUE";
             if (t.assignee) tip += "\\nAssignee: " + t.assignee;
-            title.textContent = tip;
-            rectEl.prepend(title);
+            rectEl.setAttribute("data-mf-tip", tip);
 
             if (isOverdue) {
               const bbox = rectEl.getBBox();
