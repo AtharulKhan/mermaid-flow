@@ -849,6 +849,142 @@ input:focus {
   color: #991b1b;
 }
 
+/* ── Context Menu ──────────────────────────────────────── */
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+}
+
+.context-menu {
+  position: fixed;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  min-width: 180px;
+  padding: 4px;
+  z-index: 901;
+  animation: context-menu-in 0.12s ease-out;
+}
+
+@keyframes context-menu-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background var(--transition);
+}
+
+.context-menu-item:hover {
+  background: var(--panel-soft);
+}
+
+.context-menu-danger {
+  color: var(--danger);
+}
+
+.context-menu-danger:hover {
+  background: #fff0f3;
+}
+
+.context-menu-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--line);
+}
+
+/* ── Shape Picker ──────────────────────────────────────── */
+.shape-picker {
+  max-width: 420px;
+}
+
+.shape-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.shape-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.shape-btn:hover {
+  border-color: var(--accent);
+  background: white;
+}
+
+.shape-icon {
+  font-size: 16px;
+  font-weight: 600;
+  font-family: monospace;
+  color: var(--accent);
+}
+
+/* ── Connect Mode Banner ──────────────────────────────── */
+.connect-mode-banner {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--accent);
+  color: white;
+  font-size: 13px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 800;
+  animation: banner-in 0.2s ease-out;
+}
+
+.connect-mode-banner strong {
+  font-weight: 700;
+}
+
+.connect-mode-banner .soft-btn {
+  color: white;
+  border-color: rgba(255, 255, 255, 0.4);
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.connect-mode-banner .soft-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+@keyframes banner-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 1024px) {
   .workspace {
