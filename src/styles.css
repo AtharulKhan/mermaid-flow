@@ -641,65 +641,82 @@ input:focus {
   margin: 0 2px;
 }
 
-/* ── Gantt Context Menu ────────────────────────────────── */
-.gantt-context-menu {
-  position: fixed;
-  z-index: 60;
+/* ── Task Edit Modal ─────────────────────────────────── */
+.task-modal {
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  min-width: 180px;
-  padding: 4px;
-  animation: fadeIn 0.1s ease;
+  padding: 0;
+  width: 90%;
+  max-width: 440px;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: slideUp 0.2s ease;
 }
 
-.context-menu-title {
-  padding: 8px 12px 4px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--ink-soft);
+.task-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.task-modal-header h2 {
+  margin: 0;
+  font-family: "Chakra Petch", sans-serif;
+  font-size: 1.05rem;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
+  max-width: calc(100% - 48px);
 }
 
-.context-menu-divider {
-  height: 1px;
-  background: var(--line);
-  margin: 4px 0;
+.task-modal-body {
+  padding: 20px 24px;
+  display: grid;
+  gap: 16px;
 }
 
-.context-menu-item {
-  display: flex;
+.task-modal-body > label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.task-modal-body .status-toggle-group {
+  margin-top: 2px;
+}
+
+.task-modal-body .status-toggle-btn {
+  display: inline-flex;
   align-items: center;
+  gap: 6px;
+}
+
+.task-modal-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.task-modal-dates label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.task-modal-actions {
+  display: flex;
+  justify-content: flex-end;
   gap: 8px;
-  width: 100%;
-  padding: 7px 12px;
-  border: none;
-  background: transparent;
-  text-align: left;
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  transition: background var(--transition);
-}
-
-.context-menu-item:hover {
-  background: var(--panel-soft);
-}
-
-.context-menu-item.active {
-  font-weight: 600;
-}
-
-.check-mark {
-  margin-left: auto;
-  color: var(--success);
-  font-size: 0.9rem;
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--line);
 }
 
 /* ── Status Dots ──────────────────────────────────────── */

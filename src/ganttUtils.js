@@ -99,6 +99,11 @@ export function parseGanttTasks(code) {
       durationDays = Math.round((e - s) / (1000 * 60 * 60 * 24));
     }
 
+    // Check next line for assignee comment
+    const nextLineRaw = lines[lineIndex + 1] || "";
+    const assigneeMatch = nextLineRaw.trim().match(/^%%\s*assignee:\s*(.+)$/i);
+    const assignee = assigneeMatch ? assigneeMatch[1].trim() : "";
+
     tasks.push({
       lineIndex,
       rawLine,
@@ -115,6 +120,7 @@ export function parseGanttTasks(code) {
       endDateIndex,
       endDate,
       hasExplicitDate: dateIndex >= 0,
+      assignee,
     });
   });
 
@@ -187,5 +193,25 @@ export function clearGanttStatus(code, task) {
   }
 
   lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
+export function updateGanttAssignee(code, task, assignee) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const nextLine = (lines[task.lineIndex + 1] || "").trim();
+  const hasComment = /^%%\s*assignee:/i.test(nextLine);
+
+  if (assignee) {
+    const commentLine = `${task.indent}%% assignee: ${assignee}`;
+    if (hasComment) {
+      lines[task.lineIndex + 1] = commentLine;
+    } else {
+      lines.splice(task.lineIndex + 1, 0, commentLine);
+    }
+  } else if (hasComment) {
+    lines.splice(task.lineIndex + 1, 1);
+  }
+
   return lines.join("\n");
 }
