@@ -103,7 +103,7 @@ function getIframeSrcDoc() {
       .section1,.section3 { fill: rgba(37, 99, 235, 0.08) !important; }
       /* Gantt grid lines - hidden by default, shown via .mf-show-grid class */
       .grid .tick line { stroke: #e2e8f0 !important; stroke-dasharray: none; opacity: 0; transition: opacity 0.2s; }
-      .mf-show-grid .grid .tick line { opacity: 0.35; }
+      .mf-show-grid .grid .tick line { opacity: 0.6; stroke: #cbd5e1 !important; }
       .grid .tick text { fill: #6b7280 !important; font-size: 11px !important; }
       /* Gantt task text */
       .taskText { fill: #fff !important; font-weight: 500 !important; font-size: 12px !important; }
@@ -456,7 +456,7 @@ function getIframeSrcDoc() {
         const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
         g.classList.add("mf-custom-edges");
         const firstNode = svg.querySelector("g.node, g.entity, g.classGroup, g.stateGroup");
-        if (firstNode) svg.insertBefore(g, firstNode);
+        if (firstNode && firstNode.parentNode) firstNode.parentNode.insertBefore(g, firstNode);
         else svg.appendChild(g);
 
         for (const edge of edges) {
