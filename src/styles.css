@@ -276,6 +276,29 @@ input:focus {
   font-size: 0.78rem;
 }
 
+.preview-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.date-toggle-btn {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.date-toggle-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
 .editor-wrap {
   display: grid;
   grid-template-columns: 48px 1fr;
@@ -717,6 +740,38 @@ input:focus {
   gap: 8px;
   padding: 16px 24px 20px;
   border-top: 1px solid var(--line);
+}
+
+/* ── Status Check (mini checkbox) ────────────────────── */
+.status-check {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1.5px solid var(--line-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+.status-toggle-btn.on.status-done .status-check {
+  background: #0b7f5a;
+  border-color: #0b7f5a;
+  color: #fff;
+}
+
+.status-toggle-btn.on.status-active .status-check {
+  background: #2f6f92;
+  border-color: #2f6f92;
+  color: #fff;
+}
+
+.status-toggle-btn.on.status-crit .status-check {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #fff;
 }
 
 /* ── Status Dots ──────────────────────────────────────── */

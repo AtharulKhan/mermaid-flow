@@ -258,29 +258,24 @@ function getIframeSrcDoc() {
         svg.addEventListener("pointerleave", clearDrag);
       };
 
-      const annotateGanttBars = (tasks) => {
+      const annotateGanttBars = (tasks, showDates) => {
         const svg = canvas.querySelector("svg");
         if (!svg) return;
         // Remove previous annotations
         svg.querySelectorAll(".mf-date-label").forEach(el => el.remove());
+        svg.querySelectorAll(".mf-date-tspan").forEach(el => el.remove());
 
-        const rects = Array.from(svg.querySelectorAll("rect"));
-        const taskRects = rects.filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
+        if (!showDates) return;
+
         const texts = Array.from(svg.querySelectorAll("text.taskText"));
 
         tasks.forEach((t) => {
-          if (!t.startDate && !t.endDate) return;
+          if (!t.startDate && !t.endDate && !t.assignee) return;
           // Match by label text
-          const textIdx = texts.findIndex(el => el.textContent?.trim() === t.label);
-          const rect = textIdx >= 0 && textIdx < taskRects.length ? taskRects[textIdx] : null;
-          if (!rect) return;
+          const textEl = texts.find(el => el.textContent?.trim() === t.label);
+          if (!textEl) return;
 
-          const rx = parseFloat(rect.getAttribute("x") || 0);
-          const ry = parseFloat(rect.getAttribute("y") || 0);
-          const rw = parseFloat(rect.getAttribute("width") || 0);
-          const rh = parseFloat(rect.getAttribute("height") || 0);
-
-          // Format dates as "Feb 10 - Feb 14"
+          // Format dates as "Feb 10 – Feb 14"
           const fmt = (iso) => {
             if (!iso) return "";
             const [y, m, d] = iso.split("-");
@@ -293,17 +288,14 @@ function getIframeSrcDoc() {
           if (t.assignee) dateStr = (dateStr ? dateStr + " · " : "") + t.assignee;
           if (!dateStr) return;
 
-          const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-          label.setAttribute("class", "mf-date-label");
-          label.setAttribute("x", String(rx + rw / 2));
-          label.setAttribute("y", String(ry + rh + 14));
-          label.setAttribute("text-anchor", "middle");
-          label.setAttribute("fill", "#6b7280");
-          label.setAttribute("font-size", "10");
-          label.setAttribute("font-family", "system-ui, sans-serif");
-          label.setAttribute("pointer-events", "none");
-          label.textContent = dateStr;
-          rect.parentElement.appendChild(label);
+          // Append date as inline tspan after the task label
+          const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+          tspan.setAttribute("class", "mf-date-tspan");
+          tspan.setAttribute("fill", "#9ca3af");
+          tspan.setAttribute("font-size", "0.78em");
+          tspan.setAttribute("font-weight", "400");
+          tspan.textContent = " (" + dateStr + ")";
+          textEl.appendChild(tspan);
         });
       };
 
@@ -312,7 +304,7 @@ function getIframeSrcDoc() {
         if (!data || data.channel !== "${CHANNEL}") return;
 
         if (data.type === "gantt:annotate") {
-          annotateGanttBars(data.payload?.tasks || []);
+          annotateGanttBars(data.payload?.tasks || [], data.payload?.showDates !== false);
           return;
         }
 
@@ -415,6 +407,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presentMode, setPresentMode] = useState(false);
   const [editorWidth, setEditorWidth] = useState(30);
+  const [showDates, setShowDates] = useState(true);
 
   // Derived
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
@@ -505,7 +498,7 @@ function App() {
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
             frame.contentWindow.postMessage(
-              { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData } },
+              { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates } },
               "*"
             );
           }
@@ -571,7 +564,28 @@ function App() {
 
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [code, ganttTasks, toolsetKey]);
+  }, [code, ganttTasks, toolsetKey, showDates]);
+
+  /* ── Re-annotate on showDates toggle ─────────────────── */
+  useEffect(() => {
+    if (toolsetKey !== "gantt") return;
+    const frame = iframeRef.current;
+    if (!frame?.contentWindow) return;
+    const tasks = parseGanttTasks(code);
+    const annotationData = tasks.map((t) => {
+      let computedEnd = t.endDate || "";
+      if (!computedEnd && t.startDate && t.durationDays) {
+        const d = new Date(t.startDate + "T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() + t.durationDays);
+        computedEnd = d.toISOString().slice(0, 10);
+      }
+      return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "" };
+    });
+    frame.contentWindow.postMessage(
+      { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates } },
+      "*"
+    );
+  }, [showDates, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -903,7 +917,17 @@ function App() {
         <article className="preview-panel">
           <div className="panel-header">
             <h2>Preview</h2>
-            <span>Click, right-click, and drag to edit</span>
+            <span className="preview-hint">
+              {toolsetKey === "gantt" && (
+                <button
+                  className="date-toggle-btn"
+                  onClick={() => setShowDates((prev) => !prev)}
+                >
+                  {showDates ? "Hide dates" : "Show dates"}
+                </button>
+              )}
+              Click, right-click, and drag to edit
+            </span>
           </div>
           <iframe
             ref={iframeRef}
@@ -1007,22 +1031,24 @@ function App() {
                 </label>
                 <label>Status</label>
                 <div className="status-toggle-group">
-                  {["done", "active", "crit"].map((flag) => (
-                    <button
-                      key={flag}
-                      className={`status-toggle-btn ${ganttDraft.status.includes(flag) ? "on" : ""} status-${flag}`}
-                      onClick={() => {
-                        setGanttDraft((prev) => ({
-                          ...prev,
-                          status: prev.status.includes(flag)
-                            ? prev.status.filter((s) => s !== flag)
-                            : [...prev.status, flag],
-                        }));
-                      }}
-                    >
-                      {flag === "crit" ? "Critical" : flag.charAt(0).toUpperCase() + flag.slice(1)}
-                    </button>
-                  ))}
+                  {["done", "active", "crit"].map((flag) => {
+                    const isOn = ganttDraft.status.includes(flag);
+                    return (
+                      <button
+                        key={flag}
+                        className={`status-toggle-btn ${isOn ? "on" : ""} status-${flag}`}
+                        onClick={() => {
+                          setGanttDraft((prev) => ({
+                            ...prev,
+                            status: prev.status.includes(flag) ? [] : [flag],
+                          }));
+                        }}
+                      >
+                        <span className={`status-check ${isOn ? "checked" : ""}`}>{isOn ? "\u2713" : ""}</span>
+                        {flag === "crit" ? "Critical" : flag.charAt(0).toUpperCase() + flag.slice(1)}
+                      </button>
+                    );
+                  })}
                 </div>
                 <button className="soft-btn primary full" onClick={applyGanttTaskPatch}>
                   Apply update
@@ -1121,23 +1147,25 @@ function App() {
               <div className="task-modal-body">
                 <label>Status</label>
                 <div className="status-toggle-group">
-                  {["done", "active", "crit"].map((flag) => (
-                    <button
-                      key={flag}
-                      className={`status-toggle-btn ${ganttDraft.status.includes(flag) ? "on" : ""} status-${flag}`}
-                      onClick={() => {
-                        setGanttDraft((prev) => ({
-                          ...prev,
-                          status: prev.status.includes(flag)
-                            ? prev.status.filter((s) => s !== flag)
-                            : [...prev.status, flag],
-                        }));
-                      }}
-                    >
-                      <span className={`status-dot status-${flag}`} />
-                      {flag === "crit" ? "Critical" : flag.charAt(0).toUpperCase() + flag.slice(1)}
-                    </button>
-                  ))}
+                  {["done", "active", "crit"].map((flag) => {
+                    const isOn = ganttDraft.status.includes(flag);
+                    return (
+                      <button
+                        key={flag}
+                        className={`status-toggle-btn ${isOn ? "on" : ""} status-${flag}`}
+                        onClick={() => {
+                          setGanttDraft((prev) => ({
+                            ...prev,
+                            status: prev.status.includes(flag) ? [] : [flag],
+                          }));
+                        }}
+                      >
+                        <span className={`status-check ${isOn ? "checked" : ""}`}>{isOn ? "\u2713" : ""}</span>
+                        <span className={`status-dot status-${flag}`} />
+                        {flag === "crit" ? "Critical" : flag.charAt(0).toUpperCase() + flag.slice(1)}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <label>
