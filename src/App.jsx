@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
 import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus, updateGanttAssignee, updateGanttNotes } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge } from "./flowchartUtils";
-import { getDiagramAdapter, parseErDiagram, updateErEntity } from "./diagramUtils";
+import { getDiagramAdapter, parseErDiagram, updateErEntity, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 
 const CHANNEL = "mermaid-flow";
 
@@ -282,6 +282,7 @@ function getIframeSrcDoc() {
       const getElementType = (target) => {
         if (target.closest("g.node") || target.closest("g.classGroup") || target.closest("g.entity") || target.closest("g.cluster") || target.closest("g.mindmap-node") || target.closest('g[id*="state-"]')) return "node";
         if (target.closest("g.edgePath") || target.closest("g.edgeLabel")) return "edge";
+        if (target.classList?.contains("mf-edge") || target.classList?.contains("mf-edge-label")) return "edge";
         return "canvas";
       };
 
@@ -330,132 +331,25 @@ function getIframeSrcDoc() {
 
       const updateEdgesForOverrides = (svg) => {
         if (!svg || Object.keys(positionOverrides).length === 0) return;
-        // Build list of moved nodes with their ORIGINAL bounding boxes in SVG viewport space
-        const movedNodes = [];
-        const skipSel = "g.node, g.entity, g.classGroup, g.cluster, g.mindmap-node, g.stateGroup, defs, marker";
-        for (const [nodeId, offset] of Object.entries(positionOverrides)) {
-          const el = svg.querySelector("#" + CSS.escape(nodeId));
-          if (!el) continue;
-          try {
-            const bbox = el.getBBox();
-            const ctm = el.getCTM();
-            let origBox;
-            if (ctm) {
-              // Current position in SVG viewport space (includes the override offset)
-              const p1 = svg.createSVGPoint();
-              p1.x = bbox.x; p1.y = bbox.y;
-              const tl = p1.matrixTransform(ctm);
-              const p2 = svg.createSVGPoint();
-              p2.x = bbox.x + bbox.width; p2.y = bbox.y + bbox.height;
-              const br = p2.matrixTransform(ctm);
-              // Subtract offset to get ORIGINAL position before override
-              origBox = {
-                left: Math.min(tl.x, br.x) - offset.dx, right: Math.max(tl.x, br.x) - offset.dx,
-                top: Math.min(tl.y, br.y) - offset.dy, bottom: Math.max(tl.y, br.y) - offset.dy,
-              };
-            } else {
-              const tr = el.getAttribute("transform") || "";
-              const m = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-              const tx = m ? parseFloat(m[1]) : 0;
-              const ty = m ? parseFloat(m[2]) : 0;
-              origBox = {
-                left: bbox.x + tx - offset.dx, right: bbox.x + bbox.width + tx - offset.dx,
-                top: bbox.y + ty - offset.dy, bottom: bbox.y + bbox.height + ty - offset.dy,
-              };
-            }
-            movedNodes.push({ offset, origBox });
-          } catch (e) {}
-        }
-        if (movedNodes.length === 0) return;
-        const margin = 30;
-        // Update all edge paths/lines using geometric proximity
-        svg.querySelectorAll("path, line").forEach(el => {
-          if (el.closest(skipSel)) return;
-          const elCTM = el.getCTM();
-          if (el.tagName === "path") {
-            const d = el.getAttribute("d");
-            if (!d) return;
-            const cmds = parsePathD(d);
-            const points = getPathPoints(cmds);
-            if (points.length < 2) return;
-            const fp = points[0];
-            let firstX = cmds[fp.ci].params[fp.pi], firstY = cmds[fp.ci].params[fp.pi + 1];
-            const lp = points[points.length - 1];
-            let lastX = cmds[lp.ci].params[lp.pi], lastY = cmds[lp.ci].params[lp.pi + 1];
-            // Transform path endpoints to SVG viewport space for comparison
-            if (elCTM) {
-              const q1 = svg.createSVGPoint();
-              q1.x = firstX; q1.y = firstY;
-              const t1 = q1.matrixTransform(elCTM);
-              firstX = t1.x; firstY = t1.y;
-              const q2 = svg.createSVGPoint();
-              q2.x = lastX; q2.y = lastY;
-              const t2 = q2.matrixTransform(elCTM);
-              lastX = t2.x; lastY = t2.y;
-            }
-            let srcDx = 0, srcDy = 0, tgtDx = 0, tgtDy = 0;
-            for (const mn of movedNodes) {
-              const b = mn.origBox;
-              if (firstX >= b.left - margin && firstX <= b.right + margin && firstY >= b.top - margin && firstY <= b.bottom + margin) {
-                srcDx += mn.offset.dx; srcDy += mn.offset.dy;
-              }
-              if (lastX >= b.left - margin && lastX <= b.right + margin && lastY >= b.top - margin && lastY <= b.bottom + margin) {
-                tgtDx += mn.offset.dx; tgtDy += mn.offset.dy;
-              }
-            }
-            if (srcDx === 0 && srcDy === 0 && tgtDx === 0 && tgtDy === 0) return;
-            const origCmds = parsePathD(d);
-            const newCmds = parsePathD(d);
-            applyRubberBand(newCmds, origCmds, srcDx, srcDy, tgtDx, tgtDy);
-            el.setAttribute("d", serializePathD(newCmds));
-          } else if (el.tagName === "line") {
-            const x1 = parseFloat(el.getAttribute("x1")) || 0, y1 = parseFloat(el.getAttribute("y1")) || 0;
-            const x2 = parseFloat(el.getAttribute("x2")) || 0, y2 = parseFloat(el.getAttribute("y2")) || 0;
-            // Transform for comparison
-            let cx1 = x1, cy1 = y1, cx2 = x2, cy2 = y2;
-            if (elCTM) {
-              const q1 = svg.createSVGPoint();
-              q1.x = x1; q1.y = y1;
-              const t1 = q1.matrixTransform(elCTM);
-              cx1 = t1.x; cy1 = t1.y;
-              const q2 = svg.createSVGPoint();
-              q2.x = x2; q2.y = y2;
-              const t2 = q2.matrixTransform(elCTM);
-              cx2 = t2.x; cy2 = t2.y;
-            }
-            let srcDx = 0, srcDy = 0, tgtDx = 0, tgtDy = 0;
-            for (const mn of movedNodes) {
-              const b = mn.origBox;
-              if (cx1 >= b.left - margin && cx1 <= b.right + margin && cy1 >= b.top - margin && cy1 <= b.bottom + margin) {
-                srcDx += mn.offset.dx; srcDy += mn.offset.dy;
-              }
-              if (cx2 >= b.left - margin && cx2 <= b.right + margin && cy2 >= b.top - margin && cy2 <= b.bottom + margin) {
-                tgtDx += mn.offset.dx; tgtDy += mn.offset.dy;
-              }
-            }
-            if (srcDx === 0 && srcDy === 0 && tgtDx === 0 && tgtDy === 0) return;
-            el.setAttribute("x1", x1 + srcDx); el.setAttribute("y1", y1 + srcDy);
-            el.setAttribute("x2", x2 + tgtDx); el.setAttribute("y2", y2 + tgtDy);
+        // Rebuild node positions from current SVG state (with overrides applied)
+        cachedNodePositions = buildNodePositionMap(svg);
+        // Redraw all custom edges with updated positions
+        const edgeGroup = svg.querySelector(".mf-custom-edges");
+        if (!edgeGroup) return;
+        for (const edge of cachedEdgeData) {
+          const srcPos = cachedNodePositions[edge.source];
+          const tgtPos = cachedNodePositions[edge.target];
+          if (!srcPos || !tgtPos) continue;
+          const pathData = calcEdgePath(srcPos, tgtPos);
+          const pathEl = edgeGroup.querySelector('.mf-edge[data-source="' + edge.source + '"][data-target="' + edge.target + '"]');
+          if (pathEl) pathEl.setAttribute("d", pathData.d);
+          // Update label position
+          const labelEl = pathEl?.nextElementSibling;
+          if (labelEl?.classList.contains("mf-edge-label")) {
+            labelEl.setAttribute("x", (pathData.sx + pathData.tx) / 2);
+            labelEl.setAttribute("y", (pathData.sy + pathData.ty) / 2 - 6);
           }
-        });
-        // Move edge labels (flowchart-specific, best-effort for other types)
-        svg.querySelectorAll(".edgeLabel").forEach(el => {
-          const id = el.id || "";
-          const endpoints = getEdgeEndpoints(id.replace(/^label-/, "L-"));
-          if (!endpoints) return;
-          const srcId = findNodeSvgId(svg, endpoints.source);
-          const tgtId = findNodeSvgId(svg, endpoints.target);
-          const srcOff = srcId ? positionOverrides[srcId] : null;
-          const tgtOff = tgtId ? positionOverrides[tgtId] : null;
-          if (!srcOff && !tgtOff) return;
-          const curTransform = el.getAttribute("transform") || "";
-          const m = curTransform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-          const cx = m ? parseFloat(m[1]) : 0;
-          const cy = m ? parseFloat(m[2]) : 0;
-          const dx = ((srcOff?.dx || 0) + (tgtOff?.dx || 0)) / 2;
-          const dy = ((srcOff?.dy || 0) + (tgtOff?.dy || 0)) / 2;
-          el.setAttribute("transform", "translate(" + (cx + dx) + ", " + (cy + dy) + ")");
-        });
+        }
       };
 
       const findNodeSvgId = (svg, shortId) => {
@@ -468,7 +362,165 @@ function getIframeSrcDoc() {
         return null;
       };
 
-      /* ── SVG path parsing for rubber-band edge following ── */
+      /* ── Custom Edge Rendering ──────────────────────────── */
+      let cachedEdgeData = [];
+      let cachedNodePositions = {};
+
+      const buildNodePositionMap = (svg) => {
+        const map = {};
+        const nodeGroups = svg.querySelectorAll("g.node, g.entity, g.classGroup, g.stateGroup");
+        for (const g of nodeGroups) {
+          const shortId = getNodeShortId(g.id || "");
+          if (!shortId) continue;
+          try {
+            const bbox = g.getBBox();
+            const tr = g.getAttribute("transform") || "";
+            const tm = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+            const tx = tm ? parseFloat(tm[1]) : 0;
+            const ty = tm ? parseFloat(tm[2]) : 0;
+            map[shortId] = {
+              cx: bbox.x + tx + bbox.width / 2,
+              cy: bbox.y + ty + bbox.height / 2,
+              left: bbox.x + tx,
+              right: bbox.x + tx + bbox.width,
+              top: bbox.y + ty,
+              bottom: bbox.y + ty + bbox.height,
+              width: bbox.width,
+              height: bbox.height,
+            };
+          } catch (_) {}
+        }
+        return map;
+      };
+
+      const hideMermaidEdges = (svg) => {
+        const skipSel = "g.node, g.entity, g.classGroup, g.cluster, g.mindmap-node, g.stateGroup, defs, marker";
+        svg.querySelectorAll("path, line").forEach(el => {
+          if (el.closest(skipSel)) return;
+          el.style.display = "none";
+        });
+        svg.querySelectorAll(".edgeLabel").forEach(el => { el.style.display = "none"; });
+        svg.querySelectorAll("g.relationshipLabel").forEach(el => { el.style.display = "none"; });
+      };
+
+      const calcEdgePath = (srcBox, tgtBox) => {
+        const dx = tgtBox.cx - srcBox.cx;
+        const dy = tgtBox.cy - srcBox.cy;
+        let sx, sy, tx, ty;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          if (dx > 0) { sx = srcBox.right; sy = srcBox.cy; tx = tgtBox.left; ty = tgtBox.cy; }
+          else { sx = srcBox.left; sy = srcBox.cy; tx = tgtBox.right; ty = tgtBox.cy; }
+        } else {
+          if (dy > 0) { sx = srcBox.cx; sy = srcBox.bottom; tx = tgtBox.cx; ty = tgtBox.top; }
+          else { sx = srcBox.cx; sy = srcBox.top; tx = tgtBox.cx; ty = tgtBox.bottom; }
+        }
+        const dist = Math.hypot(tx - sx, ty - sy);
+        const offset = Math.max(dist * 0.4, 30);
+        let c1x, c1y, c2x, c2y;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          c1x = sx + (dx > 0 ? offset : -offset); c1y = sy;
+          c2x = tx + (dx > 0 ? -offset : offset); c2y = ty;
+        } else {
+          c1x = sx; c1y = sy + (dy > 0 ? offset : -offset);
+          c2x = tx; c2y = ty + (dy > 0 ? -offset : offset);
+        }
+        return { sx, sy, tx, ty, c1x, c1y, c2x, c2y,
+          d: "M " + sx + "," + sy + " C " + c1x + "," + c1y + " " + c2x + "," + c2y + " " + tx + "," + ty };
+      };
+
+      const drawCustomEdges = (svg, edges, diagramType) => {
+        svg.querySelectorAll(".mf-custom-edges").forEach(g => g.remove());
+        const nodePositions = buildNodePositionMap(svg);
+        cachedNodePositions = nodePositions;
+        cachedEdgeData = edges;
+        hideMermaidEdges(svg);
+
+        let defs = svg.querySelector("defs");
+        if (!defs) { defs = document.createElementNS("http://www.w3.org/2000/svg", "defs"); svg.prepend(defs); }
+        if (!defs.querySelector("#mf-arrowhead")) {
+          const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+          marker.setAttribute("id", "mf-arrowhead");
+          marker.setAttribute("markerWidth", "10");
+          marker.setAttribute("markerHeight", "7");
+          marker.setAttribute("refX", "10");
+          marker.setAttribute("refY", "3.5");
+          marker.setAttribute("orient", "auto");
+          const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+          poly.setAttribute("points", "0 0, 10 3.5, 0 7");
+          poly.setAttribute("fill", "#475569");
+          marker.appendChild(poly);
+          defs.appendChild(marker);
+        }
+
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.classList.add("mf-custom-edges");
+        const firstNode = svg.querySelector("g.node, g.entity, g.classGroup, g.stateGroup");
+        if (firstNode) svg.insertBefore(g, firstNode);
+        else svg.appendChild(g);
+
+        for (const edge of edges) {
+          const srcPos = nodePositions[edge.source];
+          const tgtPos = nodePositions[edge.target];
+          if (!srcPos || !tgtPos) continue;
+          const pathData = calcEdgePath(srcPos, tgtPos);
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", pathData.d);
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke", "#475569");
+          path.setAttribute("stroke-width", "1.5");
+          path.setAttribute("marker-end", "url(#mf-arrowhead)");
+          path.setAttribute("data-source", edge.source);
+          path.setAttribute("data-target", edge.target);
+          path.classList.add("mf-edge");
+          if (edge.arrowType === "==>" || edge.arrowType === "===") {
+            path.setAttribute("stroke-width", "3");
+          } else if (edge.arrowType === "-.->" || edge.arrowType === "-.-") {
+            path.setAttribute("stroke-dasharray", "5,3");
+          }
+          g.appendChild(path);
+          if (edge.label) {
+            const midX = (pathData.sx + pathData.tx) / 2;
+            const midY = (pathData.sy + pathData.ty) / 2;
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            text.setAttribute("x", midX);
+            text.setAttribute("y", midY - 6);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("font-size", "12");
+            text.setAttribute("fill", "#64748b");
+            text.setAttribute("class", "mf-edge-label");
+            text.textContent = edge.label;
+            g.appendChild(text);
+          }
+        }
+      };
+
+      const updateCustomEdgesForNode = (svg, nodeId, dx, dy) => {
+        const pos = cachedNodePositions[nodeId];
+        if (pos) {
+          cachedNodePositions[nodeId] = {
+            cx: pos.cx + dx, cy: pos.cy + dy,
+            left: pos.left + dx, right: pos.right + dx,
+            top: pos.top + dy, bottom: pos.bottom + dy,
+            width: pos.width, height: pos.height,
+          };
+        }
+        const connectedEdges = cachedEdgeData.filter(e => e.source === nodeId || e.target === nodeId);
+        for (const edge of connectedEdges) {
+          const srcPos = cachedNodePositions[edge.source];
+          const tgtPos = cachedNodePositions[edge.target];
+          if (!srcPos || !tgtPos) continue;
+          const pathData = calcEdgePath(srcPos, tgtPos);
+          const pathEl = svg.querySelector('.mf-edge[data-source="' + edge.source + '"][data-target="' + edge.target + '"]');
+          if (pathEl) pathEl.setAttribute("d", pathData.d);
+          const labelEl = pathEl?.nextElementSibling;
+          if (labelEl?.classList.contains("mf-edge-label")) {
+            labelEl.setAttribute("x", (pathData.sx + pathData.tx) / 2);
+            labelEl.setAttribute("y", (pathData.sy + pathData.ty) / 2 - 6);
+          }
+        }
+      };
+
+      /* ── SVG path parsing (kept for edge reconnection) ── */
       const parsePathD = (d) => {
         if (!d) return [];
         const tokens = [];
@@ -527,114 +579,6 @@ function getIframeSrcDoc() {
         return points;
       };
 
-      // Apply weighted interpolation: source-end points follow source, target-end follow target
-      const applyRubberBand = (commands, origCommands, srcDx, srcDy, tgtDx, tgtDy) => {
-        const points = getPathPoints(origCommands);
-        if (points.length < 2) return;
-        const total = points.length - 1;
-        points.forEach((pt, idx) => {
-          const t = idx / total; // 0 = source end, 1 = target end
-          const dx = srcDx * (1 - t) + tgtDx * t;
-          const dy = srcDy * (1 - t) + tgtDy * t;
-          commands[pt.ci].params[pt.pi] = origCommands[pt.ci].params[pt.pi] + dx;
-          commands[pt.ci].params[pt.pi + 1] = origCommands[pt.ci].params[pt.pi + 1] + dy;
-        });
-      };
-
-      // Universal: find all edge paths/lines connected to a node using geometric proximity
-      // Both node bbox AND path/line endpoints are transformed to SVG viewport space
-      // via getCTM() so coordinates are always in the same system regardless of nesting.
-      const findConnectedEdges = (svg, node) => {
-        const connections = [];
-        try {
-          const bbox = node.getBBox();
-          const nodeCTM = node.getCTM();
-          let nodeBox;
-          if (nodeCTM) {
-            const p1 = svg.createSVGPoint();
-            p1.x = bbox.x; p1.y = bbox.y;
-            const tl = p1.matrixTransform(nodeCTM);
-            const p2 = svg.createSVGPoint();
-            p2.x = bbox.x + bbox.width; p2.y = bbox.y + bbox.height;
-            const br = p2.matrixTransform(nodeCTM);
-            nodeBox = {
-              left: Math.min(tl.x, br.x), right: Math.max(tl.x, br.x),
-              top: Math.min(tl.y, br.y), bottom: Math.max(tl.y, br.y),
-            };
-          } else {
-            const transform = node.getAttribute("transform") || "";
-            const tm = transform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-            const tx = tm ? parseFloat(tm[1]) + bbox.x : bbox.x;
-            const ty = tm ? parseFloat(tm[2]) + bbox.y : bbox.y;
-            nodeBox = { left: tx, right: tx + bbox.width, top: ty, bottom: ty + bbox.height };
-          }
-          const margin = Math.max(bbox.width, bbox.height) * 0.4 + 30;
-          const isNear = (px, py) => {
-            return px >= nodeBox.left - margin && px <= nodeBox.right + margin &&
-                   py >= nodeBox.top - margin && py <= nodeBox.bottom + margin;
-          };
-          // Skip elements inside node groups or defs (these are shapes, not edges)
-          const skipSel = "g.node, g.entity, g.classGroup, g.cluster, g.mindmap-node, g.stateGroup, defs, marker";
-          svg.querySelectorAll("path, line").forEach(el => {
-            if (el.closest(skipSel)) return;
-            if (node.contains(el)) return;
-            const elCTM = el.getCTM();
-            if (el.tagName === "path") {
-              const d = el.getAttribute("d");
-              if (!d) return;
-              const cmds = parsePathD(d);
-              const points = getPathPoints(cmds);
-              if (points.length < 2) return;
-              const fp = points[0];
-              let firstX = cmds[fp.ci].params[fp.pi];
-              let firstY = cmds[fp.ci].params[fp.pi + 1];
-              const lp = points[points.length - 1];
-              let lastX = cmds[lp.ci].params[lp.pi];
-              let lastY = cmds[lp.ci].params[lp.pi + 1];
-              // Transform path endpoints to SVG viewport space (same as node)
-              if (elCTM && nodeCTM) {
-                const q1 = svg.createSVGPoint();
-                q1.x = firstX; q1.y = firstY;
-                const t1 = q1.matrixTransform(elCTM);
-                firstX = t1.x; firstY = t1.y;
-                const q2 = svg.createSVGPoint();
-                q2.x = lastX; q2.y = lastY;
-                const t2 = q2.matrixTransform(elCTM);
-                lastX = t2.x; lastY = t2.y;
-              }
-              const srcConn = isNear(firstX, firstY);
-              const tgtConn = isNear(lastX, lastY);
-              if (srcConn || tgtConn) {
-                connections.push({ el, type: "path", isSource: srcConn, isTarget: tgtConn, origD: d });
-              }
-            } else if (el.tagName === "line") {
-              let x1 = parseFloat(el.getAttribute("x1")) || 0;
-              let y1 = parseFloat(el.getAttribute("y1")) || 0;
-              let x2 = parseFloat(el.getAttribute("x2")) || 0;
-              let y2 = parseFloat(el.getAttribute("y2")) || 0;
-              // Keep original values for rubber-band, use transformed for comparison
-              const ox1 = x1, oy1 = y1, ox2 = x2, oy2 = y2;
-              if (elCTM && nodeCTM) {
-                const q1 = svg.createSVGPoint();
-                q1.x = x1; q1.y = y1;
-                const t1 = q1.matrixTransform(elCTM);
-                x1 = t1.x; y1 = t1.y;
-                const q2 = svg.createSVGPoint();
-                q2.x = x2; q2.y = y2;
-                const t2 = q2.matrixTransform(elCTM);
-                x2 = t2.x; y2 = t2.y;
-              }
-              const srcConn = isNear(x1, y1);
-              const tgtConn = isNear(x2, y2);
-              if (srcConn || tgtConn) {
-                connections.push({ el, type: "line", isSource: srcConn, isTarget: tgtConn, origX1: ox1, origY1: oy1, origX2: ox2, origY2: oy2 });
-              }
-            }
-          });
-        } catch (e) {}
-        return connections;
-      };
-
       /* ── Connect mode state ────────────────────────────── */
       let connectMode = null; // null or { sourceId }
 
@@ -662,10 +606,9 @@ function getIframeSrcDoc() {
           svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
         } catch (_) { return null; }
         const threshold = 14;
-        const skipSel = "g.node, g.entity, g.classGroup, g.cluster, g.mindmap-node, g.stateGroup, defs, marker";
-        const paths = svg.querySelectorAll("path");
-        for (const path of paths) {
-          if (path.closest(skipSel)) continue;
+        // Check custom edges first (they have data-source/data-target attributes)
+        const customEdges = svg.querySelectorAll(".mf-edge");
+        for (const path of customEdges) {
           const d = path.getAttribute("d");
           if (!d) continue;
           const cmds = parsePathD(d);
@@ -675,22 +618,8 @@ function getIframeSrcDoc() {
           const fx = cmds[fp.ci].params[fp.pi], fy = cmds[fp.ci].params[fp.pi + 1];
           const lp = points[points.length - 1];
           const lx = cmds[lp.ci].params[lp.pi], ly = cmds[lp.ci].params[lp.pi + 1];
-          // Also determine which nodes this edge connects (for code mutation)
-          let srcNodeId = "", tgtNodeId = "";
-          const allNodes = svg.querySelectorAll("g.node, g.entity, g.classGroup");
-          const margin = 30;
-          for (const n of allNodes) {
-            try {
-              const bb = n.getBBox();
-              const tr = n.getAttribute("transform") || "";
-              const tm = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-              const ntx = tm ? parseFloat(tm[1]) : 0;
-              const nty = tm ? parseFloat(tm[2]) : 0;
-              const box = { left: bb.x + ntx - margin, right: bb.x + bb.width + ntx + margin, top: bb.y + nty - margin, bottom: bb.y + bb.height + nty + margin };
-              if (fx >= box.left && fx <= box.right && fy >= box.top && fy <= box.bottom) srcNodeId = getNodeShortId(n.id || "");
-              if (lx >= box.left && lx <= box.right && ly >= box.top && ly <= box.bottom) tgtNodeId = getNodeShortId(n.id || "");
-            } catch (_) {}
-          }
+          const srcNodeId = path.getAttribute("data-source") || "";
+          const tgtNodeId = path.getAttribute("data-target") || "";
           if (Math.hypot(svgPt.x - fx, svgPt.y - fy) < threshold) {
             return { pathEl: path, end: "source", origD: d, srcNodeId, tgtNodeId };
           }
@@ -892,18 +821,10 @@ function getIframeSrcDoc() {
                 // Position was committed - keep new position
               } else {
                 dragState.node.setAttribute("transform", dragState.origTransform || "");
-                // Restore original edge paths since drag was cancelled
-                if (dragState.connectedEdges) {
-                  dragState.connectedEdges.forEach(conn => {
-                    if (conn.type === "path" && conn.origD) {
-                      conn.el.setAttribute("d", conn.origD);
-                    } else if (conn.type === "line") {
-                      conn.el.setAttribute("x1", conn.origX1);
-                      conn.el.setAttribute("y1", conn.origY1);
-                      conn.el.setAttribute("x2", conn.origX2);
-                      conn.el.setAttribute("y2", conn.origY2);
-                    }
-                  });
+                // Restore custom edges to original positions since drag was cancelled
+                const shortId = getNodeShortId(dragState.node?.id || "");
+                if (shortId && (dragState._prevDx || dragState._prevDy)) {
+                  updateCustomEdgesForNode(svg, shortId, -(dragState._prevDx || 0), -(dragState._prevDy || 0));
                 }
               }
             }
@@ -972,7 +893,11 @@ function getIframeSrcDoc() {
           const elementType = (!target || target.nodeName === "svg") ? "canvas" : getElementType(target);
           const nodeGroup = elementType === "node" ? findDragRoot(target) : null;
           const edgeGroup = elementType === "edge" ? (target.closest("g.edgePath") || target.closest("g.edgeLabel")) : null;
-          const edgeEndpoints = edgeGroup ? getEdgeEndpoints(edgeGroup.id || edgeGroup.closest?.("g.edgePath")?.id || "") : null;
+          // Check for custom edge (mf-edge) first, fallback to Mermaid edge IDs
+          const customEdge = elementType === "edge" ? (target.classList?.contains("mf-edge") ? target : target.classList?.contains("mf-edge-label") ? target.previousElementSibling : null) : null;
+          const edgeEndpoints = customEdge
+            ? { source: customEdge.getAttribute("data-source") || "", target: customEdge.getAttribute("data-target") || "" }
+            : (edgeGroup ? getEdgeEndpoints(edgeGroup.id || edgeGroup.closest?.("g.edgePath")?.id || "") : null);
 
           // For nodes, extract label from the outermost node group (not inner sub-groups)
           let nodeLabel = "";
@@ -1123,9 +1048,10 @@ function getIframeSrcDoc() {
             committed: false,
           };
 
-          // Find and cache all edges connected to this node (geometric proximity)
+          // Initialize delta tracking for custom edge updates
           if (!isGantt) {
-            dragState.connectedEdges = findConnectedEdges(svg, dragNode);
+            dragState._prevDx = 0;
+            dragState._prevDy = 0;
           }
         });
 
@@ -1223,24 +1149,14 @@ function getIframeSrcDoc() {
             const newTy = dragState.origTy + svgDy;
             dragState.node.setAttribute("transform", "translate(" + newTx + ", " + newTy + ")");
 
-            // Move connected edges using rubber-band path modification (cached from pointerdown)
-            if (dragState.connectedEdges) {
-              dragState.connectedEdges.forEach(conn => {
-                if (conn.type === "path" && conn.origD) {
-                  const origCmds = parsePathD(conn.origD);
-                  const newCmds = parsePathD(conn.origD);
-                  applyRubberBand(newCmds, origCmds,
-                    conn.isSource ? svgDx : 0, conn.isSource ? svgDy : 0,
-                    conn.isTarget ? svgDx : 0, conn.isTarget ? svgDy : 0
-                  );
-                  conn.el.setAttribute("d", serializePathD(newCmds));
-                } else if (conn.type === "line") {
-                  conn.el.setAttribute("x1", conn.origX1 + (conn.isSource ? svgDx : 0));
-                  conn.el.setAttribute("y1", conn.origY1 + (conn.isSource ? svgDy : 0));
-                  conn.el.setAttribute("x2", conn.origX2 + (conn.isTarget ? svgDx : 0));
-                  conn.el.setAttribute("y2", conn.origY2 + (conn.isTarget ? svgDy : 0));
-                }
-              });
+            // Move connected edges using deterministic ID-based lookup
+            const shortId = getNodeShortId(dragState.node?.id || "");
+            if (shortId && cachedEdgeData.length > 0) {
+              const ddx = svgDx - (dragState._prevDx || 0);
+              const ddy = svgDy - (dragState._prevDy || 0);
+              updateCustomEdgesForNode(svg, shortId, ddx, ddy);
+              dragState._prevDx = svgDx;
+              dragState._prevDy = svgDy;
             }
           }
         });
@@ -1494,6 +1410,14 @@ function getIframeSrcDoc() {
             positionOverrides[key] = val;
           }
           applyPositionOverrides();
+          return;
+        }
+
+        if (data.type === "edges:draw") {
+          const svg = canvas.querySelector("svg");
+          if (svg) {
+            drawCustomEdges(svg, data.payload?.edges || [], data.payload?.diagramType || "");
+          }
           return;
         }
 
@@ -1886,6 +1810,36 @@ function App() {
               { channel: CHANNEL, type: "apply:positions", payload: { overrides: positionOverrides } },
               "*"
             );
+          }
+        }
+
+        // Send parsed edge data for custom edge rendering
+        const tk = classifyDiagramType(payload.diagramType || "");
+        const edgeTypes = ["flowchart", "erDiagram", "stateDiagram", "classDiagram"];
+        if (edgeTypes.includes(tk)) {
+          let edges = [];
+          if (tk === "flowchart") {
+            const fd = parseFlowchart(code);
+            edges = fd.edges.map(e => ({ source: e.source, target: e.target, label: e.label || "", arrowType: e.arrowType || "-->" }));
+          } else if (tk === "erDiagram") {
+            const ed = parseErDiagram(code);
+            edges = ed.relationships.map(r => ({ source: r.source, target: r.target, label: r.label || "", arrowType: r.cardinality || "||--o{" }));
+          } else if (tk === "stateDiagram") {
+            const sd = parseStateDiagram(code);
+            edges = sd.transitions.map(t => ({ source: t.source, target: t.target, label: t.label || "", arrowType: "-->" }));
+          } else if (tk === "classDiagram") {
+            const cd = parseClassDiagram(code);
+            edges = (cd.relationships || []).map(r => ({ source: r.source, target: r.target, label: r.label || "", arrowType: r.type || "--" }));
+          }
+          const frame = iframeRef.current;
+          if (frame?.contentWindow && edges.length > 0) {
+            // Use setTimeout to ensure positions are applied first
+            setTimeout(() => {
+              frame.contentWindow.postMessage(
+                { channel: CHANNEL, type: "edges:draw", payload: { edges, diagramType: tk } },
+                "*"
+              );
+            }, 50);
           }
         }
       }
