@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
 import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus, updateGanttAssignee, updateGanttNotes } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge } from "./flowchartUtils";
-import { getDiagramAdapter } from "./diagramUtils";
+import { getDiagramAdapter, parseErDiagram, updateErEntity } from "./diagramUtils";
 
 const CHANNEL = "mermaid-flow";
 
@@ -505,26 +505,21 @@ function getIframeSrcDoc() {
         const connections = [];
         try {
           const bbox = node.getBBox();
-          // Use getScreenCTM for accurate position considering nested transforms
+          // Use getCTM for direct element-to-SVG-viewport coordinate conversion
           let tx = 0, ty = 0;
           try {
-            const nodeCTM = node.getScreenCTM();
-            const svgCTM = svg.getScreenCTM();
-            if (nodeCTM && svgCTM) {
-              // Convert node's bbox origin to SVG coordinate space
-              const svgInv = svgCTM.inverse();
+            const ctm = node.getCTM();
+            if (ctm) {
               const pt = svg.createSVGPoint();
               pt.x = bbox.x; pt.y = bbox.y;
-              const nodePt = pt.matrixTransform(nodeCTM).matrixTransform(svgInv);
-              tx = nodePt.x;
-              ty = nodePt.y;
+              const transformed = pt.matrixTransform(ctm);
+              tx = transformed.x;
+              ty = transformed.y;
             } else {
               const transform = node.getAttribute("transform") || "";
               const tm = transform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-              tx = tm ? parseFloat(tm[1]) : 0;
-              ty = tm ? parseFloat(tm[2]) : 0;
-              tx += bbox.x;
-              ty += bbox.y;
+              tx = tm ? parseFloat(tm[1]) + bbox.x : bbox.x;
+              ty = tm ? parseFloat(tm[2]) + bbox.y : bbox.y;
             }
           } catch (_) {
             const transform = node.getAttribute("transform") || "";
@@ -536,7 +531,7 @@ function getIframeSrcDoc() {
             left: tx, right: tx + bbox.width,
             top: ty, bottom: ty + bbox.height,
           };
-          const margin = Math.max(bbox.width, bbox.height) * 0.3 + 25;
+          const margin = Math.max(bbox.width, bbox.height) * 0.4 + 30;
           const isNear = (px, py) => {
             return px >= nodeBox.left - margin && px <= nodeBox.right + margin &&
                    py >= nodeBox.top - margin && py <= nodeBox.bottom + margin;
@@ -1770,6 +1765,21 @@ function App() {
                 label = node.label || label || nodeId;
               }
             }
+            // ER diagram: include entity attributes in modal
+            if (toolsetKey === "erDiagram") {
+              const erData = parseErDiagram(code);
+              const entity = erData.entities.find(e => e.id === nodeId);
+              if (entity) {
+                setNodeEditModal({
+                  type: "node",
+                  nodeId,
+                  label: entity.id,
+                  shape: "rect",
+                  attributes: [...entity.attributes],
+                });
+                return;
+              }
+            }
             // For ER/class/state: use nodeId as label if no meaningful label found
             if (!label || label.length < 2) label = nodeId;
             setNodeEditModal({
@@ -2680,6 +2690,39 @@ function App() {
                     </div>
                   </>
                 )}
+                {nodeEditModal.attributes && (
+                  <>
+                    <label>Attributes</label>
+                    <div className="er-attr-list">
+                      {nodeEditModal.attributes.map((attr, idx) => (
+                        <div key={idx} className="er-attr-row">
+                          <input
+                            value={attr}
+                            onChange={(e) => {
+                              setNodeEditModal((prev) => {
+                                const attrs = [...prev.attributes];
+                                attrs[idx] = e.target.value;
+                                return { ...prev, attributes: attrs };
+                              });
+                            }}
+                          />
+                          <button className="er-attr-remove" onClick={() => {
+                            setNodeEditModal((prev) => ({
+                              ...prev,
+                              attributes: prev.attributes.filter((_, i) => i !== idx),
+                            }));
+                          }}>&times;</button>
+                        </div>
+                      ))}
+                      <button className="soft-btn" style={{ marginTop: 4 }} onClick={() => {
+                        setNodeEditModal((prev) => ({
+                          ...prev,
+                          attributes: [...prev.attributes, "string new_field"],
+                        }));
+                      }}>+ Add attribute</button>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="task-modal-actions">
                 <button className="soft-btn" onClick={() => setNodeEditModal(null)}>Cancel</button>
@@ -2710,7 +2753,12 @@ function App() {
                   Delete
                 </button>
                 <button className="soft-btn primary" onClick={() => {
-                  if (isFlowchart) {
+                  if (toolsetKey === "erDiagram" && nodeEditModal.attributes) {
+                    setCode((prev) => updateErEntity(prev, nodeEditModal.nodeId, {
+                      newName: nodeEditModal.label,
+                      attributes: nodeEditModal.attributes,
+                    }));
+                  } else if (isFlowchart) {
                     const updates = {};
                     if (nodeEditModal.label) updates.label = nodeEditModal.label;
                     if (nodeEditModal.shape) updates.shape = nodeEditModal.shape;

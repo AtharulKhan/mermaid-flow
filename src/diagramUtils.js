@@ -193,6 +193,41 @@ export function removeErEntity(code, entityName) {
   return result.join("\n");
 }
 
+export function updateErEntity(code, entityName, { newName, attributes }) {
+  const lines = code.split("\n");
+  const result = [];
+  let inEntity = false;
+  let found = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.match(new RegExp(`^${entityName}\\s*\\{`))) {
+      inEntity = true;
+      found = true;
+      const name = newName || entityName;
+      result.push(`    ${name} {`);
+      for (const attr of attributes) {
+        result.push(`        ${attr}`);
+      }
+      continue;
+    }
+    if (inEntity) {
+      if (trimmed === "}") {
+        inEntity = false;
+        result.push(`    }`);
+      }
+      continue;
+    }
+    if (found && newName && newName !== entityName) {
+      const re = new RegExp(`\\b${entityName}\\b`, 'g');
+      result.push(lines[i].replace(re, newName));
+    } else {
+      result.push(lines[i]);
+    }
+  }
+  return result.join("\n");
+}
+
 export function addErRelationship(code, { source, target, cardinality = "||--o{", label = "relates" }) {
   return code + `\n    ${source} ${cardinality} ${target} : ${label}`;
 }

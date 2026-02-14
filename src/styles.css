@@ -1152,6 +1152,45 @@ input:focus {
   font-weight: 600;
 }
 
+/* ── ER Entity Attribute Editing ──────────────────────── */
+.er-attr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.er-attr-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.er-attr-row input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.er-attr-remove {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.er-attr-remove:hover {
+  background: var(--danger-soft);
+}
+
 /* ── Scrollbar ────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
