@@ -67,10 +67,14 @@ function getIframeSrcDoc() {
         min-height: 100%;
         padding: 16px;
         box-sizing: border-box;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
       }
       #canvas > svg {
         width: 100%;
         height: auto;
+        max-width: 100%;
       }
       .mf-selected * {
         stroke: #2563eb !important;
@@ -92,8 +96,11 @@ function getIframeSrcDoc() {
       /* Default (untagged) Gantt bars */
       .task0,.task1,.task2,.task3,.task4,.task5,.task6,.task7,.task8,.task9 { rx: 6; }
       /* Gantt section labels */
-      .sectionTitle { font-weight: 600 !important; fill: #374151 !important; font-size: 13px !important; }
-      .sectionTitle0,.sectionTitle1,.sectionTitle2,.sectionTitle3 { font-weight: 600 !important; }
+      .sectionTitle { font-weight: 700 !important; fill: #1e293b !important; font-size: 14px !important; }
+      .sectionTitle0,.sectionTitle1,.sectionTitle2,.sectionTitle3 { font-weight: 700 !important; fill: #1e293b !important; }
+      /* Gantt section backgrounds - make them more visible */
+      .section0,.section2 { fill: rgba(37, 99, 235, 0.04) !important; }
+      .section1,.section3 { fill: rgba(37, 99, 235, 0.08) !important; }
       /* Gantt grid lines */
       .grid .tick line { stroke: #e5e7eb !important; stroke-dasharray: 4 2; opacity: 0.5; }
       .grid .tick text { fill: #6b7280 !important; font-size: 11px !important; }
@@ -281,8 +288,18 @@ function getIframeSrcDoc() {
       const getNodeShortId = (svgId) => {
         if (!svgId) return "";
         // flowchart-A-0 → A, flowchart-NodeName-123 → NodeName
-        const m = svgId.match(/^flowchart-(.+?)-\\d+$/);
-        return m ? m[1] : svgId;
+        const fm = svgId.match(/^flowchart-(.+?)-\\d+$/);
+        if (fm) return fm[1];
+        // entity-ORGANIZATIONS-0 → ORGANIZATIONS
+        const em = svgId.match(/^entity-(.+?)-\\d+$/);
+        if (em) return em[1];
+        // state-StateName-0 → StateName
+        const sm = svgId.match(/^state-(.+?)(?:-\\d+)?$/);
+        if (sm) return sm[1];
+        // classId0 → classId (strip trailing digit for class diagrams)
+        const cm = svgId.match(/^(classId\\d+)$/);
+        if (cm) return cm[1];
+        return svgId;
       };
 
       const getEdgeEndpoints = (edgeId) => {
@@ -488,15 +505,38 @@ function getIframeSrcDoc() {
         const connections = [];
         try {
           const bbox = node.getBBox();
-          const transform = node.getAttribute("transform") || "";
-          const tm = transform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-          const tx = tm ? parseFloat(tm[1]) : 0;
-          const ty = tm ? parseFloat(tm[2]) : 0;
+          // Use getScreenCTM for accurate position considering nested transforms
+          let tx = 0, ty = 0;
+          try {
+            const nodeCTM = node.getScreenCTM();
+            const svgCTM = svg.getScreenCTM();
+            if (nodeCTM && svgCTM) {
+              // Convert node's local origin to SVG coordinate space
+              const svgInv = svgCTM.inverse();
+              const pt = svg.createSVGPoint();
+              pt.x = 0; pt.y = 0;
+              const nodePt = pt.matrixTransform(nodeCTM).matrixTransform(svgInv);
+              tx = nodePt.x;
+              ty = nodePt.y;
+            } else {
+              const transform = node.getAttribute("transform") || "";
+              const tm = transform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+              tx = tm ? parseFloat(tm[1]) : 0;
+              ty = tm ? parseFloat(tm[2]) : 0;
+              tx += bbox.x;
+              ty += bbox.y;
+            }
+          } catch (_) {
+            const transform = node.getAttribute("transform") || "";
+            const tm = transform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+            tx = tm ? parseFloat(tm[1]) + bbox.x : bbox.x;
+            ty = tm ? parseFloat(tm[2]) + bbox.y : bbox.y;
+          }
           const nodeBox = {
-            left: bbox.x + tx, right: bbox.x + bbox.width + tx,
-            top: bbox.y + ty, bottom: bbox.y + bbox.height + ty,
+            left: tx, right: tx + bbox.width,
+            top: ty, bottom: ty + bbox.height,
           };
-          const margin = Math.max(bbox.width, bbox.height) * 0.3 + 20;
+          const margin = Math.max(bbox.width, bbox.height) * 0.3 + 25;
           const isNear = (px, py) => {
             return px >= nodeBox.left - margin && px <= nodeBox.right + margin &&
                    py >= nodeBox.top - margin && py <= nodeBox.bottom + margin;
@@ -877,8 +917,32 @@ function getIframeSrcDoc() {
           const nodeGroup = elementType === "node" ? findDragRoot(target) : null;
           const edgeGroup = elementType === "edge" ? (target.closest("g.edgePath") || target.closest("g.edgeLabel")) : null;
           const edgeEndpoints = edgeGroup ? getEdgeEndpoints(edgeGroup.id || edgeGroup.closest?.("g.edgePath")?.id || "") : null;
+
+          // For nodes, extract label from the outermost node group (not inner sub-groups)
+          let nodeLabel = "";
+          if (nodeGroup) {
+            // Try to get the primary/first text child of the node group
+            const allTexts = Array.from(nodeGroup.querySelectorAll("text"));
+            if (allTexts.length > 0) {
+              // For ER entities: first text is the entity name
+              // For flowchart nodes: first text is the node label
+              // For class diagrams: first text is the class name
+              nodeLabel = allTexts[0].textContent?.trim() || "";
+              // If multiple texts and first is very short (like a type), use the group id
+              if (!nodeLabel || nodeLabel.length < 2) {
+                // Collect all text content
+                nodeLabel = allTexts.map(t => t.textContent?.trim()).filter(Boolean).join(" ") || "";
+              }
+            }
+            if (!nodeLabel) nodeLabel = getNodeShortId(nodeGroup.id || "") || target.textContent?.trim() || "";
+          }
+
+          const info = extractInfo(target);
+          // Override label with better extraction for nodes
+          if (nodeGroup && nodeLabel) info.label = nodeLabel;
+
           send("element:context", {
-            ...extractInfo(target),
+            ...info,
             elementType,
             nodeId: nodeGroup ? getNodeShortId(nodeGroup.id || "") : "",
             edgeSource: edgeEndpoints?.source || "",
@@ -1194,7 +1258,9 @@ function getIframeSrcDoc() {
         nodeGroups.forEach(nodeEl => {
           nodeEl.addEventListener("mouseenter", () => {
             if (dragState || isPanning || reconnectState) return;
-            if (currentDiagramType.toLowerCase().includes("gantt")) return;
+            // Only show ports for flowcharts (other diagram types generate invalid syntax)
+            const dtype = classifyForDrag(currentDiagramType);
+            if (dtype !== "flowchart") return;
             showPorts(nodeEl);
           });
           nodeEl.addEventListener("mouseleave", () => {
@@ -1439,7 +1505,25 @@ function getIframeSrcDoc() {
           canvas.innerHTML = svg;
 
           const svgNode = canvas.querySelector("svg");
-          if (svgNode) wireSelection(svgNode);
+          if (svgNode) {
+            // Make Gantt charts fill the container width
+            const dtype = (parseResult?.diagramType || "").toLowerCase();
+            if (dtype.includes("gantt")) {
+              svgNode.removeAttribute("width");
+              svgNode.style.width = "100%";
+              svgNode.style.minWidth = "100%";
+              svgNode.style.height = "auto";
+              // Ensure the viewBox covers the content
+              try {
+                const bbox = svgNode.getBBox();
+                if (bbox.width > 0) {
+                  svgNode.setAttribute("viewBox", bbox.x + " " + bbox.y + " " + bbox.width + " " + bbox.height);
+                  svgNode.setAttribute("preserveAspectRatio", "xMidYMid meet");
+                }
+              } catch (_) {}
+            }
+            wireSelection(svgNode);
+          }
           send("render:success", { diagramType: parseResult?.diagramType || "", svg });
         } catch (err) {
           const message = (err && err.message) ? err.message : String(err);
@@ -1676,15 +1760,21 @@ function App() {
           if (elementType === "node") {
             // Open full modal for node editing
             const nodeId = selected?.nodeId || "";
+            let label = selected?.label || "";
             let shape = "rect";
             if (toolsetKey === "flowchart") {
               const node = flowchartData.nodes.find(n => n.id === nodeId);
-              if (node) shape = node.shape || "rect";
+              if (node) {
+                shape = node.shape || "rect";
+                if (!label || label.length < 2) label = node.label || nodeId;
+              }
             }
+            // For ER/class/state: use nodeId as label if no meaningful label found
+            if (!label || label.length < 2) label = nodeId;
             setNodeEditModal({
               type: "node",
               nodeId,
-              label: selected?.label || "",
+              label,
               shape,
             });
           } else if (elementType === "edge") {
