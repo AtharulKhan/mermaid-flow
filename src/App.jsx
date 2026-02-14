@@ -121,8 +121,29 @@ function getIframeSrcDoc() {
       const tooltipEl = document.getElementById("mf-tooltip");
 
       canvas.addEventListener("mouseover", (e) => {
-        if (e.target.nodeName !== "rect") return;
-        const tip = e.target.getAttribute("data-mf-tip");
+        let tip = "";
+        const tag = e.target.nodeName;
+        if (tag === "rect") {
+          tip = e.target.getAttribute("data-mf-tip") || "";
+        } else if (tag === "text" || tag === "tspan") {
+          const textEl = tag === "tspan" ? (e.target.closest("text") || e.target.parentElement) : e.target;
+          if (textEl) {
+            const tId = textEl.getAttribute("id") || "";
+            if (tId && tId.endsWith("-text")) {
+              const rEl = canvas.querySelector("svg #" + CSS.escape(tId.slice(0, -5)));
+              if (rEl) tip = rEl.getAttribute("data-mf-tip") || "";
+            }
+            if (!tip) {
+              const svg = canvas.querySelector("svg");
+              if (svg) {
+                const txts = Array.from(svg.querySelectorAll("text.taskText"));
+                const bars = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
+                const idx = txts.indexOf(textEl);
+                if (idx >= 0 && idx < bars.length) tip = bars[idx].getAttribute("data-mf-tip") || "";
+              }
+            }
+          }
+        }
         if (!tip) return;
         tooltipEl.textContent = tip;
         tooltipEl.style.display = "block";
@@ -136,7 +157,8 @@ function getIframeSrcDoc() {
         }
       });
       canvas.addEventListener("mouseout", (e) => {
-        if (e.target.nodeName === "rect") {
+        const tag = e.target.nodeName;
+        if (tag === "rect" || tag === "text" || tag === "tspan") {
           tooltipEl.style.display = "none";
         }
       });
@@ -197,13 +219,35 @@ function getIframeSrcDoc() {
           label = clone.textContent?.trim() || "";
         }
         if (!label) label = target.getAttribute("id") || target.nodeName;
-        const rect = target.getBBox ? target.getBBox() : null;
+
+        // For Gantt text elements, get barWidth from the corresponding rect
+        let barWidth = 0;
+        if (currentDiagramType.toLowerCase().includes("gantt") && (target.nodeName === "text" || target.nodeName === "tspan")) {
+          const tEl = target.nodeName === "tspan" ? (target.closest("text") || target.parentElement) : target;
+          const tId = tEl?.getAttribute("id") || "";
+          let taskRect = null;
+          if (tId && tId.endsWith("-text")) {
+            taskRect = svg?.querySelector("#" + CSS.escape(tId.slice(0, -5)));
+          }
+          if (!taskRect && svg) {
+            const allTexts = Array.from(svg.querySelectorAll("text.taskText"));
+            const allRects = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
+            const tIdx = allTexts.indexOf(tEl);
+            if (tIdx >= 0 && tIdx < allRects.length) taskRect = allRects[tIdx];
+          }
+          if (taskRect) barWidth = taskRect.getBBox?.()?.width || 0;
+        }
+        if (!barWidth) {
+          const bbox = target.getBBox ? target.getBBox() : null;
+          barWidth = bbox?.width || 0;
+        }
+
         return {
           id: target.id || group.id || "",
           className: group.className?.baseVal || target.className?.baseVal || "",
           label,
           nodeName: target.nodeName,
-          barWidth: rect?.width || 0,
+          barWidth,
         };
       };
 
@@ -212,7 +256,7 @@ function getIframeSrcDoc() {
         if (!currentDiagramType.toLowerCase().includes("gantt")) return false;
         const cls = target.className?.baseVal || "";
         if (!/task/i.test(cls)) return false;
-        return target.nodeName === "rect" || target.nodeName === "g";
+        return target.nodeName === "rect" || target.nodeName === "text" || target.nodeName === "g";
       };
 
       const wireSelection = (svg) => {
@@ -361,6 +405,11 @@ function getIframeSrcDoc() {
             if (t.assignee) tip += "\\nAssignee: " + t.assignee;
             rectEl.setAttribute("data-mf-tip", tip);
 
+            // White text on dark status bars (done=green, crit=maroon)
+            if (textEl && (t.statusTokens || []).some(s => s === "done" || s === "crit")) {
+              textEl.setAttribute("fill", "#ffffff");
+            }
+
             if (isOverdue) {
               const bbox = rectEl.getBBox();
               const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
@@ -384,7 +433,8 @@ function getIframeSrcDoc() {
 
           const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
           tspan.setAttribute("class", "mf-date-tspan");
-          tspan.setAttribute("fill", "#9ca3af");
+          const isDarkBar = (t.statusTokens || []).some(s => s === "done" || s === "crit");
+          tspan.setAttribute("fill", isDarkBar ? "rgba(255,255,255,0.65)" : "#9ca3af");
           tspan.setAttribute("font-size", "0.78em");
           tspan.setAttribute("font-weight", "400");
           tspan.textContent = " (" + dateStr + ")";
@@ -653,9 +703,13 @@ function App() {
         const dayShift = Math.round((payload.deltaX || 0) / pixelsPerDay);
         if (!dayShift) return;
 
-        const nextDate = shiftIsoDate(task.startDate, dayShift);
-        setCode((prev) => updateGanttTask(prev, task, { startDate: nextDate }));
-        setRenderMessage(`Updated "${task.label}" start date to ${nextDate}`);
+        const nextStart = shiftIsoDate(task.startDate, dayShift);
+        const updates = { startDate: nextStart };
+        if (task.endDate) {
+          updates.endDate = shiftIsoDate(task.endDate, dayShift);
+        }
+        setCode((prev) => updateGanttTask(prev, task, updates));
+        setRenderMessage(`Updated "${task.label}" start date to ${nextStart}`);
         setHighlightLine(task.lineIndex + 1);
       }
     };
