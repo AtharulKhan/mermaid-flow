@@ -75,6 +75,11 @@ function getIframeSrcDoc() {
         stroke: #1f5da3 !important;
         stroke-width: 2.2px !important;
       }
+      .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #22c55e !important; }
+      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #fde68a !important; }
+      .crit0,.crit1,.crit2,.crit3,.crit4,.crit5,.crit6,.crit7,.crit8,.crit9 { fill: #991b1b !important; }
+      .activeCrit0,.activeCrit1,.activeCrit2,.activeCrit3 { fill: #b91c1c !important; }
+      .doneCrit0,.doneCrit1,.doneCrit2,.doneCrit3 { fill: #166534 !important; }
       #error {
         margin-top: 12px;
         font-size: 13px;
@@ -261,34 +266,83 @@ function getIframeSrcDoc() {
       const annotateGanttBars = (tasks, showDates) => {
         const svg = canvas.querySelector("svg");
         if (!svg) return;
-        // Remove previous annotations
-        svg.querySelectorAll(".mf-date-label").forEach(el => el.remove());
         svg.querySelectorAll(".mf-date-tspan").forEach(el => el.remove());
-
-        if (!showDates) return;
+        svg.querySelectorAll(".mf-overdue-dot").forEach(el => el.remove());
+        svg.querySelectorAll(".mf-tooltip").forEach(el => el.remove());
 
         const texts = Array.from(svg.querySelectorAll("text.taskText"));
+        const rects = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
+        const today = new Date().toISOString().slice(0, 10);
+
+        const fmt = (iso) => {
+          if (!iso) return "";
+          const parts = iso.split("-");
+          const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
+        };
+        const fmtFull = (iso) => {
+          if (!iso) return "";
+          const parts = iso.split("-");
+          const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10) + ", " + parts[0];
+        };
 
         tasks.forEach((t) => {
-          if (!t.startDate && !t.endDate && !t.assignee) return;
-          // Match by label text
-          const textEl = texts.find(el => el.textContent?.trim() === t.label);
-          if (!textEl) return;
+          const endDate = t.endDate || t.computedEnd || "";
+          const isDone = (t.statusTokens || []).includes("done");
+          const isOverdue = endDate && !isDone && endDate < today;
 
-          // Format dates as "Feb 10 – Feb 14"
-          const fmt = (iso) => {
-            if (!iso) return "";
-            const [y, m, d] = iso.split("-");
-            const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-            return months[parseInt(m, 10) - 1] + " " + parseInt(d, 10);
-          };
+          const textEl = texts.find(el => el.textContent?.trim() === t.label);
+          let rectEl = null;
+          if (textEl) {
+            const textId = textEl.getAttribute("id");
+            if (textId && textId.endsWith("-text")) {
+              rectEl = svg.querySelector("#" + CSS.escape(textId.slice(0, -5)));
+            }
+            if (!rectEl) {
+              const idx = texts.indexOf(textEl);
+              if (idx >= 0 && idx < rects.length) rectEl = rects[idx];
+            }
+          }
+
+          if (rectEl) {
+            const old = rectEl.querySelector("title");
+            if (old) old.remove();
+            const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            title.setAttribute("class", "mf-tooltip");
+            let tip = t.label;
+            if (t.statusTokens?.length) {
+              const sMap = { done: "Done", active: "Active", crit: "Critical" };
+              tip += "\\nStatus: " + t.statusTokens.map(s => sMap[s] || s).join(", ");
+            }
+            if (t.startDate) tip += "\\nStart: " + fmtFull(t.startDate);
+            if (endDate) tip += "\\nEnd: " + fmtFull(endDate);
+            if (isOverdue) tip += "\\nOVERDUE";
+            if (t.assignee) tip += "\\nAssignee: " + t.assignee;
+            title.textContent = tip;
+            rectEl.prepend(title);
+
+            if (isOverdue) {
+              const bbox = rectEl.getBBox();
+              const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+              dot.setAttribute("class", "mf-overdue-dot");
+              dot.setAttribute("cx", String(bbox.x - 8));
+              dot.setAttribute("cy", String(bbox.y + bbox.height / 2));
+              dot.setAttribute("r", "4");
+              dot.setAttribute("fill", "#dc2626");
+              rectEl.parentElement.appendChild(dot);
+            }
+          }
+
+          if (!showDates || !textEl) return;
+          if (!t.startDate && !endDate && !t.assignee) return;
+
           const startStr = fmt(t.startDate);
-          const endStr = t.endDate ? fmt(t.endDate) : (t.durationDays && t.startDate ? fmt(t.computedEnd) : "");
+          const endStr = endDate ? fmt(endDate) : "";
           let dateStr = endStr ? startStr + " – " + endStr : startStr;
           if (t.assignee) dateStr = (dateStr ? dateStr + " · " : "") + t.assignee;
           if (!dateStr) return;
 
-          // Append date as inline tspan after the task label
           const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
           tspan.setAttribute("class", "mf-date-tspan");
           tspan.setAttribute("fill", "#9ca3af");
@@ -397,7 +451,7 @@ function App() {
   const [highlightLine, setHighlightLine] = useState(null);
   const [templateId, setTemplateId] = useState("flowchart");
   const [dragFeedback, setDragFeedback] = useState("");
-  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", duration: "", status: [], assignee: "" });
+  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", status: [], assignee: "" });
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(false);
@@ -457,14 +511,19 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", duration: "", status: [], assignee: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "" });
       return;
+    }
+    let computedEnd = selectedGanttTask.endDate || "";
+    if (!computedEnd && selectedGanttTask.startDate && selectedGanttTask.durationDays) {
+      const d = new Date(selectedGanttTask.startDate + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() + selectedGanttTask.durationDays);
+      computedEnd = d.toISOString().slice(0, 10);
     }
     setGanttDraft({
       label: selectedGanttTask.label || "",
       startDate: selectedGanttTask.startDate || "",
-      endDate: selectedGanttTask.endDate || "",
-      duration: selectedGanttTask.durationToken || "",
+      endDate: computedEnd,
       status: selectedGanttTask.statusTokens || [],
       assignee: selectedGanttTask.assignee || "",
     });
@@ -493,7 +552,7 @@ function App() {
               d.setUTCDate(d.getUTCDate() + t.durationDays);
               computedEnd = d.toISOString().slice(0, 10);
             }
-            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "" };
+            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [] };
           });
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
@@ -579,7 +638,7 @@ function App() {
         d.setUTCDate(d.getUTCDate() + t.durationDays);
         computedEnd = d.toISOString().slice(0, 10);
       }
-      return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "" };
+      return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [] };
     });
     frame.contentWindow.postMessage(
       { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates } },
@@ -673,12 +732,10 @@ function App() {
 
     const nextStartDate = ganttDraft.startDate.trim();
     const nextEndDate = ganttDraft.endDate.trim();
-    const nextDuration = ganttDraft.duration.trim();
     let updated = updateGanttTask(code, selectedGanttTask, {
       label: nextLabel,
       startDate: nextStartDate || selectedGanttTask.startDate,
-      endDate: nextEndDate || selectedGanttTask.endDate,
-      duration: nextDuration || selectedGanttTask.durationToken,
+      endDate: nextEndDate,
     });
 
     // Apply status changes: clear existing, then add desired flags
@@ -1003,24 +1060,14 @@ function App() {
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, startDate: e.target.value }))}
                   />
                 </label>
-                {selectedGanttTask.endDateIndex >= 0 ? (
-                  <label>
-                    End date
-                    <input
-                      type="date"
-                      value={ganttDraft.endDate}
-                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
-                    />
-                  </label>
-                ) : (
-                  <label>
-                    Duration (e.g. 3d, 2w)
-                    <input
-                      value={ganttDraft.duration}
-                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, duration: e.target.value }))}
-                    />
-                  </label>
-                )}
+                <label>
+                  End date
+                  <input
+                    type="date"
+                    value={ganttDraft.endDate}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
+                  />
+                </label>
                 <label>
                   Assignee
                   <input
@@ -1194,25 +1241,14 @@ function App() {
                       onChange={(e) => setGanttDraft((prev) => ({ ...prev, startDate: e.target.value }))}
                     />
                   </label>
-                  {task?.endDateIndex >= 0 ? (
-                    <label>
-                      End date
-                      <input
-                        type="date"
-                        value={ganttDraft.endDate}
-                        onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
-                      />
-                    </label>
-                  ) : (
-                    <label>
-                      Duration
-                      <input
-                        value={ganttDraft.duration}
-                        onChange={(e) => setGanttDraft((prev) => ({ ...prev, duration: e.target.value }))}
-                        placeholder="e.g. 3d, 2w"
-                      />
-                    </label>
-                  )}
+                  <label>
+                    End date
+                    <input
+                      type="date"
+                      value={ganttDraft.endDate}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
+                    />
+                  </label>
                 </div>
               </div>
 
