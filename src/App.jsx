@@ -75,6 +75,7 @@ function getIframeSrcDoc() {
         stroke: #1f5da3 !important;
         stroke-width: 2.2px !important;
       }
+      text.taskTextOutsideRight, text.taskTextOutsideLeft { pointer-events: all; cursor: pointer; }
       .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #22c55e !important; }
       .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #fde68a !important; }
       .crit0,.crit1,.crit2,.crit3,.crit4,.crit5,.crit6,.crit7,.crit8,.crit9 { fill: #991b1b !important; }
@@ -119,6 +120,7 @@ function getIframeSrcDoc() {
       const canvas = document.getElementById("canvas");
       const error = document.getElementById("error");
       const tooltipEl = document.getElementById("mf-tooltip");
+      const TASK_TEXT_SEL = "text.taskText, text.taskTextOutsideRight, text.taskTextOutsideLeft";
 
       canvas.addEventListener("mouseover", (e) => {
         let tip = "";
@@ -178,7 +180,7 @@ function getIframeSrcDoc() {
             const parent = target.parentElement;
             if (parent) {
               const rects = Array.from(parent.querySelectorAll("rect"));
-              const texts = Array.from(parent.querySelectorAll("text.taskText"));
+              const texts = Array.from(parent.querySelectorAll(TASK_TEXT_SEL));
               const idx = rects.filter(r => /\\btask\\b/.test(r.className?.baseVal || "")).indexOf(target);
               if (idx >= 0 && idx < texts.length) {
                 textNode = texts[idx];
@@ -186,7 +188,7 @@ function getIframeSrcDoc() {
             }
           }
 
-          if (!textNode && target.nodeName === "text" && /\\btaskText\\b/.test(cls)) {
+          if (!textNode && target.nodeName === "text" && /taskText/.test(cls)) {
             // User clicked the label text directly
             textNode = target;
           }
@@ -215,7 +217,7 @@ function getIframeSrcDoc() {
             taskRect = svg?.querySelector("#" + CSS.escape(tId.slice(0, -5)));
           }
           if (!taskRect && svg) {
-            const allTexts = Array.from(svg.querySelectorAll("text.taskText"));
+            const allTexts = Array.from(svg.querySelectorAll(TASK_TEXT_SEL));
             const allRects = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
             const tIdx = allTexts.indexOf(tEl);
             if (tIdx >= 0 && tIdx < allRects.length) taskRect = allRects[tIdx];
@@ -240,6 +242,10 @@ function getIframeSrcDoc() {
         if (!target) return false;
         if (!currentDiagramType.toLowerCase().includes("gantt")) return false;
         const cls = target.className?.baseVal || "";
+        if (target.nodeName === "tspan") {
+          const parentCls = target.parentElement?.className?.baseVal || "";
+          return /task/i.test(parentCls);
+        }
         if (!/task/i.test(cls)) return false;
         return target.nodeName === "rect" || target.nodeName === "text" || target.nodeName === "g";
       };
@@ -248,6 +254,8 @@ function getIframeSrcDoc() {
         if (target.nodeName === "rect") return target;
         const textEl = target.nodeName === "tspan" ? (target.closest("text") || target.parentElement) : target;
         if (!textEl || textEl.nodeName !== "text") return null;
+        const cls = textEl.className?.baseVal || "";
+        if (!/taskText/.test(cls)) return null;
         const tId = textEl.getAttribute("id") || "";
         if (tId && tId.endsWith("-text")) {
           const r = canvas.querySelector("svg #" + CSS.escape(tId.slice(0, -5)));
@@ -255,7 +263,7 @@ function getIframeSrcDoc() {
         }
         const svgEl = canvas.querySelector("svg");
         if (!svgEl) return null;
-        const allTexts = Array.from(svgEl.querySelectorAll("text.taskText"));
+        const allTexts = Array.from(svgEl.querySelectorAll(TASK_TEXT_SEL));
         const allRects = Array.from(svgEl.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
         const idx = allTexts.indexOf(textEl);
         return (idx >= 0 && idx < allRects.length) ? allRects[idx] : null;
@@ -267,6 +275,13 @@ function getIframeSrcDoc() {
           if (dragState.node) {
             dragState.node.removeAttribute("transform");
             dragState.node.style.cursor = "";
+            // Restore original rect dimensions after edge resize
+            if (dragState.origX != null) {
+              dragState.node.setAttribute("x", String(dragState.origX));
+            }
+            if (dragState.origWidth != null) {
+              dragState.node.setAttribute("width", String(dragState.origWidth));
+            }
           }
           if (dragState.textNode) {
             dragState.textNode.removeAttribute("transform");
@@ -274,6 +289,38 @@ function getIframeSrcDoc() {
           dragState = null;
           suppressClick = false;
         };
+
+        // Edge-resize cursor hint on hover
+        svg.addEventListener("mousemove", (event) => {
+          if (dragState) return;
+          const target = event.target;
+          if (!target || target.nodeName !== "rect") {
+            svg.style.cursor = "";
+            return;
+          }
+          if (!isGanttTaskTarget(target)) {
+            svg.style.cursor = "";
+            return;
+          }
+          try {
+            const pt = svg.createSVGPoint();
+            pt.x = event.clientX; pt.y = event.clientY;
+            const ctm = svg.getScreenCTM();
+            if (ctm) {
+              const svgPt = pt.matrixTransform(ctm.inverse());
+              const bbox = target.getBBox();
+              const relX = svgPt.x - bbox.x;
+              const edgeZone = Math.max(bbox.width * 0.15, 8);
+              if (relX > bbox.width - edgeZone || relX < edgeZone) {
+                svg.style.cursor = "ew-resize";
+              } else {
+                svg.style.cursor = "grab";
+              }
+            }
+          } catch (_) {
+            svg.style.cursor = "";
+          }
+        });
 
         svg.addEventListener("click", (event) => {
           const target = event.target;
@@ -350,6 +397,17 @@ function getIframeSrcDoc() {
             dragNode.style.cursor = "grabbing";
           }
 
+          // Store original rect geometry for edge-resize restoration
+          let origX = null, origWidth = null, svgScale = 1;
+          if (isGantt && dragNode.nodeName === "rect") {
+            origX = parseFloat(dragNode.getAttribute("x")) || 0;
+            origWidth = parseFloat(dragNode.getAttribute("width")) || 0;
+            try {
+              const ctm = svg.getScreenCTM();
+              if (ctm) svgScale = ctm.a;
+            } catch (_) {}
+          }
+
           dragState = {
             target,
             node: dragNode,
@@ -360,6 +418,9 @@ function getIframeSrcDoc() {
             deltaY: 0,
             ganttTask: isGantt,
             dragMode,
+            origX,
+            origWidth,
+            svgScale,
           };
         });
 
@@ -371,11 +432,30 @@ function getIframeSrcDoc() {
             suppressClick = true;
           }
           if (dragState.ganttTask) {
-            // Gantt: horizontal only, move just the rect (and its text)
+            // Gantt: horizontal only
             const dx = dragState.deltaX;
-            dragState.node.setAttribute("transform", "translate(" + dx + " 0)");
-            if (dragState.textNode) {
-              dragState.textNode.setAttribute("transform", "translate(" + dx + " 0)");
+            const svgDx = dx / (dragState.svgScale || 1);
+            const mode = dragState.dragMode;
+
+            if (mode === "resize-end" && dragState.origWidth != null) {
+              // Stretch right edge: keep x, increase width
+              const newW = Math.max(4, dragState.origWidth + svgDx);
+              dragState.node.setAttribute("width", String(newW));
+            } else if (mode === "resize-start" && dragState.origX != null && dragState.origWidth != null) {
+              // Stretch left edge: move x, decrease width
+              const newX = dragState.origX + svgDx;
+              const newW = Math.max(4, dragState.origWidth - svgDx);
+              dragState.node.setAttribute("x", String(newX));
+              dragState.node.setAttribute("width", String(newW));
+              if (dragState.textNode) {
+                dragState.textNode.setAttribute("transform", "translate(" + dx + " 0)");
+              }
+            } else {
+              // Shift: translate whole bar
+              dragState.node.setAttribute("transform", "translate(" + dx + " 0)");
+              if (dragState.textNode) {
+                dragState.textNode.setAttribute("transform", "translate(" + dx + " 0)");
+              }
             }
           } else {
             dragState.node.setAttribute(
@@ -414,7 +494,7 @@ function getIframeSrcDoc() {
         svg.querySelectorAll(".mf-overdue-dot").forEach(el => el.remove());
         svg.querySelectorAll(".mf-tooltip").forEach(el => el.remove());
 
-        const texts = Array.from(svg.querySelectorAll("text.taskText"));
+        const texts = Array.from(svg.querySelectorAll(TASK_TEXT_SEL));
         const rects = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
         const today = new Date().toISOString().slice(0, 10);
 
