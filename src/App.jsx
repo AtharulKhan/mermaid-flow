@@ -51,20 +51,20 @@ function getIframeSrcDoc() {
         margin: 0;
         width: 100%;
         height: 100%;
-        background: #f5f7fa;
+        background: #f8f9fb;
+        background-image: radial-gradient(circle, #d4d8e0 0.75px, transparent 0.75px);
+        background-size: 20px 20px;
         font-family: "Manrope", system-ui, sans-serif;
       }
       #wrap {
         width: 100%;
         height: 100%;
         overflow: auto;
-        padding: 12px;
+        padding: 16px;
         box-sizing: border-box;
       }
       #canvas {
         min-height: 100%;
-        border-radius: 8px;
-        background: #ffffff;
         padding: 16px;
         box-sizing: border-box;
       }
@@ -83,11 +83,36 @@ function getIframeSrcDoc() {
         filter: drop-shadow(0 0 6px rgba(22, 163, 74, 0.4));
       }
       text.taskTextOutsideRight, text.taskTextOutsideLeft { pointer-events: all; cursor: pointer; }
-      .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #16a34a !important; }
-      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #ca8a04 !important; }
-      .crit0,.crit1,.crit2,.crit3,.crit4,.crit5,.crit6,.crit7,.crit8,.crit9 { fill: #dc2626 !important; }
-      .activeCrit0,.activeCrit1,.activeCrit2,.activeCrit3 { fill: #b91c1c !important; }
-      .doneCrit0,.doneCrit1,.doneCrit2,.doneCrit3 { fill: #15803d !important; }
+      /* ── Gantt Bar Styling ── */
+      .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #22c55e !important; rx: 6; }
+      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #3b82f6 !important; rx: 6; }
+      .crit0,.crit1,.crit2,.crit3,.crit4,.crit5,.crit6,.crit7,.crit8,.crit9 { fill: #ef4444 !important; rx: 6; }
+      .activeCrit0,.activeCrit1,.activeCrit2,.activeCrit3 { fill: #dc2626 !important; rx: 6; }
+      .doneCrit0,.doneCrit1,.doneCrit2,.doneCrit3 { fill: #16a34a !important; rx: 6; }
+      /* Default (untagged) Gantt bars */
+      .task0,.task1,.task2,.task3,.task4,.task5,.task6,.task7,.task8,.task9 { rx: 6; }
+      /* Gantt section labels */
+      .sectionTitle { font-weight: 600 !important; fill: #374151 !important; font-size: 13px !important; }
+      .sectionTitle0,.sectionTitle1,.sectionTitle2,.sectionTitle3 { font-weight: 600 !important; }
+      /* Gantt grid lines */
+      .grid .tick line { stroke: #e5e7eb !important; stroke-dasharray: 4 2; opacity: 0.5; }
+      .grid .tick text { fill: #6b7280 !important; font-size: 11px !important; }
+      /* Gantt task text */
+      .taskText { fill: #fff !important; font-weight: 500 !important; font-size: 12px !important; }
+      .taskTextOutsideRight, .taskTextOutsideLeft { fill: #374151 !important; font-weight: 500 !important; font-size: 12px !important; }
+      /* Milestone marker */
+      .milestone { rx: 3; }
+      /* ── General Diagram Styling ── */
+      .node rect, .node circle, .node ellipse, .node polygon { rx: 8; ry: 8; }
+      .node rect { stroke-width: 1.5px !important; }
+      .edgePath path.path { stroke-width: 1.5px !important; }
+      .cluster rect { rx: 10; ry: 10; stroke-width: 1px !important; stroke-dasharray: none !important; }
+      /* ER diagram styling */
+      .entity rect { rx: 8; ry: 8; stroke-width: 1.5px !important; }
+      .er.attributeBoxOdd, .er.attributeBoxEven { rx: 4; }
+      /* Draggable nodes cursor */
+      g.node, g.entity, g.classGroup { cursor: grab; }
+      g.node:active, g.entity:active, g.classGroup:active { cursor: grabbing; }
       #error {
         margin-top: 12px;
         font-size: 13px;
@@ -272,36 +297,75 @@ function getIframeSrcDoc() {
 
       const updateEdgesForOverrides = (svg) => {
         if (!svg || Object.keys(positionOverrides).length === 0) return;
-        const edgePaths = svg.querySelectorAll(".edgePath");
-        edgePaths.forEach(ep => {
-          const endpoints = getEdgeEndpoints(ep.id);
-          if (!endpoints) return;
-          const srcId = findNodeSvgId(svg, endpoints.source);
-          const tgtId = findNodeSvgId(svg, endpoints.target);
-          const srcOff = srcId ? positionOverrides[srcId] : null;
-          const tgtOff = tgtId ? positionOverrides[tgtId] : null;
-          if (!srcOff && !tgtOff) return;
-          // Use rubber-band path modification instead of transform
-          const pathEl = ep.querySelector("path");
-          if (pathEl) {
-            const origD = pathEl.getAttribute("d") || "";
-            const origCmds = parsePathD(origD);
-            const newCmds = parsePathD(origD);
-            applyRubberBand(newCmds, origCmds,
-              srcOff?.dx || 0, srcOff?.dy || 0,
-              tgtOff?.dx || 0, tgtOff?.dy || 0
-            );
-            pathEl.setAttribute("d", serializePathD(newCmds));
-          } else {
-            // Fallback to transform if no path element found
-            const dx = ((srcOff?.dx || 0) + (tgtOff?.dx || 0)) / 2;
-            const dy = ((srcOff?.dy || 0) + (tgtOff?.dy || 0)) / 2;
-            ep.setAttribute("transform", "translate(" + dx + ", " + dy + ")");
+        // Build list of moved nodes with their ORIGINAL bounding boxes
+        const movedNodes = [];
+        const skipSel = "g.node, g.entity, g.classGroup, g.cluster, g.mindmap-node, g.stateGroup, defs, marker";
+        for (const [nodeId, offset] of Object.entries(positionOverrides)) {
+          const el = svg.querySelector("#" + CSS.escape(nodeId));
+          if (!el) continue;
+          try {
+            const bbox = el.getBBox();
+            const tr = el.getAttribute("transform") || "";
+            const m = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+            const tx = m ? parseFloat(m[1]) : 0;
+            const ty = m ? parseFloat(m[2]) : 0;
+            // Subtract offset to get original position (before applyPositionOverrides moved it)
+            movedNodes.push({ offset, origBox: {
+              left: bbox.x + tx - offset.dx, right: bbox.x + bbox.width + tx - offset.dx,
+              top: bbox.y + ty - offset.dy, bottom: bbox.y + bbox.height + ty - offset.dy,
+            }});
+          } catch (e) {}
+        }
+        if (movedNodes.length === 0) return;
+        const margin = 30;
+        // Update all edge paths/lines using geometric proximity
+        svg.querySelectorAll("path, line").forEach(el => {
+          if (el.closest(skipSel)) return;
+          if (el.tagName === "path") {
+            const d = el.getAttribute("d");
+            if (!d) return;
+            const cmds = parsePathD(d);
+            const points = getPathPoints(cmds);
+            if (points.length < 2) return;
+            const fp = points[0];
+            const firstX = cmds[fp.ci].params[fp.pi], firstY = cmds[fp.ci].params[fp.pi + 1];
+            const lp = points[points.length - 1];
+            const lastX = cmds[lp.ci].params[lp.pi], lastY = cmds[lp.ci].params[lp.pi + 1];
+            let srcDx = 0, srcDy = 0, tgtDx = 0, tgtDy = 0;
+            for (const mn of movedNodes) {
+              const b = mn.origBox;
+              if (firstX >= b.left - margin && firstX <= b.right + margin && firstY >= b.top - margin && firstY <= b.bottom + margin) {
+                srcDx += mn.offset.dx; srcDy += mn.offset.dy;
+              }
+              if (lastX >= b.left - margin && lastX <= b.right + margin && lastY >= b.top - margin && lastY <= b.bottom + margin) {
+                tgtDx += mn.offset.dx; tgtDy += mn.offset.dy;
+              }
+            }
+            if (srcDx === 0 && srcDy === 0 && tgtDx === 0 && tgtDy === 0) return;
+            const origCmds = parsePathD(d);
+            const newCmds = parsePathD(d);
+            applyRubberBand(newCmds, origCmds, srcDx, srcDy, tgtDx, tgtDy);
+            el.setAttribute("d", serializePathD(newCmds));
+          } else if (el.tagName === "line") {
+            const x1 = parseFloat(el.getAttribute("x1")) || 0, y1 = parseFloat(el.getAttribute("y1")) || 0;
+            const x2 = parseFloat(el.getAttribute("x2")) || 0, y2 = parseFloat(el.getAttribute("y2")) || 0;
+            let srcDx = 0, srcDy = 0, tgtDx = 0, tgtDy = 0;
+            for (const mn of movedNodes) {
+              const b = mn.origBox;
+              if (x1 >= b.left - margin && x1 <= b.right + margin && y1 >= b.top - margin && y1 <= b.bottom + margin) {
+                srcDx += mn.offset.dx; srcDy += mn.offset.dy;
+              }
+              if (x2 >= b.left - margin && x2 <= b.right + margin && y2 >= b.top - margin && y2 <= b.bottom + margin) {
+                tgtDx += mn.offset.dx; tgtDy += mn.offset.dy;
+              }
+            }
+            if (srcDx === 0 && srcDy === 0 && tgtDx === 0 && tgtDy === 0) return;
+            el.setAttribute("x1", x1 + srcDx); el.setAttribute("y1", y1 + srcDy);
+            el.setAttribute("x2", x2 + tgtDx); el.setAttribute("y2", y2 + tgtDy);
           }
         });
-        // Also move edge labels
-        const edgeLabels = svg.querySelectorAll(".edgeLabel");
-        edgeLabels.forEach(el => {
+        // Move edge labels (flowchart-specific, best-effort for other types)
+        svg.querySelectorAll(".edgeLabel").forEach(el => {
           const id = el.id || "";
           const endpoints = getEdgeEndpoints(id.replace(/^label-/, "L-"));
           if (!endpoints) return;
@@ -403,33 +467,60 @@ function getIframeSrcDoc() {
         });
       };
 
-      // Store original path d attributes for all edges connected to a node
-      const storeOriginalEdgePaths = (svg, shortId) => {
-        svg.querySelectorAll(".edgePath").forEach(ep => {
-          const endpoints = getEdgeEndpoints(ep.id);
-          if (!endpoints) return;
-          if (endpoints.source === shortId || endpoints.target === shortId) {
-            const pathEl = ep.querySelector("path");
-            if (pathEl && !pathEl.dataset.mfOrigD) {
-              pathEl.dataset.mfOrigD = pathEl.getAttribute("d") || "";
+      // Universal: find all edge paths/lines connected to a node using geometric proximity
+      const findConnectedEdges = (svg, node) => {
+        const connections = [];
+        try {
+          const bbox = node.getBBox();
+          const transform = node.getAttribute("transform") || "";
+          const tm = transform.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+          const tx = tm ? parseFloat(tm[1]) : 0;
+          const ty = tm ? parseFloat(tm[2]) : 0;
+          const nodeBox = {
+            left: bbox.x + tx, right: bbox.x + bbox.width + tx,
+            top: bbox.y + ty, bottom: bbox.y + bbox.height + ty,
+          };
+          const margin = Math.max(bbox.width, bbox.height) * 0.3 + 20;
+          const isNear = (px, py) => {
+            return px >= nodeBox.left - margin && px <= nodeBox.right + margin &&
+                   py >= nodeBox.top - margin && py <= nodeBox.bottom + margin;
+          };
+          // Skip elements inside node groups or defs (these are shapes, not edges)
+          const skipSel = "g.node, g.entity, g.classGroup, g.cluster, g.mindmap-node, g.stateGroup, defs, marker";
+          svg.querySelectorAll("path, line").forEach(el => {
+            if (el.closest(skipSel)) return;
+            if (node.contains(el)) return;
+            if (el.tagName === "path") {
+              const d = el.getAttribute("d");
+              if (!d) return;
+              const cmds = parsePathD(d);
+              const points = getPathPoints(cmds);
+              if (points.length < 2) return;
+              const fp = points[0];
+              const firstX = cmds[fp.ci].params[fp.pi];
+              const firstY = cmds[fp.ci].params[fp.pi + 1];
+              const lp = points[points.length - 1];
+              const lastX = cmds[lp.ci].params[lp.pi];
+              const lastY = cmds[lp.ci].params[lp.pi + 1];
+              const srcConn = isNear(firstX, firstY);
+              const tgtConn = isNear(lastX, lastY);
+              if (srcConn || tgtConn) {
+                connections.push({ el, type: "path", isSource: srcConn, isTarget: tgtConn, origD: d });
+              }
+            } else if (el.tagName === "line") {
+              const x1 = parseFloat(el.getAttribute("x1")) || 0;
+              const y1 = parseFloat(el.getAttribute("y1")) || 0;
+              const x2 = parseFloat(el.getAttribute("x2")) || 0;
+              const y2 = parseFloat(el.getAttribute("y2")) || 0;
+              const srcConn = isNear(x1, y1);
+              const tgtConn = isNear(x2, y2);
+              if (srcConn || tgtConn) {
+                connections.push({ el, type: "line", isSource: srcConn, isTarget: tgtConn, origX1: x1, origY1: y1, origX2: x2, origY2: y2 });
+              }
             }
-          }
-        });
-      };
-
-      // Clean up stored original path data
-      const clearOriginalEdgePaths = (svg) => {
-        svg.querySelectorAll(".edgePath path[data-mf-orig-d]").forEach(el => {
-          delete el.dataset.mfOrigD;
-        });
-      };
-
-      // Restore original paths (for cancelled drags)
-      const restoreOriginalEdgePaths = (svg) => {
-        svg.querySelectorAll(".edgePath path[data-mf-orig-d]").forEach(el => {
-          el.setAttribute("d", el.dataset.mfOrigD);
-          delete el.dataset.mfOrigD;
-        });
+          });
+        } catch (e) {}
+        return connections;
       };
 
       /* ── Connect mode state ────────────────────────────── */
@@ -562,12 +653,22 @@ function getIframeSrcDoc() {
               // Non-Gantt: restore to original transform (NOT removeAttribute,
               // which would snap the node to 0,0 since Mermaid positions via translate)
               if (dragState.committed) {
-                // Position was committed - keep new position, clear stored path data
-                clearOriginalEdgePaths(svg);
+                // Position was committed - keep new position
               } else {
                 dragState.node.setAttribute("transform", dragState.origTransform || "");
                 // Restore original edge paths since drag was cancelled
-                restoreOriginalEdgePaths(svg);
+                if (dragState.connectedEdges) {
+                  dragState.connectedEdges.forEach(conn => {
+                    if (conn.type === "path" && conn.origD) {
+                      conn.el.setAttribute("d", conn.origD);
+                    } else if (conn.type === "line") {
+                      conn.el.setAttribute("x1", conn.origX1);
+                      conn.el.setAttribute("y1", conn.origY1);
+                      conn.el.setAttribute("x2", conn.origX2);
+                      conn.el.setAttribute("y2", conn.origY2);
+                    }
+                  });
+                }
               }
             }
             dragState.node.style.cursor = "";
@@ -748,12 +849,9 @@ function getIframeSrcDoc() {
             committed: false,
           };
 
-          // Store original edge path data for rubber-band following
+          // Find and cache all edges connected to this node (geometric proximity)
           if (!isGantt) {
-            const shortId = getNodeShortId(dragNode.id || "");
-            if (shortId) {
-              storeOriginalEdgePaths(svg, shortId);
-            }
+            dragState.connectedEdges = findConnectedEdges(svg, dragNode);
           }
         });
 
@@ -796,45 +894,23 @@ function getIframeSrcDoc() {
             const newTy = dragState.origTy + svgDy;
             dragState.node.setAttribute("transform", "translate(" + newTx + ", " + newTy + ")");
 
-            // Move connected edges using rubber-band path modification
-            const nodeId = dragState.node.id || "";
-            const shortId = getNodeShortId(nodeId);
-            if (shortId) {
-              svg.querySelectorAll(".edgePath").forEach(ep => {
-                const endpoints = getEdgeEndpoints(ep.id);
-                if (!endpoints) return;
-                const isSource = endpoints.source === shortId;
-                const isTarget = endpoints.target === shortId;
-                if (!isSource && !isTarget) return;
-                const pathEl = ep.querySelector("path");
-                if (!pathEl || !pathEl.dataset.mfOrigD) return;
-                const origCmds = parsePathD(pathEl.dataset.mfOrigD);
-                const newCmds = parsePathD(pathEl.dataset.mfOrigD);
-                applyRubberBand(newCmds, origCmds,
-                  isSource ? svgDx : 0, isSource ? svgDy : 0,
-                  isTarget ? svgDx : 0, isTarget ? svgDy : 0
-                );
-                pathEl.setAttribute("d", serializePathD(newCmds));
-              });
-              // Move edge labels with interpolated offset
-              svg.querySelectorAll(".edgeLabel").forEach(el => {
-                const eid = (el.id || "").replace(/^label-/, "L-");
-                const endpoints = getEdgeEndpoints(eid);
-                if (!endpoints) return;
-                const isSource = endpoints.source === shortId;
-                const isTarget = endpoints.target === shortId;
-                if (!isSource && !isTarget) return;
-                if (!el.dataset.mfOrigTransform) {
-                  el.dataset.mfOrigTransform = el.getAttribute("transform") || "";
+            // Move connected edges using rubber-band path modification (cached from pointerdown)
+            if (dragState.connectedEdges) {
+              dragState.connectedEdges.forEach(conn => {
+                if (conn.type === "path" && conn.origD) {
+                  const origCmds = parsePathD(conn.origD);
+                  const newCmds = parsePathD(conn.origD);
+                  applyRubberBand(newCmds, origCmds,
+                    conn.isSource ? svgDx : 0, conn.isSource ? svgDy : 0,
+                    conn.isTarget ? svgDx : 0, conn.isTarget ? svgDy : 0
+                  );
+                  conn.el.setAttribute("d", serializePathD(newCmds));
+                } else if (conn.type === "line") {
+                  conn.el.setAttribute("x1", conn.origX1 + (conn.isSource ? svgDx : 0));
+                  conn.el.setAttribute("y1", conn.origY1 + (conn.isSource ? svgDy : 0));
+                  conn.el.setAttribute("x2", conn.origX2 + (conn.isTarget ? svgDx : 0));
+                  conn.el.setAttribute("y2", conn.origY2 + (conn.isTarget ? svgDy : 0));
                 }
-                const origT = el.dataset.mfOrigTransform;
-                const om = origT.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
-                const ox = om ? parseFloat(om[1]) : 0;
-                const oy = om ? parseFloat(om[2]) : 0;
-                // Label sits at midpoint (t=0.5)
-                const dx = (isSource ? svgDx * 0.5 : 0) + (isTarget ? svgDx * 0.5 : 0);
-                const dy = (isSource ? svgDy * 0.5 : 0) + (isTarget ? svgDy * 0.5 : 0);
-                el.setAttribute("transform", "translate(" + (ox + dx) + ", " + (oy + dy) + ")");
               });
             }
           }
@@ -878,11 +954,6 @@ function getIframeSrcDoc() {
             }
           }
           clearDrag();
-
-          // Clear stored original transforms on edge labels
-          svg.querySelectorAll(".edgeLabel[data-mf-orig-transform]").forEach(el => {
-            delete el.dataset.mfOrigTransform;
-          });
         });
 
         svg.addEventListener("pointerleave", clearDrag);
