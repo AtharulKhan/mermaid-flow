@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
+import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask } from "./ganttUtils";
 
 const CHANNEL = "mermaid-flow";
 
@@ -98,6 +99,9 @@ function getIframeSrcDoc() {
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 
       let selected = null;
+      let dragState = null;
+      let suppressClick = false;
+      let currentDiagramType = "";
       const canvas = document.getElementById("canvas");
       const error = document.getElementById("error");
 
@@ -114,18 +118,41 @@ function getIframeSrcDoc() {
         const group = target.closest("g") || target;
         const textNode = group.querySelector("text") || target.closest("text");
         const label = textNode?.textContent?.trim() || target.getAttribute("id") || target.nodeName;
+        const rect = target.getBBox ? target.getBBox() : null;
         return {
           id: group.id || target.id || "",
           className: group.className?.baseVal || target.className?.baseVal || "",
           label,
           nodeName: target.nodeName,
+          barWidth: rect?.width || 0,
         };
       };
 
+      const isGanttTaskTarget = (target) => {
+        if (!target) return false;
+        if (!currentDiagramType.toLowerCase().includes("gantt")) return false;
+        const cls = target.className?.baseVal || "";
+        if (!/task/i.test(cls)) return false;
+        return target.nodeName === "rect" || target.nodeName === "g";
+      };
+
       const wireSelection = (svg) => {
+        const clearDrag = () => {
+          if (!dragState) return;
+          if (dragState.node) {
+            dragState.node.removeAttribute("transform");
+            dragState.node.style.cursor = "";
+          }
+          dragState = null;
+          suppressClick = false;
+        };
+
         svg.addEventListener("click", (event) => {
           const target = event.target;
-          if (!target || target.nodeName === "svg") return;
+          if (!target || target.nodeName === "svg" || suppressClick) {
+            suppressClick = false;
+            return;
+          }
 
           const group = target.closest("g");
           if (selected) selected.classList.remove("mf-selected");
@@ -136,6 +163,69 @@ function getIframeSrcDoc() {
 
           send("element:selected", extractInfo(target));
         });
+
+        svg.addEventListener("contextmenu", (event) => {
+          const target = event.target;
+          if (!target || target.nodeName === "svg") return;
+          event.preventDefault();
+          send("element:context", {
+            ...extractInfo(target),
+            pointerX: event.clientX,
+            pointerY: event.clientY,
+          });
+        });
+
+        svg.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0) return;
+          const target = event.target;
+          if (!target || target.nodeName === "svg") return;
+          const dragNode = target.closest("g") || target;
+          if (!dragNode) return;
+
+          dragState = {
+            target,
+            node: dragNode,
+            startX: event.clientX,
+            startY: event.clientY,
+            deltaX: 0,
+            deltaY: 0,
+            ganttTask: isGanttTaskTarget(target),
+          };
+          dragNode.style.cursor = "grabbing";
+        });
+
+        svg.addEventListener("pointermove", (event) => {
+          if (!dragState) return;
+          dragState.deltaX = event.clientX - dragState.startX;
+          dragState.deltaY = event.clientY - dragState.startY;
+          if (Math.abs(dragState.deltaX) > 3 || Math.abs(dragState.deltaY) > 3) {
+            suppressClick = true;
+          }
+          dragState.node.setAttribute(
+            "transform",
+            "translate(" + dragState.deltaX + " " + dragState.deltaY + ")"
+          );
+        });
+
+        svg.addEventListener("pointerup", () => {
+          if (!dragState) return;
+          const threshold = Math.abs(dragState.deltaX) + Math.abs(dragState.deltaY);
+          const payload = {
+            ...extractInfo(dragState.target),
+            deltaX: dragState.deltaX,
+            deltaY: dragState.deltaY,
+            isGanttTask: dragState.ganttTask,
+          };
+          if (threshold > 4) {
+            send("element:dragged", payload);
+            if (dragState.ganttTask) {
+              send("gantt:dragged", payload);
+            }
+          }
+          clearDrag();
+        });
+
+        svg.addEventListener("pointerleave", clearDrag);
       };
 
       window.addEventListener("message", async (event) => {
@@ -150,6 +240,7 @@ function getIframeSrcDoc() {
           error.textContent = "";
           mermaid.initialize({ ...config, startOnLoad: false });
           const parseResult = await mermaid.parse(code);
+          currentDiagramType = parseResult?.diagramType || "";
           const token = "diagram_" + Date.now();
           const { svg } = await mermaid.render(token, code);
           canvas.innerHTML = svg;
@@ -184,11 +275,18 @@ function App() {
   const [labelDraft, setLabelDraft] = useState("");
   const [highlightLine, setHighlightLine] = useState(null);
   const [templateId, setTemplateId] = useState("flowchart");
+  const [dragFeedback, setDragFeedback] = useState("");
+  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", duration: "" });
 
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
   const lineCount = code.split("\n").length;
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
+  const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
+  const selectedGanttTask = useMemo(
+    () => findTaskByLabel(ganttTasks, selectedElement?.label || ""),
+    [ganttTasks, selectedElement]
+  );
   const quickTools =
     DIAGRAM_LIBRARY.find((entry) => entry.id === toolsetKey)?.quickTools ||
     DIAGRAM_LIBRARY.find((entry) => entry.id === "flowchart")?.quickTools ||
@@ -223,6 +321,19 @@ function App() {
   }, [code, autoRender, theme, securityLevel, renderer]);
 
   useEffect(() => {
+    if (!selectedGanttTask) {
+      setGanttDraft({ label: "", startDate: "", duration: "" });
+      return;
+    }
+
+    setGanttDraft({
+      label: selectedGanttTask.label || "",
+      startDate: selectedGanttTask.startDate || "",
+      duration: selectedGanttTask.durationToken || "",
+    });
+  }, [selectedGanttTask]);
+
+  useEffect(() => {
     const listener = (event) => {
       const data = event.data;
       if (!data || data.channel !== CHANNEL) return;
@@ -246,11 +357,50 @@ function App() {
         setLabelDraft(selected?.label || "");
         setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
       }
+
+      if (data.type === "element:context") {
+        const selected = data.payload || null;
+        setSelectedElement(selected);
+        setLabelDraft(selected?.label || "");
+        setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
+        setRenderMessage("Context target selected");
+      }
+
+      if (data.type === "element:dragged") {
+        const payload = data.payload || {};
+        setDragFeedback(
+          `Dragged ${payload.label || payload.id || "element"} by ${Math.round(payload.deltaX || 0)}px x ${Math.round(
+            payload.deltaY || 0
+          )}px`
+        );
+      }
+
+      if (data.type === "gantt:dragged") {
+        const payload = data.payload || {};
+        const task = findTaskByLabel(ganttTasks, payload.label || "");
+        if (!task) {
+          setRenderMessage("Drag captured, but no matching Gantt task found");
+          return;
+        }
+        if (!task.hasExplicitDate || !task.durationDays || !payload.barWidth) {
+          setRenderMessage("Task uses dependency-based dates; use right-click edit to set date manually");
+          return;
+        }
+
+        const pixelsPerDay = payload.barWidth / task.durationDays;
+        const dayShift = Math.round((payload.deltaX || 0) / pixelsPerDay);
+        if (!dayShift) return;
+
+        const nextDate = shiftIsoDate(task.startDate, dayShift);
+        setCode((prev) => updateGanttTask(prev, task, { startDate: nextDate }));
+        setRenderMessage(`Updated "${task.label}" start date to ${nextDate}`);
+        setHighlightLine(task.lineIndex + 1);
+      }
     };
 
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [code]);
+  }, [code, ganttTasks]);
 
   const insertSnippet = (snippet) => {
     const editor = editorRef.current;
@@ -276,11 +426,30 @@ function App() {
     setCode(updated);
   };
 
+  const applyGanttTaskPatch = () => {
+    if (!selectedGanttTask) return;
+    const nextLabel = ganttDraft.label.trim();
+    if (!nextLabel) return;
+
+    const nextStartDate = ganttDraft.startDate.trim();
+    const nextDuration = ganttDraft.duration.trim();
+    const updated = updateGanttTask(code, selectedGanttTask, {
+      label: nextLabel,
+      startDate: nextStartDate || selectedGanttTask.startDate,
+      duration: nextDuration || selectedGanttTask.durationToken,
+    });
+
+    setCode(updated);
+    setRenderMessage("Gantt task updated");
+    setHighlightLine(selectedGanttTask.lineIndex + 1);
+  };
+
   const replaceWithTemplate = () => {
     if (!activeTemplate?.starter) return;
     setCode(activeTemplate.starter);
     setSelectedElement(null);
     setHighlightLine(null);
+    setDragFeedback("");
   };
 
   const copyCode = async () => {
@@ -438,13 +607,14 @@ function App() {
           <div className="panel-footer">
             <p>Detected: {diagramType || "unknown"}</p>
             <p className={`status-${renderStatus}`}>{renderMessage}</p>
+            <p className="drag-note">{dragFeedback || "Drag elements in preview to interact visually"}</p>
           </div>
         </article>
 
         <article className="preview-panel">
           <div className="panel-header">
             <h2>Preview</h2>
-            <span>Click shapes to patch labels</span>
+            <span>Click, right-click, and drag to edit</span>
           </div>
           <iframe
             ref={iframeRef}
@@ -485,11 +655,68 @@ function App() {
                 <button className="soft-btn full" onClick={applyLabelPatch}>
                   Apply patch
                 </button>
+                <p className="muted">
+                  Tip: right-click elements to focus them quickly before patching.
+                </p>
               </>
             ) : (
               <p className="muted">Pick an element in preview to edit properties.</p>
             )}
           </div>
+
+          {toolsetKey === "gantt" && (
+            <div className="property-card">
+              <h3>Gantt Task Editor</h3>
+              {selectedGanttTask ? (
+                <>
+                  <p>
+                    Drag task bars horizontally to shift dates. Right-click any task to target it.
+                  </p>
+                  <label>
+                    Task label
+                    <input
+                      value={ganttDraft.label}
+                      onChange={(e) =>
+                        setGanttDraft((prev) => ({
+                          ...prev,
+                          label: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Start date (YYYY-MM-DD)
+                    <input
+                      value={ganttDraft.startDate}
+                      onChange={(e) =>
+                        setGanttDraft((prev) => ({
+                          ...prev,
+                          startDate: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Duration (e.g. 3d, 2w)
+                    <input
+                      value={ganttDraft.duration}
+                      onChange={(e) =>
+                        setGanttDraft((prev) => ({
+                          ...prev,
+                          duration: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <button className="soft-btn full" onClick={applyGanttTaskPatch}>
+                    Apply task update
+                  </button>
+                </>
+              ) : (
+                <p className="muted">Select a Gantt task from preview first.</p>
+              )}
+            </div>
+          )}
 
           <div className="property-card">
             <h3>Supported Types</h3>

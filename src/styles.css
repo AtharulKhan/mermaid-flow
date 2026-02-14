@@ -240,8 +240,13 @@ input {
   padding: 10px 14px;
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   font-size: 0.8rem;
+}
+
+.drag-note {
+  color: var(--ink-soft);
 }
 
 .status-idle,
