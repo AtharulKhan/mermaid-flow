@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
-import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus, updateGanttAssignee, updateGanttNotes } from "./ganttUtils";
+import {
+  findTaskByLabel,
+  parseGanttTasks,
+  shiftIsoDate,
+  updateGanttTask,
+  toggleGanttStatus,
+  clearGanttStatus,
+  updateGanttAssignee,
+  updateGanttNotes,
+  deleteGanttTask,
+  insertGanttTaskAfter,
+} from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, updateErEntity, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 
@@ -1335,10 +1346,12 @@ function getIframeSrcDoc() {
         svg.querySelectorAll(".mf-date-tspan").forEach(el => el.remove());
         svg.querySelectorAll(".mf-overdue-dot").forEach(el => el.remove());
         svg.querySelectorAll(".mf-tooltip").forEach(el => el.remove());
+        svg.querySelectorAll(".mf-gantt-insert-layer").forEach(el => el.remove());
 
         const texts = Array.from(svg.querySelectorAll(TASK_TEXT_SEL));
         const rects = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
         const today = new Date().toISOString().slice(0, 10);
+        const insertAnchors = [];
 
         const fmt = (iso) => {
           if (!iso) return "";
@@ -1405,6 +1418,8 @@ function getIframeSrcDoc() {
               dot.setAttribute("fill", "#dc2626");
               rectEl.parentElement.appendChild(dot);
             }
+
+            insertAnchors.push({ label: t.label, rectEl });
           }
 
           if (!showDates || !textEl) return;
@@ -1424,6 +1439,68 @@ function getIframeSrcDoc() {
           tspan.setAttribute("font-weight", "400");
           tspan.textContent = " (" + dateStr + ")";
           textEl.appendChild(tspan);
+        });
+
+        if (!insertAnchors.length) return;
+        const controlsLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        controlsLayer.setAttribute("class", "mf-gantt-insert-layer");
+        svg.appendChild(controlsLayer);
+
+        const maxRight = insertAnchors.reduce((max, anchor) => {
+          const box = anchor.rectEl.getBBox();
+          return Math.max(max, box.x + box.width);
+        }, 0);
+
+        insertAnchors.forEach((anchor, index) => {
+          const currentBox = anchor.rectEl.getBBox();
+          const nextAnchor = insertAnchors[index + 1];
+          const nextTop = nextAnchor ? nextAnchor.rectEl.getBBox().y : currentBox.y + currentBox.height + 28;
+          const currentBottom = currentBox.y + currentBox.height;
+          const gapMid = currentBottom + Math.max(14, (nextTop - currentBottom) / 2);
+          const x = maxRight + 18;
+
+          const btn = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          btn.setAttribute("class", "mf-gantt-insert-btn");
+          btn.setAttribute("transform", "translate(" + x + " " + gapMid + ")");
+          btn.setAttribute("cursor", "pointer");
+
+          const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          circle.setAttribute("r", "10");
+          circle.setAttribute("fill", "#ffffff");
+          circle.setAttribute("stroke", "#cbd5e1");
+          circle.setAttribute("stroke-width", "1.5");
+
+          const plus = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          plus.setAttribute("text-anchor", "middle");
+          plus.setAttribute("dominant-baseline", "central");
+          plus.setAttribute("fill", "#64748b");
+          plus.setAttribute("font-size", "16");
+          plus.setAttribute("font-weight", "700");
+          plus.textContent = "+";
+
+          btn.appendChild(circle);
+          btn.appendChild(plus);
+          controlsLayer.appendChild(btn);
+
+          btn.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          });
+          btn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            send("gantt:add-between", { afterLabel: anchor.label });
+          });
+          btn.addEventListener("mouseenter", () => {
+            circle.setAttribute("fill", "#eff6ff");
+            circle.setAttribute("stroke", "#3b82f6");
+            plus.setAttribute("fill", "#1d4ed8");
+          });
+          btn.addEventListener("mouseleave", () => {
+            circle.setAttribute("fill", "#ffffff");
+            circle.setAttribute("stroke", "#cbd5e1");
+            plus.setAttribute("fill", "#64748b");
+          });
         });
       };
 
@@ -2086,6 +2163,58 @@ function App() {
         }
         setHighlightLine(task.lineIndex + 1);
       }
+
+      if (data.type === "gantt:add-between") {
+        const afterLabel = (data.payload?.afterLabel || "").trim();
+        const afterTask = findTaskByLabel(ganttTasks, afterLabel);
+        if (!afterTask) {
+          setRenderMessage(`Could not find task "${afterLabel}" to insert after`);
+          return;
+        }
+
+        const lowerLabels = new Set(ganttTasks.map((t) => t.label.toLowerCase()));
+        let nextLabel = "New task";
+        let labelCounter = 2;
+        while (lowerLabels.has(nextLabel.toLowerCase())) {
+          nextLabel = `New task ${labelCounter}`;
+          labelCounter += 1;
+        }
+
+        const usedIds = new Set(ganttTasks.map((t) => (t.idToken || "").toLowerCase()).filter(Boolean));
+        const baseId = ((afterTask.idToken || "task").toLowerCase().replace(/[^a-z0-9_-]/g, "")) || "task";
+        let nextId = baseId;
+        let idCounter = 2;
+        while (usedIds.has(nextId)) {
+          nextId = `${baseId}${idCounter}`;
+          idCounter += 1;
+        }
+
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const nextStart =
+          afterTask.endDate ||
+          (afterTask.startDate && afterTask.durationDays
+            ? shiftIsoDate(afterTask.startDate, afterTask.durationDays)
+            : afterTask.startDate || todayIso);
+        const nextEnd = shiftIsoDate(nextStart, 3);
+
+        const updated = insertGanttTaskAfter(code, afterTask, {
+          label: nextLabel,
+          indent: afterTask.indent,
+          idToken: nextId,
+          startDate: nextStart,
+          endDate: nextEnd,
+        });
+
+        setCode(updated);
+        const freshTasks = parseGanttTasks(updated);
+        const insertedTask = findTaskByLabel(freshTasks, nextLabel);
+        if (insertedTask) {
+          setHighlightLine(insertedTask.lineIndex + 1);
+          setSelectedElement({ label: insertedTask.label, id: "" });
+        }
+        setRenderMessage(`Inserted "${nextLabel}" after "${afterTask.label}"`);
+        return;
+      }
     };
 
     window.addEventListener("message", listener);
@@ -2257,6 +2386,18 @@ function App() {
     setCode(updated);
     setRenderMessage(`Updated "${nextLabel}"`);
     setHighlightLine(selectedGanttTask.lineIndex + 1);
+  };
+
+  const handleDeleteGanttTask = (label) => {
+    const task = findTaskByLabel(ganttTasks, label);
+    if (!task) return;
+    const updated = deleteGanttTask(code, task);
+    setCode(updated);
+    setRenderMessage(`Deleted "${task.label}"`);
+    setHighlightLine(null);
+    if (selectedElement?.label && selectedElement.label.toLowerCase() === task.label.toLowerCase()) {
+      setSelectedElement(null);
+    }
   };
 
   const handleStatusToggle = (flag) => {
@@ -2790,6 +2931,15 @@ function App() {
               </div>
 
               <div className="task-modal-actions">
+                <button
+                  className="soft-btn danger push-left"
+                  onClick={() => {
+                    handleDeleteGanttTask(task?.label || contextMenu.label);
+                    setContextMenu(null);
+                  }}
+                >
+                  Delete
+                </button>
                 <button className="soft-btn" onClick={() => setContextMenu(null)}>
                   Cancel
                 </button>

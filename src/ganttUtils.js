@@ -28,6 +28,15 @@ function durationToDays(token) {
   return null;
 }
 
+function findMetadataEndIndex(lines, taskLineIndex) {
+  let endIndex = taskLineIndex;
+  for (let i = taskLineIndex + 1; i < lines.length; i++) {
+    if (!lines[i].trim().startsWith("%%")) break;
+    endIndex = i;
+  }
+  return endIndex;
+}
+
 export function shiftIsoDate(isoDate, dayDelta) {
   const [year, month, day] = isoDate.split("-").map(Number);
   const utc = Date.UTC(year, month - 1, day + dayDelta);
@@ -75,6 +84,11 @@ export function parseGanttTasks(code) {
 
     const dateIndex = tokens.findIndex((token) => ISO_DATE.test(token));
     const startDate = dateIndex >= 0 ? tokens[dateIndex] : "";
+    const idIndex = dateIndex > 0 ? dateIndex - 1 : -1;
+    const idToken =
+      idIndex >= 0 && !ISO_DATE.test(tokens[idIndex]) && !DURATION.test(tokens[idIndex])
+        ? tokens[idIndex]
+        : "";
 
     // Check for end date (second ISO date after start date)
     const endDateIndex =
@@ -119,6 +133,7 @@ export function parseGanttTasks(code) {
       indent,
       label,
       tokens,
+      idToken,
       statusTokens,
       statusIndices,
       dateIndex,
@@ -179,6 +194,49 @@ export function updateGanttTask(code, task, updates) {
   }
 
   lines[task.lineIndex] = `${task.indent}${nextLabel} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
+export function deleteGanttTask(code, task) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const endIndex = findMetadataEndIndex(lines, task.lineIndex);
+  lines.splice(task.lineIndex, endIndex - task.lineIndex + 1);
+  return lines.join("\n");
+}
+
+export function insertGanttTaskAfter(code, task, draft = {}) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const insertAt = findMetadataEndIndex(lines, task.lineIndex) + 1;
+  const indent = draft.indent ?? task.indent ?? "";
+  const label = (draft.label || "New task").trim() || "New task";
+  const status = Array.isArray(draft.status)
+    ? draft.status.filter((token) => STATUS_TOKENS.has(String(token).toLowerCase()))
+    : [];
+  const idToken = (draft.idToken || "").trim();
+  const startDate = (draft.startDate || "").trim();
+  const endDate = (draft.endDate || "").trim();
+  const duration = (draft.duration || "").trim();
+  const tokens = [...status];
+
+  if (idToken) tokens.push(idToken);
+  if (startDate) tokens.push(startDate);
+  if (endDate) {
+    tokens.push(endDate);
+  } else if (duration) {
+    tokens.push(duration);
+  }
+
+  if (!tokens.length) tokens.push("task_new");
+
+  const newLines = [`${indent}${label} :${tokens.join(", ")}`];
+  const assignee = (draft.assignee || "").trim();
+  if (assignee) newLines.push(`${indent}%% assignee: ${assignee}`);
+  const notes = (draft.notes || "").trim();
+  if (notes) newLines.push(`${indent}%% notes: ${notes}`);
+
+  lines.splice(insertAt, 0, ...newLines);
   return lines.join("\n");
 }
 
