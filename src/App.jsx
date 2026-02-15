@@ -330,6 +330,10 @@ function getIframeSrcDoc() {
         font-size: 11.5px;
         font-weight: 600;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        max-width: calc(100% - var(--date-suffix-width, 0px) - 16px);
         pointer-events: none;
         line-height: 1.2;
         min-width: 0;
@@ -364,7 +368,10 @@ function getIframeSrcDoc() {
         color: rgba(255,255,255,0.72);
         font-size: 10px;
         font-weight: 400;
-        margin-left: 4px;
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
         white-space: nowrap;
         pointer-events: none;
       }
@@ -1420,10 +1427,15 @@ function getIframeSrcDoc() {
               if (task.assignee) dateStr += " · " + task.assignee;
               dateSuffix.textContent = dateStr;
               bar.appendChild(dateSuffix);
-              dateSuffixWidth = dateSuffix.offsetWidth || 0;
+              dateSuffixWidth = Math.ceil(dateSuffix.offsetWidth || 0);
+              bar.style.setProperty("--date-suffix-width", dateSuffixWidth + "px");
+            } else {
+              bar.style.setProperty("--date-suffix-width", "0px");
             }
 
-            const labelWidth = Math.ceil(labelSpan.scrollWidth || 0);
+            const measuredLabelWidth = Math.ceil(labelSpan.scrollWidth || 0);
+            const estimatedLabelWidth = Math.ceil((task.label || "").length * 7.1);
+            const labelWidth = Math.max(measuredLabelWidth, estimatedLabelWidth);
             if (task.isMilestone) {
               const rightSpace = timelineWidth - (barLeft + barPixelWidth);
               if (rightSpace < labelWidth + 14) bar.classList.add("mf-label-outside-left");
