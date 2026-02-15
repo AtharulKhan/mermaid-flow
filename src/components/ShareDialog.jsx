@@ -63,9 +63,16 @@ export default function ShareDialog({ flowId, onClose }) {
   };
 
   const handlePublicAccess = async (access) => {
-    const value = access === "none" ? null : access;
-    await setFlowPublicAccess(flowId, value);
-    setPublicAccess(value);
+    setError("");
+    setMessage("");
+    try {
+      const value = access === "none" ? null : access;
+      await setFlowPublicAccess(flowId, value);
+      setPublicAccess(value);
+      setMessage("Public access updated");
+    } catch (err) {
+      setError(`Failed to update public access: ${err.message}`);
+    }
   };
 
   const copyShareLink = () => {

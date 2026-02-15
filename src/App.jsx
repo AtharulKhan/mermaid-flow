@@ -20,7 +20,7 @@ import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeF
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
-import { getFlow, updateFlow, getUserSettings } from "./firebase/firestore";
+import { createFlow, getFlow, updateFlow, getUserSettings } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
@@ -5030,6 +5030,7 @@ function App() {
   const [savedDiagrams, setSavedDiagrams] = useState(() => loadSavedDiagrams());
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
+  const [cloudSaving, setCloudSaving] = useState(false);
 
   const handleSaveDiagram = () => {
     if (!saveName.trim()) return;
@@ -5051,6 +5052,27 @@ function App() {
     deleteDiagramFromStorage(name);
     setSavedDiagrams(loadSavedDiagrams());
     setRenderMessage(`Deleted "${name}"`);
+  };
+
+  const handleSaveToCloud = async () => {
+    if (!currentUser || flowId || cloudSaving) return;
+    setCloudSaving(true);
+    try {
+      const created = await createFlow(currentUser.uid, {
+        name: flowMeta?.name || "Untitled",
+        code,
+        diagramType,
+        projectId: null,
+        subprojectId: null,
+        tags: [],
+      });
+      setRenderMessage("Saved to Firebase. Autosave is now active.");
+      navigate(`/editor/${created.id}`);
+    } catch (err) {
+      setRenderMessage(`Cloud save failed: ${err.message}`);
+    } finally {
+      setCloudSaving(false);
+    }
   };
 
   /* ── Render ──────────────────────────────────────────── */
@@ -5154,10 +5176,20 @@ function App() {
               </button>
               <div className="dropdown-sep" />
               <button className="dropdown-item" onClick={() => { setSaveDialogOpen(true); setExportMenuOpen(false); }}>
-                Save diagram
+                Save local copy
               </button>
             </div>
           </div>
+
+          {!flowId && currentUser && (
+            <button
+              className="soft-btn small"
+              onClick={handleSaveToCloud}
+              disabled={cloudSaving}
+            >
+              {cloudSaving ? "Saving..." : "Save to Cloud"}
+            </button>
+          )}
 
           {/* Share & Comment buttons (only when editing a cloud flow) */}
           {flowId && currentUser && canEditCurrentFlow && (
@@ -6412,7 +6444,10 @@ function App() {
       {saveDialogOpen && (
         <div className="modal-overlay" onClick={() => setSaveDialogOpen(false)}>
           <div className="modal save-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Save Diagram</h3>
+            <h3>Save Local Diagram</h3>
+            <p style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 0 }}>
+              This saves to your browser only. Use "Save to Cloud" for Firebase autosave.
+            </p>
             <input
               type="text"
               className="modal-input"
