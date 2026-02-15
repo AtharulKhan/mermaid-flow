@@ -366,7 +366,8 @@ function getIframeSrcDoc() {
         const svg = canvas.querySelector("svg");
         if (!svg) return;
         for (const [nodeId, style] of Object.entries(styleOverrides)) {
-          const el = svg.querySelector("#" + CSS.escape(nodeId));
+          const svgId = findNodeSvgId(svg, nodeId);
+          const el = svgId ? svg.querySelector("#" + CSS.escape(svgId)) : null;
           if (!el) continue;
           const shapes = el.querySelectorAll("rect, circle, polygon, ellipse, path");
           for (const shape of shapes) {
@@ -386,11 +387,18 @@ function getIframeSrcDoc() {
       };
 
       const findNodeSvgId = (svg, shortId) => {
-        // Try flowchart convention first
-        const el = svg.querySelector('[id^="flowchart-' + CSS.escape(shortId) + '-"]');
-        if (el) return el.id;
-        // Try direct id
-        const direct = svg.querySelector("#" + CSS.escape(shortId));
+        const esc = CSS.escape(shortId);
+        // flowchart-X-0
+        const fc = svg.querySelector('[id^="flowchart-' + esc + '-"]');
+        if (fc) return fc.id;
+        // entity-X-0
+        const er = svg.querySelector('[id^="entity-' + esc + '-"]');
+        if (er) return er.id;
+        // state-X (may or may not have trailing -0)
+        const st = svg.querySelector('[id^="state-' + esc + '"]');
+        if (st) return st.id;
+        // direct ID match (classId, etc.)
+        const direct = svg.querySelector("#" + esc);
         if (direct) return shortId;
         return null;
       };
@@ -907,6 +915,7 @@ function getIframeSrcDoc() {
           const target = event.target;
           if (!target || target.nodeName === "svg" || suppressClick) {
             suppressClick = false;
+            send("element:selected", null);
             return;
           }
 
@@ -917,7 +926,31 @@ function getIframeSrcDoc() {
             selected = group;
           }
 
-          send("element:selected", extractInfo(target));
+          const info = extractInfo(target);
+          const nodeGroup = findDragRoot(target);
+          if (nodeGroup) {
+            try {
+              const bbox = nodeGroup.getBBox();
+              const tr = nodeGroup.getAttribute("transform") || "";
+              const tm = tr.match(/translate\\(\\s*([-\\d.]+)[,\\s]+([-\\d.]+)\\s*\\)/);
+              const tx = tm ? parseFloat(tm[1]) : 0;
+              const ty = tm ? parseFloat(tm[2]) : 0;
+              const ctm = svg.getScreenCTM();
+              if (ctm) {
+                const p = svg.createSVGPoint();
+                p.x = bbox.x + tx; p.y = bbox.y + ty;
+                const tl = p.matrixTransform(ctm);
+                p.x = bbox.x + tx + bbox.width; p.y = bbox.y + ty + bbox.height;
+                const br = p.matrixTransform(ctm);
+                info.screenBox = { left: tl.x, top: tl.y, right: br.x, bottom: br.y };
+              }
+            } catch (_) {}
+            info.nodeId = getNodeShortId(nodeGroup.id || "");
+            info.elementType = "node";
+          } else {
+            info.elementType = getElementType(target);
+          }
+          send("element:selected", info);
         });
 
         svg.addEventListener("contextmenu", (event) => {
@@ -1654,6 +1687,7 @@ function App() {
   const [nodeEditModal, setNodeEditModal] = useState(null); // { type: "node"|"edge", nodeId?, label, shape?, edgeSource?, edgeTarget?, arrowType? }
   const [nodeCreationForm, setNodeCreationForm] = useState(null); // { sourceNodeId, port, label, description }
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [styleToolbar, setStyleToolbar] = useState(null); // { nodeId, x, y, yBottom, activeDropdown }
   const contextMenuRef = useRef(null);
 
   // Derived
@@ -1937,6 +1971,19 @@ function App() {
         setSelectedElement(selected);
         setLabelDraft(selected?.label || "");
         setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
+
+        if (selected?.elementType === "node" && selected?.screenBox && selected?.nodeId) {
+          const ir = iframeRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
+          setStyleToolbar({
+            nodeId: selected.nodeId,
+            x: ir.left + (selected.screenBox.left + selected.screenBox.right) / 2,
+            y: ir.top + selected.screenBox.top,
+            yBottom: ir.top + selected.screenBox.bottom,
+            activeDropdown: null,
+          });
+        } else {
+          setStyleToolbar(null);
+        }
       }
 
       if (data.type === "element:context") {
@@ -1952,6 +1999,7 @@ function App() {
 
           if (elementType === "node") {
             const nodeId = selected?.nodeId || "";
+            setStyleToolbar(null);
             setNodeEditModal(buildNodeEditData(nodeId));
           } else if (elementType === "edge") {
             // Open full modal for edge editing
@@ -1987,6 +2035,7 @@ function App() {
       }
 
       if (data.type === "element:dragged") {
+        setStyleToolbar(null);
         const payload = data.payload || {};
         if (!payload.isGanttTask && payload.nodeId) {
           // Store accumulated position override from iframe (SVG-space values)
@@ -2007,6 +2056,7 @@ function App() {
 
       if (data.type === "zoom:changed") {
         setZoomLevel(data.payload?.zoom || 1);
+        setStyleToolbar(null);
       }
 
       if (data.type === "port:clicked") {
@@ -2175,6 +2225,7 @@ function App() {
           }
           return;
         }
+        if (styleToolbar) { setStyleToolbar(null); return; }
         if (nodeEditModal) { setNodeEditModal(null); return; }
         if (nodeCreationForm) { setNodeCreationForm(null); return; }
         if (contextMenu) { setContextMenu(null); return; }
@@ -2188,7 +2239,29 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar]);
+
+  /* ── Style Toolbar ──────────────────────────────────── */
+  const applyToolbarStyle = (nodeId, stylePatch) => {
+    setStyleOverrides((prev) => {
+      const current = { ...(prev[nodeId] || {}) };
+      for (const [k, v] of Object.entries(stylePatch)) {
+        if (v === null) delete current[k];
+        else current[k] = v;
+      }
+      const next = { ...prev };
+      if (Object.keys(current).length > 0) next[nodeId] = current;
+      else delete next[nodeId];
+      const frame = iframeRef.current;
+      if (frame?.contentWindow) {
+        frame.contentWindow.postMessage(
+          { channel: CHANNEL, type: "apply:styles", payload: { overrides: { [nodeId]: current } } },
+          "*"
+        );
+      }
+      return next;
+    });
+  };
 
   /* ── Actions ─────────────────────────────────────────── */
   const insertSnippet = (snippet) => {
@@ -2816,7 +2889,7 @@ function App() {
           <div className="modal-backdrop" onClick={() => setNodeEditModal(null)}>
             <div className="node-edit-modal" onClick={(e) => e.stopPropagation()}>
               <div className="task-modal-header">
-                <h2>Edit {nodeLabel}</h2>
+                <h2>Edit {nodeLabel} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: "0.8em" }}>{nodeEditModal.nodeId}</span></h2>
                 <button className="drawer-close-btn" onClick={() => setNodeEditModal(null)}>&times;</button>
               </div>
               <div className="task-modal-body">
@@ -2825,7 +2898,7 @@ function App() {
                   <div className="node-nav-bar">
                     {conn.inputs.length > 0 && (
                       <div className="node-nav-section">
-                        <span className="node-nav-label">Inputs</span>
+                        <span className="node-nav-label">&larr; From</span>
                         <div className="node-nav-group">
                           {conn.inputs.map((inp) => (
                             <button
@@ -2840,10 +2913,9 @@ function App() {
                         </div>
                       </div>
                     )}
-                    <span className="node-nav-current">{nodeEditModal.nodeId}</span>
                     {conn.outputs.length > 0 && (
                       <div className="node-nav-section">
-                        <span className="node-nav-label">Outputs</span>
+                        <span className="node-nav-label">To &rarr;</span>
                         <div className="node-nav-group">
                           {conn.outputs.map((out) => (
                             <button
@@ -2869,7 +2941,7 @@ function App() {
                   />
                 </label>
                 {/* Flowchart description (body text after title) */}
-                {isFlowchart && nodeEditModal.description !== undefined && (
+                {nodeEditModal.description !== undefined && (
                   <label>
                     Description
                     <textarea
@@ -2880,117 +2952,6 @@ function App() {
                       rows={5}
                     />
                   </label>
-                )}
-                {/* Node Style Editing (flowchart) */}
-                {isFlowchart && (
-                  <div className="node-style-section">
-                    <label>Fill Color</label>
-                    <div className="color-palette">
-                      {STYLE_PALETTE.map((color) => (
-                        <button
-                          key={"fill-" + color}
-                          className={`color-swatch${nodeEditModal.style?.fill === color ? " active" : ""}`}
-                          style={{ backgroundColor: color }}
-                          onClick={() => setNodeEditModal((prev) => ({
-                            ...prev,
-                            style: { ...prev.style, fill: color },
-                          }))}
-                          title={color}
-                        />
-                      ))}
-                    </div>
-                    <label>Border Color</label>
-                    <div className="color-palette">
-                      {STYLE_PALETTE.map((color) => (
-                        <button
-                          key={"stroke-" + color}
-                          className={`color-swatch${nodeEditModal.style?.stroke === color ? " active" : ""}`}
-                          style={{ backgroundColor: color }}
-                          onClick={() => setNodeEditModal((prev) => ({
-                            ...prev,
-                            style: { ...prev.style, stroke: color },
-                          }))}
-                          title={color}
-                        />
-                      ))}
-                    </div>
-                    <label>Border Style</label>
-                    <div className="border-style-grid">
-                      {[
-                        { value: "solid", label: "Solid", icon: "\u2500\u2500\u2500" },
-                        { value: "dashed", label: "Dashed", icon: "- - -" },
-                        { value: "none", label: "None", icon: "\u00a0" },
-                      ].map(({ value, label: bLabel, icon }) => (
-                        <button
-                          key={value}
-                          className={`border-style-btn${(nodeEditModal.style?.strokeStyle || "solid") === value ? " active" : ""}`}
-                          onClick={() => setNodeEditModal((prev) => ({
-                            ...prev,
-                            style: { ...prev.style, strokeStyle: value },
-                          }))}
-                        >
-                          <span className="border-style-icon">{icon}</span>
-                          <span>{bLabel}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <label>Text Color</label>
-                    <div className="color-palette">
-                      {STYLE_PALETTE.map((color) => (
-                        <button
-                          key={"text-" + color}
-                          className={`color-swatch${nodeEditModal.style?.textColor === color ? " active" : ""}`}
-                          style={{ backgroundColor: color }}
-                          onClick={() => setNodeEditModal((prev) => ({
-                            ...prev,
-                            style: { ...prev.style, textColor: color },
-                          }))}
-                          title={color}
-                        />
-                      ))}
-                    </div>
-                    {nodeEditModal.style && Object.keys(nodeEditModal.style).length > 0 && (
-                      <button
-                        className="soft-btn"
-                        style={{ marginTop: 4, fontSize: 12 }}
-                        onClick={() => setNodeEditModal((prev) => ({ ...prev, style: {} }))}
-                      >
-                        Clear styles
-                      </button>
-                    )}
-                    {/* classDef styles from the code */}
-                    {nodeEditModal.classDefs && nodeEditModal.classDefs.length > 0 && (
-                      <div className="classdef-section">
-                        <label>Your Styles</label>
-                        <div className="classdef-list">
-                          {nodeEditModal.classDefs.map((cd) => (
-                            <button
-                              key={cd.name}
-                              className={`classdef-btn${nodeEditModal.assignedClass === cd.name ? " active" : ""}`}
-                              onClick={() => {
-                                const style = {};
-                                if (cd.fill) style.fill = cd.fill;
-                                if (cd.stroke) style.stroke = cd.stroke;
-                                if (cd.color) style.textColor = cd.color;
-                                if (cd.strokeDasharray) style.strokeStyle = "dashed";
-                                setNodeEditModal((prev) => ({ ...prev, style, assignedClass: cd.name }));
-                              }}
-                            >
-                              <span
-                                className="classdef-preview"
-                                style={{
-                                  backgroundColor: cd.fill || "transparent",
-                                  borderColor: cd.stroke || "var(--line)",
-                                  color: cd.color || "inherit",
-                                }}
-                              />
-                              <span className="classdef-name">{cd.name}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 )}
                 {nodeEditModal.attributes && (
                   <>
@@ -3070,27 +3031,6 @@ function App() {
                     setCode((prev) => updateFlowchartNode(prev, nodeEditModal.nodeId, updates));
                   } else {
                     setCode((prev) => replaceFirstLabel(prev, selectedElement?.label || "", nodeEditModal.label));
-                  }
-                  // Save style overrides
-                  if (isFlowchart && nodeEditModal.style) {
-                    const nodeId = nodeEditModal.nodeId;
-                    if (Object.keys(nodeEditModal.style).length > 0) {
-                      setStyleOverrides((prev) => ({ ...prev, [nodeId]: nodeEditModal.style }));
-                      // Apply immediately without full re-render
-                      const frame = iframeRef.current;
-                      if (frame?.contentWindow) {
-                        frame.contentWindow.postMessage(
-                          { channel: CHANNEL, type: "apply:styles", payload: { overrides: { [nodeId]: nodeEditModal.style } } },
-                          "*"
-                        );
-                      }
-                    } else {
-                      setStyleOverrides((prev) => {
-                        const next = { ...prev };
-                        delete next[nodeId];
-                        return next;
-                      });
-                    }
                   }
                   setPositionOverrides({});
                   setRenderMessage(`Updated ${nodeLabel} "${nodeEditModal.nodeId}"`);
@@ -3236,6 +3176,250 @@ function App() {
                 </button>
               </div>
             </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Floating Style Toolbar ─────────────────────── */}
+      {styleToolbar && (() => {
+        const existingStyle = styleOverrides[styleToolbar.nodeId] || {};
+        const isFlowchart = toolsetKey === "flowchart";
+        const toolbarHeight = 40;
+        const gap = 8;
+        let top = styleToolbar.y - toolbarHeight - gap;
+        if (top < 8) top = styleToolbar.yBottom + gap;
+        const left = styleToolbar.x;
+        const classDefs = isFlowchart ? parseClassDefs(code) : [];
+
+        return (
+          <div
+            className="style-toolbar"
+            style={{ top, left, transform: "translateX(-50%)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Edit */}
+            <button
+              className="style-toolbar-btn"
+              title="Edit label & description"
+              onClick={() => {
+                const data = buildNodeEditData(styleToolbar.nodeId);
+                setStyleToolbar(null);
+                setNodeEditModal(data);
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+
+            <div className="style-toolbar-sep" />
+
+            {/* Fill Color */}
+            <button
+              className={`style-toolbar-btn${styleToolbar.activeDropdown === "fill" ? " active" : ""}`}
+              title="Fill color"
+              onClick={() => setStyleToolbar((prev) => prev ? { ...prev, activeDropdown: prev.activeDropdown === "fill" ? null : "fill" } : null)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+              </svg>
+              {existingStyle.fill && <span className="style-toolbar-indicator" style={{ backgroundColor: existingStyle.fill }} />}
+            </button>
+
+            {/* Border Color */}
+            <button
+              className={`style-toolbar-btn${styleToolbar.activeDropdown === "stroke" ? " active" : ""}`}
+              title="Border color"
+              onClick={() => setStyleToolbar((prev) => prev ? { ...prev, activeDropdown: prev.activeDropdown === "stroke" ? null : "stroke" } : null)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+              </svg>
+              {existingStyle.stroke && <span className="style-toolbar-indicator" style={{ backgroundColor: existingStyle.stroke }} />}
+            </button>
+
+            {/* Border Style */}
+            <button
+              className={`style-toolbar-btn${styleToolbar.activeDropdown === "borderStyle" ? " active" : ""}`}
+              title="Border style"
+              onClick={() => setStyleToolbar((prev) => prev ? { ...prev, activeDropdown: prev.activeDropdown === "borderStyle" ? null : "borderStyle" } : null)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4 3">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+              </svg>
+            </button>
+
+            {/* Text Color */}
+            <button
+              className={`style-toolbar-btn${styleToolbar.activeDropdown === "textColor" ? " active" : ""}`}
+              title="Text color"
+              onClick={() => setStyleToolbar((prev) => prev ? { ...prev, activeDropdown: prev.activeDropdown === "textColor" ? null : "textColor" } : null)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 7 4 4 20 4 20 7" />
+                <line x1="9.5" y1="20" x2="14.5" y2="20" />
+                <line x1="12" y1="4" x2="12" y2="20" />
+              </svg>
+              {existingStyle.textColor && <span className="style-toolbar-indicator" style={{ backgroundColor: existingStyle.textColor }} />}
+            </button>
+
+            <div className="style-toolbar-sep" />
+
+            {/* Duplicate (flowchart only) */}
+            {isFlowchart && (
+              <button
+                className="style-toolbar-btn"
+                title="Duplicate node"
+                onClick={() => {
+                  const node = flowchartData.nodes.find((n) => n.id === styleToolbar.nodeId);
+                  if (node) {
+                    const newId = generateNodeId(flowchartData.nodes);
+                    setCode((prev) => addFlowchartNode(prev, { id: newId, label: node.label || styleToolbar.nodeId, shape: node.shape || "rect" }));
+                    setPositionOverrides({});
+                    setRenderMessage(`Duplicated "${styleToolbar.nodeId}" as "${newId}"`);
+                  }
+                  setStyleToolbar(null);
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+            )}
+
+            {/* Delete */}
+            <button
+              className="style-toolbar-btn danger"
+              title="Delete node"
+              onClick={() => {
+                const adapter = getDiagramAdapter(toolsetKey);
+                if (isFlowchart) {
+                  setCode((prev) => removeFlowchartNode(prev, styleToolbar.nodeId));
+                } else if (adapter?.removeNode) {
+                  setCode((prev) => adapter.removeNode(prev, styleToolbar.nodeId));
+                }
+                setPositionOverrides({});
+                setRenderMessage(`Deleted "${styleToolbar.nodeId}"`);
+                setStyleToolbar(null);
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
+
+            {/* ── Dropdown Panels ────────────────────── */}
+            {styleToolbar.activeDropdown === "fill" && (
+              <div className="style-toolbar-dropdown">
+                <div className="color-palette">
+                  {STYLE_PALETTE.map((color) => (
+                    <button
+                      key={color}
+                      className={`color-swatch${existingStyle.fill === color ? " active" : ""}`}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                      onClick={() => applyToolbarStyle(styleToolbar.nodeId, { fill: color })}
+                    />
+                  ))}
+                </div>
+                {existingStyle.fill && (
+                  <button className="style-toolbar-clear" onClick={() => applyToolbarStyle(styleToolbar.nodeId, { fill: null })}>
+                    Clear fill
+                  </button>
+                )}
+                {classDefs.length > 0 && (
+                  <div className="classdef-section">
+                    <span className="style-toolbar-section-label">Your Styles</span>
+                    <div className="classdef-list">
+                      {classDefs.map((cd) => (
+                        <button
+                          key={cd.name}
+                          className="classdef-btn"
+                          title={cd.name}
+                          onClick={() => {
+                            const patch = {};
+                            if (cd.fill) patch.fill = cd.fill;
+                            if (cd.stroke) patch.stroke = cd.stroke;
+                            if (cd.color) patch.textColor = cd.color;
+                            applyToolbarStyle(styleToolbar.nodeId, patch);
+                          }}
+                        >
+                          <span className="classdef-preview" style={{ backgroundColor: cd.fill || "#e2e8f0", borderColor: cd.stroke || "#94a3b8" }} />
+                          <span className="classdef-name">{cd.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {styleToolbar.activeDropdown === "stroke" && (
+              <div className="style-toolbar-dropdown">
+                <div className="color-palette">
+                  {STYLE_PALETTE.map((color) => (
+                    <button
+                      key={color}
+                      className={`color-swatch${existingStyle.stroke === color ? " active" : ""}`}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                      onClick={() => applyToolbarStyle(styleToolbar.nodeId, { stroke: color })}
+                    />
+                  ))}
+                </div>
+                {existingStyle.stroke && (
+                  <button className="style-toolbar-clear" onClick={() => applyToolbarStyle(styleToolbar.nodeId, { stroke: null })}>
+                    Clear border color
+                  </button>
+                )}
+              </div>
+            )}
+
+            {styleToolbar.activeDropdown === "borderStyle" && (
+              <div className="style-toolbar-dropdown">
+                <div className="border-style-grid">
+                  {[
+                    { value: "solid", label: "Solid", icon: "\u2500\u2500\u2500" },
+                    { value: "dashed", label: "Dashed", icon: "- - -" },
+                    { value: "none", label: "None", icon: "\u00a0" },
+                  ].map(({ value, label, icon }) => (
+                    <button
+                      key={value}
+                      className={`border-style-btn${(existingStyle.strokeStyle || "solid") === value ? " active" : ""}`}
+                      onClick={() => applyToolbarStyle(styleToolbar.nodeId, { strokeStyle: value })}
+                    >
+                      <span className="border-style-icon">{icon}</span>
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {styleToolbar.activeDropdown === "textColor" && (
+              <div className="style-toolbar-dropdown">
+                <div className="color-palette">
+                  {STYLE_PALETTE.map((color) => (
+                    <button
+                      key={color}
+                      className={`color-swatch${existingStyle.textColor === color ? " active" : ""}`}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                      onClick={() => applyToolbarStyle(styleToolbar.nodeId, { textColor: color })}
+                    />
+                  ))}
+                </div>
+                {existingStyle.textColor && (
+                  <button className="style-toolbar-clear" onClick={() => applyToolbarStyle(styleToolbar.nodeId, { textColor: null })}>
+                    Clear text color
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
       })()}
