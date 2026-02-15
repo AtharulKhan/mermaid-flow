@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
 import { findTaskByLabel, parseGanttTasks, shiftIsoDate, updateGanttTask, toggleGanttStatus, clearGanttStatus, updateGanttAssignee, updateGanttNotes } from "./ganttUtils";
-import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge } from "./flowchartUtils";
+import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, updateErEntity, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 
 const CHANNEL = "mermaid-flow";
+
+const STYLE_PALETTE = [
+  "#ffffff", "#f1f5f9", "#cbd5e1", "#94a3b8", "#64748b", "#334155",
+  "#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6", "#8b5cf6",
+  "#fee2e2", "#ffedd5", "#fef9c3", "#dcfce7", "#dbeafe", "#ede9fe",
+];
 
 function escapeHtml(raw) {
   return raw
@@ -349,6 +355,32 @@ function getIframeSrcDoc() {
           if (labelEl?.classList.contains("mf-edge-label")) {
             labelEl.setAttribute("x", (pathData.sx + pathData.tx) / 2);
             labelEl.setAttribute("y", (pathData.sy + pathData.ty) / 2 - 6);
+          }
+        }
+      };
+
+      /* ── Style overrides state ─────────────────────────── */
+      let styleOverrides = {};  // nodeId → { fill, stroke, strokeStyle, textColor }
+
+      const applyStyleOverrides = () => {
+        const svg = canvas.querySelector("svg");
+        if (!svg) return;
+        for (const [nodeId, style] of Object.entries(styleOverrides)) {
+          const el = svg.querySelector("#" + CSS.escape(nodeId));
+          if (!el) continue;
+          const shapes = el.querySelectorAll("rect, circle, polygon, ellipse, path");
+          for (const shape of shapes) {
+            if (style.fill) shape.style.fill = style.fill;
+            if (style.stroke) shape.style.stroke = style.stroke;
+            if (style.strokeStyle === "dashed") shape.style.strokeDasharray = "6,3";
+            else if (style.strokeStyle === "none") shape.style.stroke = "transparent";
+            else if (style.strokeStyle === "solid") shape.style.strokeDasharray = "none";
+          }
+          if (style.textColor) {
+            el.querySelectorAll("text, tspan, .nodeLabel, span").forEach(t => {
+              t.style.fill = style.textColor;
+              t.style.color = style.textColor;
+            });
           }
         }
       };
@@ -1411,6 +1443,16 @@ function getIframeSrcDoc() {
             positionOverrides[key] = val;
           }
           applyPositionOverrides();
+          applyStyleOverrides();
+          return;
+        }
+
+        if (data.type === "apply:styles") {
+          const incoming = data.payload?.overrides || {};
+          for (const [key, val] of Object.entries(incoming)) {
+            styleOverrides[key] = val;
+          }
+          applyStyleOverrides();
           return;
         }
 
@@ -1418,6 +1460,7 @@ function getIframeSrcDoc() {
           const svg = canvas.querySelector("svg");
           if (svg) {
             drawCustomEdges(svg, data.payload?.edges || [], data.payload?.diagramType || "");
+            setTimeout(() => applyStyleOverrides(), 10);
           }
           return;
         }
@@ -1604,10 +1647,12 @@ function App() {
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
+  const [styleOverrides, setStyleOverrides] = useState({}); // { [nodeId]: { fill?, stroke?, strokeStyle?, textColor? } }
   const [connectMode, setConnectMode] = useState(null);
   const [shapePickerNode, setShapePickerNode] = useState(null);
   const [edgeLabelEdit, setEdgeLabelEdit] = useState(null);
   const [nodeEditModal, setNodeEditModal] = useState(null); // { type: "node"|"edge", nodeId?, label, shape?, edgeSource?, edgeTarget?, arrowType? }
+  const [nodeCreationForm, setNodeCreationForm] = useState(null); // { sourceNodeId, port, label, description }
   const [zoomLevel, setZoomLevel] = useState(1);
   const contextMenuRef = useRef(null);
 
@@ -1708,7 +1753,11 @@ function App() {
       const parts = fullLabel.split(/<br\s*\/?>/i);
       const label = parts[0].trim();
       const description = parts.slice(1).map(p => p.trim()).join("\n");
-      return { type: "node", nodeId, label, description, shape, connections };
+      const existingStyle = styleOverrides[nodeId] || {};
+      const classDefs = parseClassDefs(code);
+      const classAssignments = parseClassAssignments(code);
+      const assignedClass = classAssignments[nodeId] || null;
+      return { type: "node", nodeId, label, description, shape, connections, style: { ...existingStyle }, classDefs, assignedClass };
     }
     if (toolsetKey === "erDiagram") {
       const erData = parseErDiagram(code);
@@ -1863,6 +1912,19 @@ function App() {
             }, 50);
           }
         }
+
+        // Apply style overrides after render (with delay for edges to draw first)
+        if (Object.keys(styleOverrides).length > 0) {
+          const frame = iframeRef.current;
+          if (frame?.contentWindow) {
+            setTimeout(() => {
+              frame.contentWindow.postMessage(
+                { channel: CHANNEL, type: "apply:styles", payload: { overrides: styleOverrides } },
+                "*"
+              );
+            }, 100);
+          }
+        }
       }
 
       if (data.type === "render:error") {
@@ -1951,29 +2013,7 @@ function App() {
         const payload = data.payload || {};
         const { nodeId, port } = payload;
         if (!nodeId) return;
-        if (toolsetKey === "flowchart") {
-          const parsed = parseFlowchart(code);
-          const newId = generateNodeId(parsed.nodes);
-          let newCode = addFlowchartNode(code, { id: newId, label: "New Node", shape: "rect" });
-          if (port === "left" || port === "top") {
-            newCode = addFlowchartEdge(newCode, { source: newId, target: nodeId });
-          } else {
-            newCode = addFlowchartEdge(newCode, { source: nodeId, target: newId });
-          }
-          setCode(newCode);
-          setPositionOverrides({});
-          setRenderMessage("Added node " + newId + " connected to " + nodeId);
-        } else {
-          const adapter = getDiagramAdapter(toolsetKey);
-          if (adapter?.addNode && adapter?.addEdge) {
-            const newId = "New" + Date.now().toString(36).slice(-4);
-            let newCode = adapter.addNode(code, { id: newId, name: newId, label: "New " + (adapter.nodeLabel || "node"), type: "participant" });
-            newCode = adapter.addEdge(newCode, { source: nodeId, target: newId, label: "" });
-            setCode(newCode);
-            setPositionOverrides({});
-            setRenderMessage("Added " + (adapter.nodeLabel || "node"));
-          }
-        }
+        setNodeCreationForm({ sourceNodeId: nodeId, port, label: "", description: "" });
       }
 
       if (data.type === "edge:reconnect") {
@@ -2136,6 +2176,7 @@ function App() {
           return;
         }
         if (nodeEditModal) { setNodeEditModal(null); return; }
+        if (nodeCreationForm) { setNodeCreationForm(null); return; }
         if (contextMenu) { setContextMenu(null); return; }
         if (shapePickerNode) { setShapePickerNode(null); return; }
         if (edgeLabelEdit) { setEdgeLabelEdit(null); return; }
@@ -2147,7 +2188,7 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm]);
 
   /* ── Actions ─────────────────────────────────────────── */
   const insertSnippet = (snippet) => {
@@ -2782,31 +2823,41 @@ function App() {
                 {/* Connected nodes navigation */}
                 {hasConnections && (
                   <div className="node-nav-bar">
-                    <div className="node-nav-group">
-                      {conn.inputs.map((inp) => (
-                        <button
-                          key={inp.id}
-                          className="node-nav-btn nav-input"
-                          title={`Navigate to ${inp.label}`}
-                          onClick={() => setNodeEditModal(buildNodeEditData(inp.id))}
-                        >
-                          <span className="nav-arrow">&larr;</span> {inp.label}
-                        </button>
-                      ))}
-                    </div>
+                    {conn.inputs.length > 0 && (
+                      <div className="node-nav-section">
+                        <span className="node-nav-label">Inputs</span>
+                        <div className="node-nav-group">
+                          {conn.inputs.map((inp) => (
+                            <button
+                              key={inp.id}
+                              className="node-nav-btn"
+                              title={inp.label}
+                              onClick={() => setNodeEditModal(buildNodeEditData(inp.id))}
+                            >
+                              {inp.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <span className="node-nav-current">{nodeEditModal.nodeId}</span>
-                    <div className="node-nav-group">
-                      {conn.outputs.map((out) => (
-                        <button
-                          key={out.id}
-                          className="node-nav-btn nav-output"
-                          title={`Navigate to ${out.label}`}
-                          onClick={() => setNodeEditModal(buildNodeEditData(out.id))}
-                        >
-                          {out.label} <span className="nav-arrow">&rarr;</span>
-                        </button>
-                      ))}
-                    </div>
+                    {conn.outputs.length > 0 && (
+                      <div className="node-nav-section">
+                        <span className="node-nav-label">Outputs</span>
+                        <div className="node-nav-group">
+                          {conn.outputs.map((out) => (
+                            <button
+                              key={out.id}
+                              className="node-nav-btn"
+                              title={out.label}
+                              onClick={() => setNodeEditModal(buildNodeEditData(out.id))}
+                            >
+                              {out.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 <label>
@@ -2826,36 +2877,120 @@ function App() {
                       value={nodeEditModal.description}
                       onChange={(e) => setNodeEditModal((prev) => ({ ...prev, description: e.target.value }))}
                       placeholder="Additional content (each line becomes a new line in the node)..."
-                      rows={3}
+                      rows={5}
                     />
                   </label>
                 )}
+                {/* Node Style Editing (flowchart) */}
                 {isFlowchart && (
-                  <>
-                    <label>Shape</label>
-                    <div className="shape-grid">
-                      {[
-                        { shape: "rect", label: "Rectangle", icon: "[ ]" },
-                        { shape: "rounded", label: "Rounded", icon: "( )" },
-                        { shape: "stadium", label: "Stadium", icon: "([ ])" },
-                        { shape: "diamond", label: "Diamond", icon: "{ }" },
-                        { shape: "circle", label: "Circle", icon: "(( ))" },
-                        { shape: "hexagon", label: "Hexagon", icon: "{{ }}" },
-                        { shape: "subroutine", label: "Subroutine", icon: "[[ ]]" },
-                        { shape: "cylinder", label: "Cylinder", icon: "[( )]" },
-                        { shape: "parallelogram", label: "Parallelogram", icon: "[/ /]" },
-                      ].map(({ shape, label: shapeLabel, icon }) => (
+                  <div className="node-style-section">
+                    <label>Fill Color</label>
+                    <div className="color-palette">
+                      {STYLE_PALETTE.map((color) => (
                         <button
-                          key={shape}
-                          className={`shape-btn ${nodeEditModal.shape === shape ? "active" : ""}`}
-                          onClick={() => setNodeEditModal((prev) => ({ ...prev, shape }))}
+                          key={"fill-" + color}
+                          className={`color-swatch${nodeEditModal.style?.fill === color ? " active" : ""}`}
+                          style={{ backgroundColor: color }}
+                          onClick={() => setNodeEditModal((prev) => ({
+                            ...prev,
+                            style: { ...prev.style, fill: color },
+                          }))}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                    <label>Border Color</label>
+                    <div className="color-palette">
+                      {STYLE_PALETTE.map((color) => (
+                        <button
+                          key={"stroke-" + color}
+                          className={`color-swatch${nodeEditModal.style?.stroke === color ? " active" : ""}`}
+                          style={{ backgroundColor: color }}
+                          onClick={() => setNodeEditModal((prev) => ({
+                            ...prev,
+                            style: { ...prev.style, stroke: color },
+                          }))}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                    <label>Border Style</label>
+                    <div className="border-style-grid">
+                      {[
+                        { value: "solid", label: "Solid", icon: "\u2500\u2500\u2500" },
+                        { value: "dashed", label: "Dashed", icon: "- - -" },
+                        { value: "none", label: "None", icon: "\u00a0" },
+                      ].map(({ value, label: bLabel, icon }) => (
+                        <button
+                          key={value}
+                          className={`border-style-btn${(nodeEditModal.style?.strokeStyle || "solid") === value ? " active" : ""}`}
+                          onClick={() => setNodeEditModal((prev) => ({
+                            ...prev,
+                            style: { ...prev.style, strokeStyle: value },
+                          }))}
                         >
-                          <span className="shape-icon">{icon}</span>
-                          <span>{shapeLabel}</span>
+                          <span className="border-style-icon">{icon}</span>
+                          <span>{bLabel}</span>
                         </button>
                       ))}
                     </div>
-                  </>
+                    <label>Text Color</label>
+                    <div className="color-palette">
+                      {STYLE_PALETTE.map((color) => (
+                        <button
+                          key={"text-" + color}
+                          className={`color-swatch${nodeEditModal.style?.textColor === color ? " active" : ""}`}
+                          style={{ backgroundColor: color }}
+                          onClick={() => setNodeEditModal((prev) => ({
+                            ...prev,
+                            style: { ...prev.style, textColor: color },
+                          }))}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                    {nodeEditModal.style && Object.keys(nodeEditModal.style).length > 0 && (
+                      <button
+                        className="soft-btn"
+                        style={{ marginTop: 4, fontSize: 12 }}
+                        onClick={() => setNodeEditModal((prev) => ({ ...prev, style: {} }))}
+                      >
+                        Clear styles
+                      </button>
+                    )}
+                    {/* classDef styles from the code */}
+                    {nodeEditModal.classDefs && nodeEditModal.classDefs.length > 0 && (
+                      <div className="classdef-section">
+                        <label>Your Styles</label>
+                        <div className="classdef-list">
+                          {nodeEditModal.classDefs.map((cd) => (
+                            <button
+                              key={cd.name}
+                              className={`classdef-btn${nodeEditModal.assignedClass === cd.name ? " active" : ""}`}
+                              onClick={() => {
+                                const style = {};
+                                if (cd.fill) style.fill = cd.fill;
+                                if (cd.stroke) style.stroke = cd.stroke;
+                                if (cd.color) style.textColor = cd.color;
+                                if (cd.strokeDasharray) style.strokeStyle = "dashed";
+                                setNodeEditModal((prev) => ({ ...prev, style, assignedClass: cd.name }));
+                              }}
+                            >
+                              <span
+                                className="classdef-preview"
+                                style={{
+                                  backgroundColor: cd.fill || "transparent",
+                                  borderColor: cd.stroke || "var(--line)",
+                                  color: cd.color || "inherit",
+                                }}
+                              />
+                              <span className="classdef-name">{cd.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {nodeEditModal.attributes && (
                   <>
@@ -2932,10 +3067,30 @@ function App() {
                       combinedLabel += "<br>" + nodeEditModal.description.split("\n").join("<br>");
                     }
                     const updates = { label: combinedLabel };
-                    if (nodeEditModal.shape) updates.shape = nodeEditModal.shape;
                     setCode((prev) => updateFlowchartNode(prev, nodeEditModal.nodeId, updates));
                   } else {
                     setCode((prev) => replaceFirstLabel(prev, selectedElement?.label || "", nodeEditModal.label));
+                  }
+                  // Save style overrides
+                  if (isFlowchart && nodeEditModal.style) {
+                    const nodeId = nodeEditModal.nodeId;
+                    if (Object.keys(nodeEditModal.style).length > 0) {
+                      setStyleOverrides((prev) => ({ ...prev, [nodeId]: nodeEditModal.style }));
+                      // Apply immediately without full re-render
+                      const frame = iframeRef.current;
+                      if (frame?.contentWindow) {
+                        frame.contentWindow.postMessage(
+                          { channel: CHANNEL, type: "apply:styles", payload: { overrides: { [nodeId]: nodeEditModal.style } } },
+                          "*"
+                        );
+                      }
+                    } else {
+                      setStyleOverrides((prev) => {
+                        const next = { ...prev };
+                        delete next[nodeId];
+                        return next;
+                      });
+                    }
                   }
                   setPositionOverrides({});
                   setRenderMessage(`Updated ${nodeLabel} "${nodeEditModal.nodeId}"`);
@@ -2948,6 +3103,76 @@ function App() {
           </div>
         );
       })()}
+
+      {/* ── Node Creation Form (from + port click) ──── */}
+      {nodeCreationForm && (
+        <div className="modal-backdrop" onClick={() => setNodeCreationForm(null)}>
+          <div className="node-edit-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="task-modal-header">
+              <h2>Create Node</h2>
+              <button className="drawer-close-btn" onClick={() => setNodeCreationForm(null)}>&times;</button>
+            </div>
+            <div className="task-modal-body">
+              <label>
+                Label
+                <input
+                  value={nodeCreationForm.label}
+                  onChange={(e) => setNodeCreationForm((prev) => ({ ...prev, label: e.target.value }))}
+                  autoFocus
+                  placeholder="Node name..."
+                />
+              </label>
+              <label>
+                Description
+                <textarea
+                  className="task-notes-input"
+                  value={nodeCreationForm.description}
+                  onChange={(e) => setNodeCreationForm((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="Optional description..."
+                  rows={3}
+                />
+              </label>
+            </div>
+            <div className="task-modal-actions">
+              <button className="soft-btn" onClick={() => setNodeCreationForm(null)}>Cancel</button>
+              <button className="soft-btn primary" onClick={() => {
+                if (toolsetKey === "flowchart") {
+                  const parsed = parseFlowchart(code);
+                  const newId = generateNodeId(parsed.nodes);
+                  let combinedLabel = nodeCreationForm.label || "New Node";
+                  if (nodeCreationForm.description) {
+                    combinedLabel += "<br>" + nodeCreationForm.description.split("\n").join("<br>");
+                  }
+                  let newCode = addFlowchartNode(code, { id: newId, label: combinedLabel, shape: "rect" });
+                  const { sourceNodeId, port } = nodeCreationForm;
+                  if (port === "left" || port === "top") {
+                    newCode = addFlowchartEdge(newCode, { source: newId, target: sourceNodeId });
+                  } else {
+                    newCode = addFlowchartEdge(newCode, { source: sourceNodeId, target: newId });
+                  }
+                  setCode(newCode);
+                  setPositionOverrides({});
+                  setRenderMessage("Added node " + newId + " connected to " + sourceNodeId);
+                } else {
+                  const adapter = getDiagramAdapter(toolsetKey);
+                  if (adapter?.addNode && adapter?.addEdge) {
+                    const newId = "New" + Date.now().toString(36).slice(-4);
+                    let combinedLabel = nodeCreationForm.label || "New " + (adapter.nodeLabel || "node");
+                    let newCode = adapter.addNode(code, { id: newId, name: newId, label: combinedLabel, type: "participant" });
+                    newCode = adapter.addEdge(newCode, { source: nodeCreationForm.sourceNodeId, target: newId, label: "" });
+                    setCode(newCode);
+                    setPositionOverrides({});
+                    setRenderMessage("Added " + (adapter.nodeLabel || "node") + " " + newId);
+                  }
+                }
+                setNodeCreationForm(null);
+              }}>
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Edge Edit Modal (right-click on edge) ────── */}
       {nodeEditModal?.type === "edge" && (() => {

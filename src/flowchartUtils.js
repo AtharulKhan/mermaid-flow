@@ -591,3 +591,57 @@ export function updateFlowchartEdge(code, source, target, updates) {
 
   return lines.join("\n");
 }
+
+/**
+ * Parse classDef directives from flowchart code.
+ * Returns array of { name, fill, stroke, color, strokeDasharray, raw, lineIndex }.
+ */
+export function parseClassDefs(code) {
+  const result = [];
+  const lines = code.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    const m = trimmed.match(/^classDef\s+(\S+)\s+(.+)$/);
+    if (!m) continue;
+    const name = m[1];
+    const raw = m[2];
+    const style = { name, raw, lineIndex: i };
+    const fillMatch = raw.match(/fill:\s*([^,;]+)/);
+    if (fillMatch) style.fill = fillMatch[1].trim();
+    const strokeMatch = raw.match(/stroke:\s*([^,;]+)/);
+    if (strokeMatch) style.stroke = strokeMatch[1].trim();
+    const colorMatch = raw.match(/(?:^|,)\s*color:\s*([^,;]+)/);
+    if (colorMatch) style.color = colorMatch[1].trim();
+    const dashMatch = raw.match(/stroke-dasharray:\s*([^,;]+)/);
+    if (dashMatch) style.strokeDasharray = dashMatch[1].trim();
+    const widthMatch = raw.match(/stroke-width:\s*([^,;]+)/);
+    if (widthMatch) style.strokeWidth = widthMatch[1].trim();
+    result.push(style);
+  }
+  return result;
+}
+
+/**
+ * Parse class assignments: "class A,B myClass" and inline :::className syntax.
+ * Returns { nodeId: className } mapping.
+ */
+export function parseClassAssignments(code) {
+  const result = {};
+  const lines = code.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const m = trimmed.match(/^class\s+(\S+)\s+(\S+)$/);
+    if (m) {
+      const nodeIds = m[1].split(",").map(s => s.trim());
+      const className = m[2];
+      for (const id of nodeIds) {
+        if (id) result[id] = className;
+      }
+    }
+    const inlineMatches = trimmed.matchAll(/(\w+)(?:\[.*?\]|\(.*?\)|\{.*?\})?\s*:::(\w+)/g);
+    for (const im of inlineMatches) {
+      result[im[1]] = im[2];
+    }
+  }
+  return result;
+}
