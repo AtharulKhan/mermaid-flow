@@ -26,6 +26,7 @@ import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 
 const CHANNEL = "mermaid-flow";
+const ENABLE_NOTION_INTEGRATION = false; // Temporarily disabled.
 
 const STYLE_PALETTE = [
   "#ffffff", "#f1f5f9", "#cbd5e1", "#94a3b8", "#64748b", "#334155",
@@ -4277,6 +4278,7 @@ function App() {
 
   /* ── Load user's Notion settings when sync panel opens ── */
   useEffect(() => {
+    if (!ENABLE_NOTION_INTEGRATION) return;
     if (!notionSyncOpen || !currentUser) return;
     (async () => {
       try {
@@ -5176,7 +5178,7 @@ function App() {
           )}
 
           {/* Notion Sync (only for Gantt diagrams) */}
-          {toolsetKey === "gantt" && (
+          {ENABLE_NOTION_INTEGRATION && toolsetKey === "gantt" && (
             <button
               className="soft-btn small"
               onClick={() => setNotionSyncOpen(!notionSyncOpen)}
@@ -6453,7 +6455,7 @@ function App() {
       )}
 
       {/* ── Notion Sync Panel ──────────────────────────── */}
-      {notionSyncOpen && (
+      {ENABLE_NOTION_INTEGRATION && notionSyncOpen && (
         <div className="modal-overlay" onClick={() => setNotionSyncOpen(false)}>
           <div className="modal save-modal" onClick={(e) => e.stopPropagation()}>
             <h3>Notion Gantt Sync</h3>

@@ -4,6 +4,8 @@ import { useAuth } from "../firebase/AuthContext";
 import { logOut } from "../firebase/auth";
 import { getUserSettings, updateUserSettings } from "../firebase/firestore";
 
+const ENABLE_NOTION_INTEGRATION = false; // Temporarily disabled.
+
 export default function UserSettings() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -36,6 +38,12 @@ export default function UserSettings() {
     setSaving(true);
     setMessage("");
     try {
+      if (!ENABLE_NOTION_INTEGRATION) {
+        setMessage("No active integration settings to save right now.");
+        setSaving(false);
+        return;
+      }
+
       await updateUserSettings(user.uid, {
         notion: {
           apiKey: notionApiKey.trim(),
@@ -96,48 +104,57 @@ export default function UserSettings() {
             {/* ── Notion Integration ──────────────────────── */}
             <section className="settings-section">
               <h3>Notion Integration</h3>
-              <p className="settings-section-desc">
-                Connect your Notion workspace to sync Gantt charts with Notion databases.
-                You need a Notion internal integration token — create one at{" "}
-                <a
-                  href="https://www.notion.so/my-integrations"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  notion.so/my-integrations
-                </a>.
-              </p>
+              {!ENABLE_NOTION_INTEGRATION && (
+                <p className="settings-section-desc">
+                  Notion integration is temporarily disabled. Embed mode still works.
+                </p>
+              )}
+              {ENABLE_NOTION_INTEGRATION && (
+                <>
+                  <p className="settings-section-desc">
+                    Connect your Notion workspace to sync Gantt charts with Notion databases.
+                    You need a Notion internal integration token — create one at{" "}
+                    <a
+                      href="https://www.notion.so/my-integrations"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      notion.so/my-integrations
+                    </a>.
+                  </p>
 
-              <div className="settings-field">
-                <label htmlFor="notion-api-key">Notion Integration Token</label>
-                <input
-                  id="notion-api-key"
-                  type="password"
-                  className="settings-input"
-                  placeholder="ntn_..."
-                  value={notionApiKey}
-                  onChange={(e) => setNotionApiKey(e.target.value)}
-                />
-                <span className="settings-hint">
-                  Your internal integration token starting with ntn_
-                </span>
-              </div>
+                  <div className="settings-field">
+                    <label htmlFor="notion-api-key">Notion Integration Token</label>
+                    <input
+                      id="notion-api-key"
+                      type="password"
+                      className="settings-input"
+                      placeholder="ntn_..."
+                      value={notionApiKey}
+                      onChange={(e) => setNotionApiKey(e.target.value)}
+                    />
+                    <span className="settings-hint">
+                      Your internal integration token starting with ntn_
+                    </span>
+                  </div>
 
-              <div className="settings-field">
-                <label htmlFor="notion-db-id">Default Database ID</label>
-                <input
-                  id="notion-db-id"
-                  type="text"
-                  className="settings-input"
-                  placeholder="abc123def456..."
-                  value={notionDbId}
-                  onChange={(e) => setNotionDbId(e.target.value)}
-                />
-                <span className="settings-hint">
-                  The 32-character ID from your Notion database URL. Optional — you can
-                  also enter it per-sync in the editor.
-                </span>
-              </div>
+                  <div className="settings-field">
+                    <label htmlFor="notion-db-id">Default Database ID</label>
+                    <input
+                      id="notion-db-id"
+                      type="text"
+                      className="settings-input"
+                      placeholder="abc123def456..."
+                      value={notionDbId}
+                      onChange={(e) => setNotionDbId(e.target.value)}
+                    />
+                    <span className="settings-hint">
+                      The 32-character ID from your Notion database URL. Optional — you can
+                      also enter it per-sync in the editor.
+                    </span>
+                  </div>
+                </>
+              )}
             </section>
 
             {/* ── Future integrations placeholder ─────────── */}

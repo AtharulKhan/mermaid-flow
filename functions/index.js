@@ -3,25 +3,49 @@ const { onRequest } = require("firebase-functions/v2/https");
 const NOTION_API_BASE = "https://api.notion.com/v1";
 const NOTION_API_VERSION = "2022-06-28";
 const ROUTE_PREFIX = "/api/notion";
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://www.notion.so",
+  "https://notion.so",
+  "https://www.notion.site",
+  "https://notion.site",
+];
 
 function getAllowedOrigins() {
   const raw = process.env.ALLOWED_ORIGINS || "";
-  return raw
+  const configured = raw
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+
+  return configured.length > 0 ? configured : DEFAULT_ALLOWED_ORIGINS;
+}
+
+function getHost(urlString) {
+  try {
+    return new URL(urlString).host;
+  } catch {
+    return "";
+  }
 }
 
 function setCors(req, res) {
   const origin = req.get("origin") || "";
   const allowedOrigins = getAllowedOrigins();
+  const requestHost = req.get("x-forwarded-host") || req.get("host") || "";
 
   if (!origin) {
     res.set("Access-Control-Allow-Origin", "*");
     return true;
   }
 
-  if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+  const originHost = getHost(origin);
+  if (originHost && requestHost && originHost === requestHost) {
+    res.set("Access-Control-Allow-Origin", origin);
+    res.set("Vary", "Origin");
+    return true;
+  }
+
+  if (allowedOrigins.includes(origin)) {
     res.set("Access-Control-Allow-Origin", origin);
     res.set("Vary", "Origin");
     return true;
