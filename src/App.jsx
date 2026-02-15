@@ -236,7 +236,7 @@ function getIframeSrcDoc() {
         display: grid;
         flex: 0 0 auto;
         position: relative;
-        margin-top: 10px;
+        margin-top: 16px;
         border-radius: 12px;
         border: 1px solid #d9dee8;
       }
