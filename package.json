@@ -9,8 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@notionhq/client": "^5.9.0",
+    "firebase": "^12.9.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.1.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.13.0",
+    "svg2pdf.js": "^2.7.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.2",

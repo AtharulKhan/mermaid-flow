@@ -69,6 +69,136 @@ export const DIAGRAM_LIBRARY = [
     ],
   },
   {
+    id: "gantt-campaign",
+    label: "Marketing Campaign",
+    keyword: "gantt",
+    starter: `gantt
+    title Q1 Marketing Campaign
+    dateFormat  YYYY-MM-DD
+    axisFormat  %b %d
+
+    section Strategy
+    Market research           :done, research, 2026-02-03, 5d
+    Campaign brief            :done, brief, after research, 3d
+    Stakeholder approval      :done, milestone, approve, after brief, 0d
+
+    section Creative
+    Brand assets & copy       :active, creative, after approve, 5d
+    Landing page design       :active, landing, after approve, 4d
+    Video production          :video, after creative, 7d
+
+    section Distribution
+    Email sequences           :email, after landing, 3d
+    Social media schedule     :social, after creative, 5d
+    Paid ad setup             :ads, after landing, 3d
+
+    section Launch
+    Soft launch               :milestone, soft, after email, 0d
+    Full campaign go-live     :launch, after soft, 1d
+    Performance review        :review, after launch, 5d
+`,
+    quickTools: [
+      { label: "Add section", snippet: "\n    section New Phase\n" },
+      { label: "Add task", snippet: "\n    New Task :task1, 2026-03-01, 3d\n" },
+      { label: "Add milestone", snippet: "\n    Checkpoint :milestone, check, 2026-03-15, 0d\n" },
+    ],
+  },
+  {
+    id: "gantt-sprint",
+    label: "Agency Sprint",
+    keyword: "gantt",
+    starter: `gantt
+    title Sprint 12 — Client Portal
+    dateFormat  YYYY-MM-DD
+    axisFormat  %b %d
+
+    section Planning
+    Sprint planning           :done, plan, 2026-02-10, 1d
+    Backlog grooming          :done, groom, after plan, 1d
+
+    section Development
+    Auth flow                 :active, auth, after groom, 3d
+    Dashboard UI              :active, dash, after groom, 4d
+    API integration           :api, after auth, 3d
+    %% assignee: Backend Team
+    Client onboarding flow    :onboard, after dash, 3d
+    %% assignee: Frontend Team
+
+    section QA & Deploy
+    Integration testing       :test, after api, 2d
+    Staging deploy            :staging, after test, 1d
+    Client UAT                :uat, after staging, 2d
+    Production release        :milestone, release, after uat, 0d
+`,
+    quickTools: [
+      { label: "Add section", snippet: "\n    section New Phase\n" },
+      { label: "Add task", snippet: "\n    New Task :task1, 2026-02-15, 3d\n" },
+      { label: "Add milestone", snippet: "\n    Sprint Review :milestone, review, 2026-02-28, 0d\n" },
+    ],
+  },
+  {
+    id: "gantt-launch",
+    label: "Product Launch",
+    keyword: "gantt",
+    starter: `gantt
+    title Product Launch Plan
+    dateFormat  YYYY-MM-DD
+    axisFormat  %b %d
+
+    section Pre-Launch
+    Feature freeze            :done, freeze, 2026-02-10, 1d
+    Beta testing              :done, beta, after freeze, 7d
+    Bug fixes                 :active, fixes, after beta, 5d
+    Documentation             :docs, after freeze, 10d
+
+    section Marketing Prep
+    Press kit                 :press, after beta, 5d
+    Influencer outreach       :influencer, after press, 5d
+    Blog post series          :blog, after beta, 7d
+    Launch video              :video, after press, 7d
+
+    section Launch Week
+    Soft launch (team)        :milestone, soft, after fixes, 0d
+    Public launch             :launch, after soft, 1d
+    Product Hunt submission   :ph, after launch, 1d
+    Launch webinar            :webinar, after launch, 3d
+
+    section Post-Launch
+    Metrics review            :metrics, after webinar, 3d
+    Iteration planning        :iterate, after metrics, 2d
+`,
+    quickTools: [
+      { label: "Add section", snippet: "\n    section New Phase\n" },
+      { label: "Add task", snippet: "\n    New Task :task1, 2026-03-01, 3d\n" },
+      { label: "Add milestone", snippet: "\n    Launch :milestone, launch, 2026-03-15, 0d\n" },
+    ],
+  },
+  {
+    id: "flowchart-clientflow",
+    label: "Client Workflow",
+    keyword: "flowchart",
+    starter: `flowchart TD
+    A([Client Inquiry]) --> B{Qualify Lead}
+    B -->|Qualified| C[Discovery Call]
+    B -->|Not Fit| D[Refer Out]
+    C --> E[Proposal & SOW]
+    E --> F{Client Approval}
+    F -->|Approved| G[Kickoff Meeting]
+    F -->|Revisions| E
+    G --> H[Sprint 1]
+    H --> I[Review & Feedback]
+    I --> J{More Sprints?}
+    J -->|Yes| H
+    J -->|No| K[Final Delivery]
+    K --> L[Retainer / Support]
+`,
+    quickTools: [
+      { label: "Add step", snippet: '\n    N1["New Step"]\n' },
+      { label: "Add decision", snippet: "\n    Gate{Decision}\n" },
+      { label: "Add edge", snippet: "\n    N1 --> N2\n" },
+    ],
+  },
+  {
     id: "erDiagram",
     label: "ER Diagram",
     keyword: "erDiagram",

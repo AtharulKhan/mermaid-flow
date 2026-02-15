@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
 import {
   findTaskByLabel,
@@ -17,6 +18,12 @@ import {
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
+import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
+import { useAuth } from "./firebase/AuthContext";
+import { getFlow, updateFlow, getUserSettings } from "./firebase/firestore";
+import { ganttToNotionPages, importFromNotion } from "./notionSync";
+import ShareDialog from "./components/ShareDialog";
+import CommentPanel from "./components/CommentPanel";
 
 const CHANNEL = "mermaid-flow";
 
@@ -3905,15 +3912,105 @@ const IconPresent = () => (
   </svg>
 );
 
+/* ── URL params & embed helpers ────────────────────────── */
+function getUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    embed: params.get("embed") === "1",
+    codeParam: params.get("code") || null,
+    themeParam: params.get("theme") || null,
+    typeParam: params.get("type") || null,
+    editableParam: params.get("editable") !== "0", // default: editable
+  };
+}
+
+function decodeCodeParam(encoded) {
+  try {
+    return decodeURIComponent(escape(atob(encoded)));
+  } catch {
+    return null;
+  }
+}
+
+function encodeCodeParam(code) {
+  return btoa(unescape(encodeURIComponent(code)));
+}
+
+const STORAGE_KEY = "mermaid-flow:diagrams";
+const LAST_DIAGRAM_KEY = "mermaid-flow:last";
+
+function loadSavedDiagrams() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDiagramToStorage(name, code) {
+  const diagrams = loadSavedDiagrams();
+  const existing = diagrams.findIndex((d) => d.name === name);
+  const entry = { name, code, updatedAt: new Date().toISOString() };
+  if (existing >= 0) diagrams[existing] = entry;
+  else diagrams.unshift(entry);
+  // Keep max 50 saved diagrams
+  if (diagrams.length > 50) diagrams.length = 50;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(diagrams));
+}
+
+function deleteDiagramFromStorage(name) {
+  const diagrams = loadSavedDiagrams().filter((d) => d.name !== name);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(diagrams));
+}
+
+function saveLastDiagram(code) {
+  try { localStorage.setItem(LAST_DIAGRAM_KEY, code); } catch {}
+}
+
+function loadLastDiagram() {
+  try { return localStorage.getItem(LAST_DIAGRAM_KEY); } catch { return null; }
+}
+
 /* ── Main App ─────────────────────────────────────────── */
 function App() {
   const iframeRef = useRef(null);
   const editorRef = useRef(null);
   const exportMenuRef = useRef(null);
 
+  // Router integration
+  const params = useParams();
+  const navigate = useNavigate();
+  const flowId = params?.flowId || null;
+
+  // Auth context
+  const { user: currentUser } = useAuth();
+
+  // URL params (read once on mount)
+  const urlParams = useRef(getUrlParams());
+  const isEmbed = urlParams.current.embed;
+  const isEditable = urlParams.current.editableParam;
+
+  // Resolve initial code: URL param > localStorage > default
+  const initialCode = (() => {
+    if (urlParams.current.codeParam) {
+      const decoded = decodeCodeParam(urlParams.current.codeParam);
+      if (decoded) return decoded;
+    }
+    const last = loadLastDiagram();
+    if (last && !urlParams.current.embed) return last;
+    return DEFAULT_CODE;
+  })();
+
   // Core state
-  const [code, setCode] = useState(DEFAULT_CODE);
-  const [theme, setTheme] = useState("neo");
+  const [code, setCode] = useState(initialCode);
+  const [theme, setTheme] = useState(urlParams.current.themeParam || "neo");
+  const [flowMeta, setFlowMeta] = useState(null); // { name, projectId, sharing, etc. }
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [notionSyncOpen, setNotionSyncOpen] = useState(false);
+  const [notionDbId, setNotionDbId] = useState("");
+  const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
   const [renderer, setRenderer] = useState("dagre");
   const [autoRender, setAutoRender] = useState(true);
@@ -4172,6 +4269,100 @@ function App() {
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
   }, [code, autoRender, mermaidRenderConfig]);
+
+  /* ── Load user's Notion settings when sync panel opens ── */
+  useEffect(() => {
+    if (!notionSyncOpen || !currentUser) return;
+    (async () => {
+      try {
+        const settings = await getUserSettings(currentUser.uid);
+        const notion = settings.notion || {};
+        if (notion.apiKey && !notionToken) setNotionToken(notion.apiKey);
+        if (notion.defaultDatabaseId && !notionDbId) setNotionDbId(notion.defaultDatabaseId);
+      } catch {}
+    })();
+  }, [notionSyncOpen, currentUser]);
+
+  /* ── Load flow from Firestore ────────────────────────── */
+  const flowLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!flowId) return;
+    flowLoadedRef.current = false;
+    (async () => {
+      const flow = await getFlow(flowId);
+      if (flow) {
+        setCode(flow.code || DEFAULT_CODE);
+        if (flow.diagramType) setDiagramType(flow.diagramType);
+        setFlowMeta(flow);
+        // Delay marking loaded so the auto-save doesn't fire on initial load
+        window.setTimeout(() => { flowLoadedRef.current = true; }, 3000);
+      } else {
+        flowLoadedRef.current = true;
+      }
+    })();
+  }, [flowId]);
+
+  /* ── Auto-save to Firestore (debounced) ────────────── */
+  useEffect(() => {
+    if (!flowId || isEmbed) return;
+    // Don't save until the flow has loaded (prevents overwriting with default)
+    if (!flowLoadedRef.current) return;
+    // Only save if user has edit permissions
+    const userRole = flowMeta?.sharing?.[currentUser?.uid];
+    const isOwner = flowMeta?.ownerId === currentUser?.uid;
+    if (!isOwner && userRole !== "edit") return;
+    const handle = window.setTimeout(async () => {
+      try {
+        await updateFlow(flowId, { code, diagramType });
+      } catch (err) {
+        console.warn("Auto-save failed:", err.message);
+      }
+    }, 2000);
+    return () => window.clearTimeout(handle);
+  }, [code, flowId, diagramType, flowMeta, currentUser]);
+
+  /* ── Auto-save to localStorage ─────────────────────── */
+  useEffect(() => {
+    if (isEmbed) return; // don't save in embed mode
+    const handle = window.setTimeout(() => saveLastDiagram(code), 500);
+    return () => window.clearTimeout(handle);
+  }, [code]);
+
+  /* ── Parent frame postMessage API (for Notion etc.) ── */
+  useEffect(() => {
+    if (!window.parent || window.parent === window) return;
+
+    const handleParentMessage = (event) => {
+      const msg = event.data;
+      if (!msg || msg.channel !== "mermaid-flow-host") return;
+
+      if (msg.type === "set-code" && typeof msg.code === "string") {
+        setCode(msg.code);
+      }
+      if (msg.type === "get-code") {
+        window.parent.postMessage({
+          channel: "mermaid-flow-host",
+          type: "code-update",
+          code,
+        }, "*");
+      }
+      if (msg.type === "set-theme" && typeof msg.theme === "string") {
+        setTheme(msg.theme);
+      }
+    };
+    window.addEventListener("message", handleParentMessage);
+    return () => window.removeEventListener("message", handleParentMessage);
+  }, [code]);
+
+  /* ── Notify parent on code changes (for Notion etc.) ── */
+  useEffect(() => {
+    if (!window.parent || window.parent === window) return;
+    window.parent.postMessage({
+      channel: "mermaid-flow-host",
+      type: "code-update",
+      code,
+    }, "*");
+  }, [code]);
 
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
@@ -4729,43 +4920,144 @@ function App() {
 
   const downloadSvg = () => {
     if (!renderSvg) return;
-    const blob = new Blob([renderSvg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "diagram.svg";
-    link.click();
-    URL.revokeObjectURL(url);
+    const name = flowMeta?.name || "diagram";
+    downloadSvgHQ(renderSvg, `${name}.svg`);
   };
 
-  const downloadPng = () => {
+  const downloadPng = async () => {
     if (!renderSvg) return;
-    const blob = new Blob([renderSvg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width || 1600;
-      canvas.height = img.height || 900;
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      canvas.toBlob((pngBlob) => {
-        if (!pngBlob) return;
-        const pngUrl = URL.createObjectURL(pngBlob);
-        const link = document.createElement("a");
-        link.href = pngUrl;
-        link.download = "diagram.png";
-        link.click();
-        URL.revokeObjectURL(pngUrl);
-      });
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
+    const name = flowMeta?.name || "diagram";
+    try {
+      await downloadPngHQ(renderSvg, `${name}.png`, 3);
+    } catch (err) {
+      setRenderMessage("PNG export failed: " + err.message);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!renderSvg) return;
+    const name = flowMeta?.name || "diagram";
+    try {
+      await downloadPdf(renderSvg, `${name}.pdf`);
+      setRenderMessage("PDF downloaded");
+    } catch (err) {
+      setRenderMessage("PDF export failed: " + err.message);
+    }
+  };
+
+  const handleNotionSync = async () => {
+    if (!notionDbId.trim() || !notionToken.trim()) {
+      setRenderMessage("Enter Notion database ID and token");
+      return;
+    }
+    try {
+      const pages = ganttToNotionPages(code, notionDbId.trim());
+      setRenderMessage(`Generated ${pages.length} Notion pages — sync requires server proxy`);
+      // Copy the payload for manual use
+      await navigator.clipboard.writeText(JSON.stringify(pages, null, 2));
+      setRenderMessage(`${pages.length} task payloads copied to clipboard`);
+    } catch (err) {
+      setRenderMessage("Notion sync error: " + err.message);
+    }
+  };
+
+  const handleNotionImport = async () => {
+    if (!notionDbId.trim() || !notionToken.trim()) {
+      setRenderMessage("Enter Notion database ID and token");
+      return;
+    }
+    try {
+      const ganttCode = await importFromNotion(
+        notionDbId.trim(),
+        notionToken.trim(),
+        flowMeta?.name || "Imported Timeline"
+      );
+      setCode(ganttCode);
+      setRenderMessage("Imported from Notion");
+    } catch (err) {
+      setRenderMessage("Notion import error: " + err.message);
+    }
+  };
+
+  const copyShareLink = async () => {
+    const encoded = encodeCodeParam(code);
+    const base = window.location.origin + window.location.pathname;
+    const url = `${base}?code=${encoded}`;
+    await navigator.clipboard.writeText(url);
+    setRenderMessage("Shareable link copied");
+  };
+
+  const copyNotionEmbed = async () => {
+    const encoded = encodeCodeParam(code);
+    const base = window.location.origin + window.location.pathname;
+    const url = `${base}?embed=1&code=${encoded}`;
+    await navigator.clipboard.writeText(url);
+    setRenderMessage("Notion embed URL copied — paste into Notion as an Embed block");
+  };
+
+  // Saved diagrams state
+  const [savedDiagrams, setSavedDiagrams] = useState(() => loadSavedDiagrams());
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+
+  const handleSaveDiagram = () => {
+    if (!saveName.trim()) return;
+    saveDiagramToStorage(saveName.trim(), code);
+    setSavedDiagrams(loadSavedDiagrams());
+    setSaveDialogOpen(false);
+    setSaveName("");
+    setRenderMessage(`Saved "${saveName.trim()}"`);
+  };
+
+  const handleLoadDiagram = (diagram) => {
+    setCode(diagram.code);
+    setSelectedElement(null);
+    setHighlightLine(null);
+    setRenderMessage(`Loaded "${diagram.name}"`);
+  };
+
+  const handleDeleteDiagram = (name) => {
+    deleteDiagramFromStorage(name);
+    setSavedDiagrams(loadSavedDiagrams());
+    setRenderMessage(`Deleted "${name}"`);
   };
 
   /* ── Render ──────────────────────────────────────────── */
+
+  /* ── Embed mode: minimal UI with just the preview ───── */
+  if (isEmbed) {
+    return (
+      <main className="app-shell embed-mode">
+        {isEditable && (
+          <header className="embed-toolbar">
+            <div className="brand">
+              <div className="brand-mark">MF</div>
+              <span className="embed-title">Mermaid Flow</span>
+            </div>
+            <div className="toolbar">
+              <button className="soft-btn small" onClick={() => {
+                const encoded = encodeCodeParam(code);
+                const base = window.location.origin + window.location.pathname;
+                window.open(`${base}?code=${encoded}`, "_blank");
+              }}>
+                Open in editor
+              </button>
+            </div>
+          </header>
+        )}
+        <div className="embed-preview">
+          <iframe
+            title="Mermaid embed preview"
+            sandbox="allow-scripts"
+            srcDoc={srcDoc}
+            ref={iframeRef}
+            style={{ width: "100%", height: "100%", border: "none" }}
+          />
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       {/* ── Header ──────────────────────────────────────── */}
@@ -4809,17 +5101,78 @@ function App() {
               <button className="dropdown-item" onClick={() => { copyCode(); setExportMenuOpen(false); }}>
                 Copy Mermaid code
               </button>
-              <button className="dropdown-item" onClick={() => { copyEmbed(); setExportMenuOpen(false); }}>
-                Copy iframe embed
+              <button className="dropdown-item" onClick={() => { copyShareLink(); setExportMenuOpen(false); }}>
+                Copy shareable link
               </button>
+              <div className="dropdown-sep" />
+              <button className="dropdown-item" onClick={() => { copyNotionEmbed(); setExportMenuOpen(false); }}>
+                Copy Notion embed URL
+              </button>
+              <button className="dropdown-item" onClick={() => { copyEmbed(); setExportMenuOpen(false); }}>
+                Copy iframe embed (HTML)
+              </button>
+              <div className="dropdown-sep" />
               <button className="dropdown-item" onClick={() => { downloadSvg(); setExportMenuOpen(false); }}>
                 Download SVG
               </button>
               <button className="dropdown-item" onClick={() => { downloadPng(); setExportMenuOpen(false); }}>
-                Download PNG
+                Download PNG (3x)
+              </button>
+              <button className="dropdown-item" onClick={() => { handleDownloadPdf(); setExportMenuOpen(false); }}>
+                Download PDF
+              </button>
+              <div className="dropdown-sep" />
+              <button className="dropdown-item" onClick={() => { setSaveDialogOpen(true); setExportMenuOpen(false); }}>
+                Save diagram
               </button>
             </div>
           </div>
+
+          {/* Share & Comment buttons (only when editing a cloud flow) */}
+          {flowId && currentUser && (
+            <>
+              <button
+                className="soft-btn small"
+                onClick={() => setShareDialogOpen(true)}
+              >
+                Share
+              </button>
+              <button
+                className="soft-btn small"
+                onClick={() => setCommentPanelOpen(!commentPanelOpen)}
+              >
+                Comments
+              </button>
+            </>
+          )}
+
+          {/* Notion Sync (only for Gantt diagrams) */}
+          {toolsetKey === "gantt" && (
+            <button
+              className="soft-btn small"
+              onClick={() => setNotionSyncOpen(!notionSyncOpen)}
+            >
+              Notion
+            </button>
+          )}
+
+          <div className="toolbar-sep" />
+
+          {/* Back to dashboard */}
+          {currentUser && (
+            <button
+              className="icon-btn"
+              title="Dashboard"
+              onClick={() => navigate("/dashboard")}
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="6" height="6" rx="1" />
+                <rect x="11" y="3" width="6" height="6" rx="1" />
+                <rect x="3" y="11" width="6" height="6" rx="1" />
+                <rect x="11" y="11" width="6" height="6" rx="1" />
+              </svg>
+            </button>
+          )}
 
           <div className="toolbar-sep" />
 
@@ -6021,6 +6374,109 @@ function App() {
               el.addEventListener("load", onLoad, { once: true });
             }}
           />
+        </div>
+      )}
+
+      {/* ── Save Dialog ────────────────────────────────── */}
+      {saveDialogOpen && (
+        <div className="modal-overlay" onClick={() => setSaveDialogOpen(false)}>
+          <div className="modal save-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Save Diagram</h3>
+            <input
+              type="text"
+              className="modal-input"
+              placeholder="Diagram name..."
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSaveDiagram(); }}
+              autoFocus
+            />
+            <div className="modal-actions">
+              <button className="soft-btn" onClick={() => setSaveDialogOpen(false)}>Cancel</button>
+              <button className="soft-btn primary" onClick={handleSaveDiagram}>Save</button>
+            </div>
+            {savedDiagrams.length > 0 && (
+              <div className="saved-list">
+                <h4>Saved Diagrams</h4>
+                {savedDiagrams.map((d) => (
+                  <div key={d.name} className="saved-item">
+                    <button className="saved-item-name" onClick={() => { handleLoadDiagram(d); setSaveDialogOpen(false); }}>
+                      {d.name}
+                    </button>
+                    <span className="saved-item-date">{new Date(d.updatedAt).toLocaleDateString()}</span>
+                    <button className="saved-item-delete" title="Delete" onClick={() => handleDeleteDiagram(d.name)}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Share Dialog ───────────────────────────────── */}
+      {shareDialogOpen && flowId && (
+        <ShareDialog flowId={flowId} onClose={() => setShareDialogOpen(false)} />
+      )}
+
+      {/* ── Comment Panel ──────────────────────────────── */}
+      {commentPanelOpen && flowId && (
+        <CommentPanel flowId={flowId} onClose={() => setCommentPanelOpen(false)} />
+      )}
+
+      {/* ── Notion Sync Panel ──────────────────────────── */}
+      {notionSyncOpen && (
+        <div className="modal-overlay" onClick={() => setNotionSyncOpen(false)}>
+          <div className="modal save-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Notion Gantt Sync</h3>
+            <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+              Sync your Gantt chart with a Notion database. Keys are loaded from your{" "}
+              <button
+                className="auth-link"
+                style={{ fontSize: 12 }}
+                onClick={() => navigate("/settings")}
+              >Settings</button>
+              {" "}— or override below for this session.
+            </p>
+            <div className="settings-field" style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Database ID</label>
+              <input
+                className="modal-input"
+                placeholder="Notion Database ID"
+                value={notionDbId}
+                onChange={(e) => setNotionDbId(e.target.value)}
+              />
+            </div>
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Integration Token</label>
+              <input
+                className="modal-input"
+                placeholder="ntn_..."
+                value={notionToken}
+                onChange={(e) => setNotionToken(e.target.value)}
+                type="password"
+              />
+            </div>
+            {!notionToken && (
+              <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 4 }}>
+                No token configured.{" "}
+                <button className="auth-link" style={{ fontSize: 11 }} onClick={() => navigate("/settings")}>
+                  Add one in Settings
+                </button>
+              </p>
+            )}
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="soft-btn" onClick={handleNotionImport} disabled={!notionToken || !notionDbId}>
+                Import from Notion
+              </button>
+              <button className="soft-btn primary" onClick={handleNotionSync} disabled={!notionDbId}>
+                Export to Notion
+              </button>
+            </div>
+            <p style={{ fontSize: 11, color: "var(--ink-muted)", marginTop: 12 }}>
+              Note: Direct Notion API calls require a server proxy due to CORS.
+              Export copies task payloads to clipboard for use with your proxy.
+            </p>
+          </div>
         </div>
       )}
     </main>
