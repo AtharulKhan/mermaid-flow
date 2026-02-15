@@ -409,6 +409,21 @@ function getIframeSrcDoc() {
         white-space: nowrap;
         pointer-events: none;
       }
+      .mf-gantt-today-header-label {
+        position: absolute;
+        top: 4px;
+        transform: translateX(-50%);
+        font-size: 10px;
+        font-weight: 600;
+        color: #94a3b8;
+        background: rgba(255,255,255,0.72);
+        border: 1px solid rgba(148,163,184,0.25);
+        border-radius: 999px;
+        padding: 1px 6px;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 6;
+      }
       .mf-gantt-insert-btn {
         position: absolute;
         bottom: 6px;
@@ -923,6 +938,7 @@ function getIframeSrcDoc() {
       let dragState = null;
       let suppressClick = false;
       let currentDiagramType = "";
+      let lastGanttAutoStartKey = "";
       const wrap = document.getElementById("wrap");
       const canvas = document.getElementById("canvas");
       const error = document.getElementById("error");
@@ -1634,15 +1650,25 @@ function getIframeSrcDoc() {
                 if (key === "opacity") todayLine.style.opacity = val;
               }
             }
-            // Add subtle date label at top of today line
-            const todayLabel = document.createElement("div");
-            todayLabel.className = "mf-gantt-today-label";
             const todayDate = new Date(today + "T00:00:00");
             const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-            todayLabel.textContent = monthNames[todayDate.getMonth()] + " " + todayDate.getDate();
-            todayLine.appendChild(todayLabel);
-
+            const todayShort = monthNames[todayDate.getMonth()] + " " + todayDate.getDate();
+            const todayHeaderLabel = document.createElement("div");
+            todayHeaderLabel.className = "mf-gantt-today-header-label";
+            todayHeaderLabel.style.left = todayLeft + "px";
+            todayHeaderLabel.textContent = "Today · " + todayShort;
+            container.appendChild(todayHeaderLabel);
             container.appendChild(todayLine);
+
+            const autoStartKey = scale + "|" + paddedMin + "|" + paddedMax + "|" + totalDays;
+            if (autoStartKey !== lastGanttAutoStartKey) {
+              lastGanttAutoStartKey = autoStartKey;
+              requestAnimationFrame(() => {
+                const targetScroll = Math.max(0, todayLeft - roleColWidth - 8);
+                wrap.scrollLeft = targetScroll;
+                queueGanttOverlaySync();
+              });
+            }
           }
         }
 
