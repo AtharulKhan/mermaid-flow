@@ -100,6 +100,11 @@ function getIframeSrcDoc() {
         padding: 16px;
         box-sizing: border-box;
         position: relative;
+        overscroll-behavior: contain;
+      }
+      #wrap.mf-gantt-mode {
+        padding-left: 0;
+        padding-right: 0;
       }
       #canvas {
         min-height: 100%;
@@ -108,6 +113,10 @@ function getIframeSrcDoc() {
         display: flex;
         justify-content: center;
         align-items: flex-start;
+      }
+      #canvas.mf-gantt-mode {
+        padding-left: 0;
+        padding-right: 0;
       }
       #canvas > svg {
         width: 100%;
@@ -232,6 +241,7 @@ function getIframeSrcDoc() {
         margin-top: 16px;
         border-radius: 12px;
         border: 1px solid #d9dee8;
+        overflow: hidden;
       }
       .mf-gantt-corner {
         position: sticky;
@@ -963,6 +973,11 @@ function getIframeSrcDoc() {
         layer.style.pointerEvents = show ? "auto" : "none";
       };
 
+      const setGanttMode = (enabled) => {
+        wrap.classList.toggle("mf-gantt-mode", !!enabled);
+        canvas.classList.toggle("mf-gantt-mode", !!enabled);
+      };
+
       let ganttOverlayState = null;
       let ganttOverlayRaf = 0;
 
@@ -1218,6 +1233,7 @@ function getIframeSrcDoc() {
       };
 
       const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories) => {
+        setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "flex-start";
@@ -1837,6 +1853,7 @@ function getIframeSrcDoc() {
       };
 
       const renderCustomFlowchart = (flowData, classDefs, classAssignments, styleOvr, styleDirectives) => {
+        setGanttMode(false);
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "center";
@@ -3943,6 +3960,7 @@ function getIframeSrcDoc() {
             renderCustomFlowchart(fd.parsed || {}, fd.classDefs || [], fd.classAssignments || {}, fd.styleOverrides || {}, fd.styleDirectives || {});
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomFlowchart: true });
           } else {
+            setGanttMode(false);
             // Standard Mermaid SVG rendering
             const token = "diagram_" + Date.now();
             const { svg } = await mermaid.render(token, code);
@@ -3961,6 +3979,7 @@ function getIframeSrcDoc() {
             send("render:success", { diagramType: parseResult?.diagramType || "", svg });
           }
         } catch (err) {
+          setGanttMode(false);
           const message = (err && err.message) ? err.message : String(err);
           error.textContent = message;
           send("render:error", { message });
