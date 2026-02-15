@@ -79,6 +79,7 @@ function getIframeSrcDoc() {
         overflow: auto;
         padding: 16px;
         box-sizing: border-box;
+        position: relative;
       }
       #canvas {
         min-height: 100%;
@@ -92,6 +93,78 @@ function getIframeSrcDoc() {
         width: 100%;
         height: auto;
         max-width: 100%;
+      }
+      #mf-gantt-grid-header {
+        position: absolute;
+        z-index: 4;
+        pointer-events: none;
+        display: none;
+      }
+      #mf-gantt-role-column {
+        position: absolute;
+        z-index: 5;
+        pointer-events: none;
+        display: none;
+      }
+      .mf-gh-row {
+        display: flex;
+        border: 1px solid #d9dee8;
+        border-bottom: none;
+        background: #eef2ff;
+      }
+      .mf-gh-row.week {
+        background: #f6f8fc;
+      }
+      .mf-gh-row.day {
+        background: #ffffff;
+        border-bottom: 1px solid #d9dee8;
+      }
+      .mf-gh-cell {
+        box-sizing: border-box;
+        border-right: 1px solid #dde3ed;
+        color: #334155;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .mf-gh-row.month .mf-gh-cell {
+        height: 24px;
+        line-height: 24px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .mf-gh-row.week .mf-gh-cell {
+        height: 18px;
+        line-height: 18px;
+        font-size: 10px;
+        color: #64748b;
+        font-weight: 600;
+      }
+      .mf-gh-row.day .mf-gh-cell {
+        height: 24px;
+        line-height: 24px;
+        font-size: 10px;
+        color: #475569;
+        font-weight: 600;
+      }
+      .mf-role-row {
+        position: absolute;
+        left: 0;
+        right: 0;
+        border: 1px solid #d9dee8;
+        border-top: none;
+        background: rgba(255, 255, 255, 0.96);
+        color: #1f2937;
+        font-size: 12px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        padding: 8px 10px;
+        box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .mf-selected * {
         stroke: #2563eb !important;
@@ -164,6 +237,8 @@ function getIframeSrcDoc() {
   </head>
   <body>
     <div id="wrap">
+      <div id="mf-gantt-grid-header"></div>
+      <div id="mf-gantt-role-column"></div>
       <div id="canvas"></div>
       <div id="error"></div>
     </div>
@@ -175,9 +250,12 @@ function getIframeSrcDoc() {
       let dragState = null;
       let suppressClick = false;
       let currentDiagramType = "";
+      const wrap = document.getElementById("wrap");
       const canvas = document.getElementById("canvas");
       const error = document.getElementById("error");
       const tooltipEl = document.getElementById("mf-tooltip");
+      const ganttHeaderEl = document.getElementById("mf-gantt-grid-header");
+      const ganttRoleColEl = document.getElementById("mf-gantt-role-column");
       const TASK_TEXT_SEL = "text.taskText, text.taskTextOutsideRight, text.taskTextOutsideLeft";
       let lastGanttAnnotation = { tasks: [], showDates: true };
       const supportsHover = window.matchMedia && window.matchMedia("(hover: hover)").matches;
@@ -189,6 +267,219 @@ function getIframeSrcDoc() {
         const show = !supportsHover || ganttInsertLayerVisible;
         layer.style.opacity = show ? "1" : "0";
         layer.style.pointerEvents = show ? "auto" : "none";
+      };
+
+      let ganttOverlayState = null;
+      let ganttOverlayRaf = 0;
+
+      const clearGanttOverlay = () => {
+        ganttOverlayState = null;
+        if (ganttHeaderEl) {
+          ganttHeaderEl.style.display = "none";
+          ganttHeaderEl.innerHTML = "";
+        }
+        if (ganttRoleColEl) {
+          ganttRoleColEl.style.display = "none";
+          ganttRoleColEl.innerHTML = "";
+        }
+      };
+
+      const median = (values) => {
+        if (!values.length) return 0;
+        const sorted = [...values].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      };
+
+      const weekLabelUtc = (ms) => {
+        const d = new Date(ms);
+        const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        const dayNum = dt.getUTCDay() || 7;
+        dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+        const weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+        return "Week " + weekNo;
+      };
+
+      const queueGanttOverlaySync = () => {
+        if (!ganttOverlayState) return;
+        if (ganttOverlayRaf) cancelAnimationFrame(ganttOverlayRaf);
+        ganttOverlayRaf = requestAnimationFrame(() => {
+          ganttOverlayRaf = 0;
+          syncGanttOverlay();
+        });
+      };
+
+      const syncGanttOverlay = () => {
+        if (!ganttOverlayState || !ganttHeaderEl || !ganttRoleColEl) return;
+        const { rowGroups, samples, minStartMs, maxEndMs, leftColWidth, headerHeight } = ganttOverlayState;
+        if (!samples.length || !rowGroups.length) return clearGanttOverlay();
+
+        const wrapRect = wrap.getBoundingClientRect();
+        const toWrapX = (screenX) => screenX - wrapRect.left + wrap.scrollLeft;
+        const toWrapY = (screenY) => screenY - wrapRect.top + wrap.scrollTop;
+
+        // Recompute day width and X anchor using current DOM geometry (works with pan/zoom).
+        const pxPerDayValues = samples
+          .map((sample) => {
+            const spanDays = sample.spanDays;
+            if (!spanDays || !sample.rectEl?.isConnected) return 0;
+            const w = sample.rectEl.getBoundingClientRect().width;
+            return w > 0 ? w / spanDays : 0;
+          })
+          .filter((v) => v > 0);
+        const pxPerDay = Math.max(22, median(pxPerDayValues) || 32);
+
+        const xAnchors = samples
+          .map((sample) => {
+            if (!sample.rectEl?.isConnected) return null;
+            const rect = sample.rectEl.getBoundingClientRect();
+            return toWrapX(rect.left) - ((sample.startMs - minStartMs) / 86400000) * pxPerDay;
+          })
+          .filter((v) => Number.isFinite(v));
+        const xStart = xAnchors.length ? median(xAnchors) : (wrap.scrollLeft + 16 + leftColWidth);
+
+        const totalDays = Math.max(1, Math.floor((maxEndMs - minStartMs) / 86400000) + 1);
+        const timelineWidth = totalDays * pxPerDay;
+
+        // Position sticky-like containers.
+        ganttHeaderEl.style.display = "block";
+        ganttRoleColEl.style.display = "block";
+        ganttHeaderEl.style.left = Math.round(wrap.scrollLeft + 16 + leftColWidth) + "px";
+        ganttHeaderEl.style.top = Math.round(wrap.scrollTop + 16) + "px";
+        ganttHeaderEl.style.width = Math.round(timelineWidth) + "px";
+        ganttRoleColEl.style.left = Math.round(wrap.scrollLeft + 16) + "px";
+        ganttRoleColEl.style.top = Math.round(wrap.scrollTop + 16 + headerHeight) + "px";
+        ganttRoleColEl.style.width = leftColWidth + "px";
+
+        // Build header rows.
+        const dayItems = [];
+        for (let i = 0; i < totalDays; i++) {
+          const ms = minStartMs + i * 86400000;
+          const d = new Date(ms);
+          dayItems.push({
+            ms,
+            label: String(d.getUTCDate()),
+            sub: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()],
+            x: i * pxPerDay,
+          });
+        }
+
+        const weekGroups = [];
+        let weekStart = 0;
+        let currentWeek = weekLabelUtc(dayItems[0].ms);
+        for (let i = 1; i < dayItems.length; i++) {
+          const nextWeek = weekLabelUtc(dayItems[i].ms);
+          if (nextWeek !== currentWeek) {
+            weekGroups.push({ label: currentWeek, start: weekStart, end: i - 1 });
+            weekStart = i;
+            currentWeek = nextWeek;
+          }
+        }
+        weekGroups.push({ label: currentWeek, start: weekStart, end: dayItems.length - 1 });
+
+        const monthGroups = [];
+        let monthStart = 0;
+        let currentMonth = new Date(dayItems[0].ms).toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+        for (let i = 1; i < dayItems.length; i++) {
+          const month = new Date(dayItems[i].ms).toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+          if (month !== currentMonth) {
+            monthGroups.push({ label: currentMonth, start: monthStart, end: i - 1 });
+            monthStart = i;
+            currentMonth = month;
+          }
+        }
+        monthGroups.push({ label: currentMonth, start: monthStart, end: dayItems.length - 1 });
+
+        const buildRow = (cls, groups, formatter) => {
+          const row = document.createElement("div");
+          row.className = "mf-gh-row " + cls;
+          for (const g of groups) {
+            const cell = document.createElement("div");
+            cell.className = "mf-gh-cell";
+            cell.style.width = Math.round((g.end - g.start + 1) * pxPerDay) + "px";
+            cell.textContent = formatter(g);
+            row.appendChild(cell);
+          }
+          return row;
+        };
+
+        ganttHeaderEl.innerHTML = "";
+        ganttHeaderEl.appendChild(buildRow("month", monthGroups, (g) => g.label));
+        ganttHeaderEl.appendChild(buildRow("week", weekGroups, (g) => g.label));
+        ganttHeaderEl.appendChild(buildRow("day", dayItems.map((d, idx) => ({ ...d, start: idx, end: idx })), (g) => g.label + " " + g.sub));
+
+        // Sync role rows to section bounds.
+        for (const rowGroup of rowGroups) {
+          const yValuesTop = [];
+          const yValuesBottom = [];
+          for (const rectEl of rowGroup.rectEls) {
+            if (!rectEl?.isConnected) continue;
+            const box = rectEl.getBoundingClientRect();
+            yValuesTop.push(toWrapY(box.top));
+            yValuesBottom.push(toWrapY(box.bottom));
+          }
+          if (!yValuesTop.length || !yValuesBottom.length) continue;
+          const top = Math.min(...yValuesTop);
+          const bottom = Math.max(...yValuesBottom);
+          rowGroup.el.style.top = Math.round(top - headerHeight) + "px";
+          rowGroup.el.style.height = Math.max(34, Math.round(bottom - top)) + "px";
+        }
+
+        // Keep header aligned with the current timeline X start.
+        ganttHeaderEl.style.transform = "translateX(" + Math.round(xStart - (wrap.scrollLeft + 16 + leftColWidth)) + "px)";
+      };
+
+      const buildGanttOverlay = (taskVisuals) => {
+        if (!ganttHeaderEl || !ganttRoleColEl || !taskVisuals.length) {
+          clearGanttOverlay();
+          return;
+        }
+        const leftColWidth = 224;
+        const headerHeight = 66;
+
+        const grouped = new Map();
+        for (const visual of taskVisuals) {
+          const key = (visual.section || "Tasks").trim() || "Tasks";
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key).push(visual);
+        }
+
+        const rowGroups = [];
+        ganttRoleColEl.innerHTML = "";
+        for (const [section, visuals] of grouped.entries()) {
+          const rowEl = document.createElement("div");
+          rowEl.className = "mf-role-row";
+          rowEl.textContent = section;
+          ganttRoleColEl.appendChild(rowEl);
+          rowGroups.push({ section, rectEls: visuals.map((v) => v.rectEl).filter(Boolean), el: rowEl });
+        }
+
+        const samples = [];
+        for (const visual of taskVisuals) {
+          const startMs = visual.startMs;
+          const endMs = visual.endMs ?? startMs;
+          if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !visual.rectEl) continue;
+          const spanDays = Math.max(1, Math.floor((Math.max(startMs, endMs) - Math.min(startMs, endMs)) / 86400000) + 1);
+          samples.push({ rectEl: visual.rectEl, startMs: Math.min(startMs, endMs), spanDays });
+        }
+        if (!samples.length) {
+          clearGanttOverlay();
+          return;
+        }
+
+        const minStartMs = Math.min(...samples.map((s) => s.startMs));
+        const maxEndMs = Math.max(...taskVisuals.map((v) => Number.isFinite(v.endMs) ? v.endMs : v.startMs));
+
+        ganttOverlayState = {
+          rowGroups,
+          samples,
+          minStartMs,
+          maxEndMs,
+          leftColWidth,
+          headerHeight,
+        };
+        queueGanttOverlaySync();
       };
 
       const isDarkFill = (el) => {
@@ -691,6 +982,7 @@ function getIframeSrcDoc() {
         canvas.style.transformOrigin = "0 0";
         canvas.style.transform = "translate(" + panX + "px, " + panY + "px) scale(" + zoomLevel + ")";
         send("zoom:changed", { zoom: zoomLevel });
+        queueGanttOverlaySync();
       };
 
       /* ── Reconnect state ────────────────────────────────── */
@@ -1369,7 +1661,6 @@ function getIframeSrcDoc() {
       };
 
       /* ── Zoom/Pan handlers on #wrap ────────────────────── */
-      const wrap = document.getElementById("wrap");
       wrap.addEventListener("wheel", (e) => {
         if (!e.ctrlKey && !e.metaKey) return;
         e.preventDefault();
@@ -1412,6 +1703,7 @@ function getIframeSrcDoc() {
           wrap.releasePointerCapture(e.pointerId);
         }
       });
+      wrap.addEventListener("scroll", queueGanttOverlaySync, { passive: true });
 
       wrap.addEventListener("dblclick", (e) => {
         // Only reset if double-clicking on background, not on SVG elements
@@ -1444,6 +1736,7 @@ function getIframeSrcDoc() {
         const rects = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
         const today = new Date().toISOString().slice(0, 10);
         const insertAnchors = [];
+        const taskVisuals = [];
         const svgWidth = svg.getBoundingClientRect?.().width || 0;
         const compactMode = svgWidth > 0 && svgWidth < 860;
         const dayMs = 24 * 60 * 60 * 1000;
@@ -1607,6 +1900,12 @@ function getIframeSrcDoc() {
               rectEl.parentElement.appendChild(dot);
             }
 
+            taskVisuals.push({
+              section: t.section || "",
+              rectEl,
+              startMs: isoToMs(t.startDate || ""),
+              endMs: isoToMs(endDate || t.startDate || ""),
+            });
             insertAnchors.push({ label: t.label, rectEl });
           }
 
@@ -1638,6 +1937,8 @@ function getIframeSrcDoc() {
             textEl.querySelectorAll(".mf-date-tspan").forEach((el) => el.remove());
           }
         });
+
+        buildGanttOverlay(taskVisuals);
 
         if (!insertAnchors.length) return;
         const controlsLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -1867,6 +2168,7 @@ function getIframeSrcDoc() {
               svgNode.setAttribute("preserveAspectRatio", "xMinYMin meet");
               canvas.style.justifyContent = "flex-start";
             } else {
+              clearGanttOverlay();
               svgNode.style.width = "";
               svgNode.style.minWidth = "";
               svgNode.style.maxWidth = "";
@@ -2183,7 +2485,7 @@ function App() {
               d.setUTCDate(d.getUTCDate() + t.durationDays);
               computedEnd = d.toISOString().slice(0, 10);
             }
-            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [], notes: t.notes || "" };
+            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [], notes: t.notes || "", section: t.section || "" };
           });
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
@@ -2502,7 +2804,7 @@ function App() {
         d.setUTCDate(d.getUTCDate() + t.durationDays);
         computedEnd = d.toISOString().slice(0, 10);
       }
-      return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [] };
+      return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [], section: t.section || "" };
     });
     frame.contentWindow.postMessage(
       { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates } },

@@ -50,10 +50,15 @@ export function shiftIsoDate(isoDate, dayDelta) {
 export function parseGanttTasks(code) {
   const lines = code.split("\n");
   const tasks = [];
+  let currentSection = "";
 
   lines.forEach((rawLine, lineIndex) => {
     const trimmed = rawLine.trim();
-    if (isDirectiveLine(trimmed) || trimmed.startsWith("section ")) return;
+    if (trimmed.startsWith("section ")) {
+      currentSection = trimmed.slice("section ".length).trim();
+      return;
+    }
+    if (isDirectiveLine(trimmed)) return;
 
     const match = rawLine.match(/^(\s*)([^:\n][^:]*)\s*:\s*(.+?)\s*$/);
     if (!match) return;
@@ -143,6 +148,7 @@ export function parseGanttTasks(code) {
       durationDays,
       endDateIndex,
       endDate,
+      section: currentSection,
       hasExplicitDate: dateIndex >= 0,
       assignee,
       notes,
