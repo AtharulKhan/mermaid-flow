@@ -4091,7 +4091,8 @@ function App() {
     ? (flowMeta.ownerId === currentUser.uid ? "owner" : flowMeta.sharing?.[currentUser.uid] || null)
     : null;
   const canEditCurrentFlow = currentFlowRole === "owner" || currentFlowRole === "edit";
-  const canCommentCurrentFlow = canEditCurrentFlow || currentFlowRole === "comment";
+  const hasPublicCommentAccess = ["comment", "edit"].includes(flowMeta?.publicAccess || "");
+  const canCommentCurrentFlow = canEditCurrentFlow || currentFlowRole === "comment" || hasPublicCommentAccess;
 
   // Get connected nodes for any diagram type (for edit modal navigation)
   const getNodeConnections = (nodeId) => {
@@ -5200,7 +5201,7 @@ function App() {
               Share
             </button>
           )}
-          {flowId && currentUser && canCommentCurrentFlow && (
+          {flowId && canCommentCurrentFlow && (
             <button
               className="soft-btn small"
               onClick={() => setCommentPanelOpen(!commentPanelOpen)}
@@ -6486,7 +6487,11 @@ function App() {
 
       {/* ── Comment Panel ──────────────────────────────── */}
       {commentPanelOpen && flowId && (
-        <CommentPanel flowId={flowId} onClose={() => setCommentPanelOpen(false)} />
+        <CommentPanel
+          flowId={flowId}
+          allowAnonymous={!currentUser && hasPublicCommentAccess}
+          onClose={() => setCommentPanelOpen(false)}
+        />
       )}
 
       {/* ── Notion Sync Panel ──────────────────────────── */}

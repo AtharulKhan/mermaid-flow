@@ -42,7 +42,7 @@ service cloud.firestore {
     function canCommentFlow(flowId) {
       return isFlowOwner(flowId) ||
         (signedIn() && flowRole(flowId) in ["comment", "edit"]) ||
-        (signedIn() && flowDoc(flowId).data.publicAccess in ["comment", "edit"]);
+        flowDoc(flowId).data.publicAccess in ["comment", "edit"];
     }
 
     function canEditFlow(flowId) {
@@ -97,9 +97,17 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if canReadFlow(flowId);
 
-        allow create: if signedIn() &&
-          canCommentFlow(flowId) &&
-          request.resource.data.authorId == request.auth.uid;
+        allow create: if canCommentFlow(flowId) &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 5000 &&
+          request.resource.data.authorName is string &&
+          request.resource.data.authorName.size() > 0 &&
+          request.resource.data.authorName.size() <= 80 &&
+          (
+            (signedIn() && request.resource.data.authorId == request.auth.uid) ||
+            (!signedIn() && request.resource.data.authorId == null)
+          );
 
         allow delete: if signedIn() &&
           (isFlowOwner(flowId) || resource.data.authorId == request.auth.uid);
