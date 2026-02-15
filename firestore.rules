@@ -74,6 +74,10 @@ service cloud.firestore {
       return canCommentFlowData(flowDoc(flowId).data);
     }
 
+    function canEditFlow(flowId) {
+      return canEditFlowData(flowDoc(flowId).data);
+    }
+
     match /users/{uid} {
       allow create: if signedIn() && request.auth.uid == uid;
       // Needed for share-by-email lookup.

@@ -1,16 +1,33 @@
 import { useState, useEffect } from "react";
-import { getFlowVersions } from "../firebase/firestore";
+import { formatFirestoreError, getFlowVersions } from "../firebase/firestore";
 
 export default function VersionHistoryPanel({ flowId, currentCode, onRestore, onClose }) {
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const v = await getFlowVersions(flowId);
-      setVersions(v);
-      setLoading(false);
+      setLoading(true);
+      setError("");
+      try {
+        const v = await getFlowVersions(flowId);
+        if (!cancelled) setVersions(v);
+      } catch (err) {
+        if (!cancelled) {
+          const message = formatFirestoreError(err);
+          console.error("[VersionHistory] load failed", { flowId, message, err });
+          setError(`Version history failed to load: ${message}`);
+          setVersions([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [flowId]);
 
   const timeAgo = (ts) => {
@@ -43,7 +60,8 @@ export default function VersionHistoryPanel({ flowId, currentCode, onRestore, on
 
       <div className="version-list">
         {loading && <p className="version-empty">Loading...</p>}
-        {!loading && versions.length === 0 && (
+        {!loading && error && <p className="version-empty">{error}</p>}
+        {!loading && !error && versions.length === 0 && (
           <p className="version-empty">No previous versions yet</p>
         )}
         {versions.map((v) => {
