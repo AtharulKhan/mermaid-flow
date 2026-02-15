@@ -811,6 +811,10 @@ input:focus {
   border-top: 1px solid var(--line);
 }
 
+.task-modal-actions .push-left {
+  margin-right: auto;
+}
+
 /* ── Status Check (mini checkbox) ────────────────────── */
 .status-check {
   width: 14px;
