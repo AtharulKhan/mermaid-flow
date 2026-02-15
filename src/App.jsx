@@ -123,7 +123,7 @@ function getIframeSrcDoc() {
       .mf-show-grid .grid .tick line { opacity: 0.6; stroke: #cbd5e1 !important; }
       .grid .tick text { fill: #6b7280 !important; font-size: 11px !important; }
       /* Gantt task text */
-      .taskText { fill: #fff !important; font-weight: 500 !important; font-size: 12px !important; }
+      .taskText { fill: #fff !important; font-weight: 600 !important; font-size: 12.5px !important; }
       .taskTextOutsideRight, .taskTextOutsideLeft { fill: #374151 !important; font-weight: 500 !important; font-size: 12px !important; }
       /* Milestone marker */
       .milestone { rx: 3; }
@@ -189,6 +189,19 @@ function getIframeSrcDoc() {
         const show = !supportsHover || ganttInsertLayerVisible;
         layer.style.opacity = show ? "1" : "0";
         layer.style.pointerEvents = show ? "auto" : "none";
+      };
+
+      const isDarkFill = (el) => {
+        if (!el) return false;
+        const fill = (window.getComputedStyle(el).fill || el.getAttribute("fill") || "").trim();
+        const rgbMatch = fill.match(/^rgba?\\(([^)]+)\\)$/i);
+        if (!rgbMatch) return false;
+        const parts = rgbMatch[1].split(",").map((p) => parseFloat(p.trim()));
+        const r = Number.isFinite(parts[0]) ? parts[0] / 255 : 1;
+        const g = Number.isFinite(parts[1]) ? parts[1] / 255 : 1;
+        const b = Number.isFinite(parts[2]) ? parts[2] / 255 : 1;
+        const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        return luminance < 0.58;
       };
 
       const shiftIso = (iso, days) => {
@@ -1427,7 +1440,7 @@ function getIframeSrcDoc() {
           const tokens = t.statusTokens || [];
           const isDone = tokens.includes("done");
           const isOverdue = endDate && !isDone && endDate < today;
-          const isDarkBar = tokens.some((s) => s === "done" || s === "crit" || s === "active" || s === "activeCrit" || s === "doneCrit");
+          let isDarkBar = tokens.some((s) => s === "done" || s === "crit" || s === "active" || s === "activeCrit" || s === "doneCrit");
 
           const textEl = texts.find(el => el.textContent?.trim() === t.label);
           let rectEl = null;
@@ -1443,10 +1456,11 @@ function getIframeSrcDoc() {
           }
 
           if (rectEl) {
+            isDarkBar = isDarkFill(rectEl) || isDarkBar;
             const rectBox = rectEl.getBBox();
             if (textEl) {
               // Keep the task title anchored from the start of the bar.
-              const leftPad = Math.max(6, Math.min(12, rectBox.height * 0.35));
+              const leftPad = Math.max(7, Math.min(14, rectBox.height * 0.34));
               textEl.setAttribute("x", String(rectBox.x + leftPad));
               textEl.setAttribute("y", String(rectBox.y + rectBox.height / 2));
               textEl.setAttribute("text-anchor", "start");
@@ -1741,18 +1755,32 @@ function getIframeSrcDoc() {
             // Make Gantt charts fill the container width
             const dtype = (parseResult?.diagramType || "").toLowerCase();
             if (dtype.includes("gantt")) {
-              svgNode.removeAttribute("width");
-              svgNode.style.width = "100%";
-              svgNode.style.minWidth = "100%";
-              svgNode.style.height = "auto";
-              // Ensure the viewBox covers the content
+              let minWidth = 1280;
               try {
                 const bbox = svgNode.getBBox();
                 if (bbox.width > 0) {
-                  svgNode.setAttribute("viewBox", bbox.x + " " + bbox.y + " " + bbox.width + " " + bbox.height);
-                  svgNode.setAttribute("preserveAspectRatio", "xMidYMid meet");
+                  minWidth = Math.max(1280, Math.ceil(bbox.width * 1.28));
+                  const padX = 12;
+                  const padY = 8;
+                  svgNode.setAttribute(
+                    "viewBox",
+                    (bbox.x - padX) + " " + (bbox.y - padY) + " " + (bbox.width + padX * 2) + " " + (bbox.height + padY * 2)
+                  );
                 }
               } catch (_) {}
+              svgNode.removeAttribute("width");
+              svgNode.style.width = "max-content";
+              svgNode.style.minWidth = String(minWidth) + "px";
+              svgNode.style.maxWidth = "none";
+              svgNode.style.height = "auto";
+              svgNode.setAttribute("preserveAspectRatio", "xMinYMin meet");
+              canvas.style.justifyContent = "flex-start";
+            } else {
+              svgNode.style.width = "";
+              svgNode.style.minWidth = "";
+              svgNode.style.maxWidth = "";
+              svgNode.style.height = "";
+              canvas.style.justifyContent = "center";
             }
             wireSelection(svgNode);
           }
@@ -1866,6 +1894,23 @@ function App() {
   const selectedGanttTask = useMemo(
     () => findTaskByLabel(ganttTasks, selectedElement?.label || ""),
     [ganttTasks, selectedElement]
+  );
+  const mermaidRenderConfig = useMemo(
+    () => ({
+      theme,
+      securityLevel,
+      flowchart: { defaultRenderer: renderer },
+      gantt: {
+        barHeight: 24,
+        barGap: 12,
+        topPadding: 56,
+        leftPadding: 84,
+        rightPadding: 56,
+        gridLineStartPadding: 110,
+        fontSize: 13,
+      },
+    }),
+    [theme, securityLevel, renderer]
   );
   const quickTools =
     DIAGRAM_LIBRARY.find((entry) => entry.id === toolsetKey)?.quickTools ||
@@ -1988,11 +2033,7 @@ function App() {
         type: "render",
         payload: {
           code,
-          config: {
-            theme,
-            securityLevel,
-            flowchart: { defaultRenderer: renderer },
-          },
+          config: mermaidRenderConfig,
         },
       },
       "*"
@@ -2004,7 +2045,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
-  }, [code, autoRender, theme, securityLevel, renderer]);
+  }, [code, autoRender, mermaidRenderConfig]);
 
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
@@ -3843,11 +3884,7 @@ function App() {
                     type: "render",
                     payload: {
                       code,
-                      config: {
-                        theme,
-                        securityLevel,
-                        flowchart: { defaultRenderer: renderer },
-                      },
+                      config: mermaidRenderConfig,
                     },
                   },
                   "*"
