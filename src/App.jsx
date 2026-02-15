@@ -13,7 +13,7 @@ import {
   insertGanttTaskAfter,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments } from "./flowchartUtils";
-import { getDiagramAdapter, parseErDiagram, updateErEntity, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
+import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 
 const CHANNEL = "mermaid-flow";
 
@@ -179,6 +179,17 @@ function getIframeSrcDoc() {
       const error = document.getElementById("error");
       const tooltipEl = document.getElementById("mf-tooltip");
       const TASK_TEXT_SEL = "text.taskText, text.taskTextOutsideRight, text.taskTextOutsideLeft";
+      let lastGanttAnnotation = { tasks: [], showDates: true };
+      const supportsHover = window.matchMedia && window.matchMedia("(hover: hover)").matches;
+      let ganttInsertLayerVisible = !supportsHover;
+
+      const syncGanttInsertLayerVisibility = () => {
+        const layer = canvas.querySelector(".mf-gantt-insert-layer");
+        if (!layer) return;
+        const show = !supportsHover || ganttInsertLayerVisible;
+        layer.style.opacity = show ? "1" : "0";
+        layer.style.pointerEvents = show ? "auto" : "none";
+      };
 
       const shiftIso = (iso, days) => {
         if (!iso || !days) return iso;
@@ -1372,6 +1383,16 @@ function getIframeSrcDoc() {
           applyCanvasTransform();
         }
       });
+      if (supportsHover) {
+        wrap.addEventListener("pointerenter", () => {
+          ganttInsertLayerVisible = true;
+          syncGanttInsertLayerVisibility();
+        });
+        wrap.addEventListener("pointerleave", () => {
+          ganttInsertLayerVisible = false;
+          syncGanttInsertLayerVisibility();
+        });
+      }
 
       const annotateGanttBars = (tasks, showDates) => {
         const svg = canvas.querySelector("svg");
@@ -1385,6 +1406,8 @@ function getIframeSrcDoc() {
         const rects = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
         const today = new Date().toISOString().slice(0, 10);
         const insertAnchors = [];
+        const svgWidth = svg.getBoundingClientRect?.().width || 0;
+        const compactMode = svgWidth > 0 && svgWidth < 860;
 
         const fmt = (iso) => {
           if (!iso) return "";
@@ -1477,38 +1500,48 @@ function getIframeSrcDoc() {
         if (!insertAnchors.length) return;
         const controlsLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
         controlsLayer.setAttribute("class", "mf-gantt-insert-layer");
+        controlsLayer.style.transition = "opacity 140ms ease";
         svg.appendChild(controlsLayer);
+        syncGanttInsertLayerVisibility();
 
         const maxRight = insertAnchors.reduce((max, anchor) => {
           const box = anchor.rectEl.getBBox();
           return Math.max(max, box.x + box.width);
         }, 0);
+        const viewBox = svg.viewBox?.baseVal;
+        const rightBound = viewBox?.width ? viewBox.x + viewBox.width - (compactMode ? 10 : 12) : maxRight + 18;
+        const iconRadius = compactMode ? 7 : 8;
+        const iconFontSize = compactMode ? 12 : 13;
+        const iconOffset = compactMode ? 12 : 16;
+        const minGapY = compactMode ? 10 : 14;
+        const desiredX = maxRight + iconOffset;
+        const iconX = Math.min(desiredX, rightBound);
 
         insertAnchors.forEach((anchor, index) => {
           const currentBox = anchor.rectEl.getBBox();
           const nextAnchor = insertAnchors[index + 1];
           const nextTop = nextAnchor ? nextAnchor.rectEl.getBBox().y : currentBox.y + currentBox.height + 28;
           const currentBottom = currentBox.y + currentBox.height;
-          const gapMid = currentBottom + Math.max(14, (nextTop - currentBottom) / 2);
-          const x = maxRight + 18;
+          const gapMid = currentBottom + Math.max(minGapY, (nextTop - currentBottom) / 2);
 
           const btn = document.createElementNS("http://www.w3.org/2000/svg", "g");
           btn.setAttribute("class", "mf-gantt-insert-btn");
-          btn.setAttribute("transform", "translate(" + x + " " + gapMid + ")");
+          btn.setAttribute("transform", "translate(" + iconX + " " + gapMid + ")");
           btn.setAttribute("cursor", "pointer");
+          btn.setAttribute("opacity", compactMode ? "0.34" : "0.42");
 
           const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-          circle.setAttribute("r", "10");
-          circle.setAttribute("fill", "#ffffff");
+          circle.setAttribute("r", String(iconRadius));
+          circle.setAttribute("fill", "rgba(255,255,255,0.86)");
           circle.setAttribute("stroke", "#cbd5e1");
-          circle.setAttribute("stroke-width", "1.5");
+          circle.setAttribute("stroke-width", "1");
 
           const plus = document.createElementNS("http://www.w3.org/2000/svg", "text");
           plus.setAttribute("text-anchor", "middle");
           plus.setAttribute("dominant-baseline", "central");
-          plus.setAttribute("fill", "#64748b");
-          plus.setAttribute("font-size", "16");
-          plus.setAttribute("font-weight", "700");
+          plus.setAttribute("fill", "#94a3b8");
+          plus.setAttribute("font-size", String(iconFontSize));
+          plus.setAttribute("font-weight", "600");
           plus.textContent = "+";
 
           btn.appendChild(circle);
@@ -1525,24 +1558,40 @@ function getIframeSrcDoc() {
             send("gantt:add-between", { afterLabel: anchor.label });
           });
           btn.addEventListener("mouseenter", () => {
-            circle.setAttribute("fill", "#eff6ff");
-            circle.setAttribute("stroke", "#3b82f6");
-            plus.setAttribute("fill", "#1d4ed8");
+            btn.setAttribute("opacity", "0.9");
+            circle.setAttribute("fill", "#f8fafc");
+            circle.setAttribute("stroke", "#60a5fa");
+            plus.setAttribute("fill", "#2563eb");
           });
           btn.addEventListener("mouseleave", () => {
-            circle.setAttribute("fill", "#ffffff");
+            btn.setAttribute("opacity", compactMode ? "0.34" : "0.42");
+            circle.setAttribute("fill", "rgba(255,255,255,0.86)");
             circle.setAttribute("stroke", "#cbd5e1");
-            plus.setAttribute("fill", "#64748b");
+            plus.setAttribute("fill", "#94a3b8");
           });
         });
       };
+
+      let ganttResizeRaf = 0;
+      window.addEventListener("resize", () => {
+        if (!lastGanttAnnotation.tasks.length) return;
+        if (ganttResizeRaf) cancelAnimationFrame(ganttResizeRaf);
+        ganttResizeRaf = requestAnimationFrame(() => {
+          annotateGanttBars(lastGanttAnnotation.tasks, lastGanttAnnotation.showDates);
+          ganttResizeRaf = 0;
+        });
+      });
 
       window.addEventListener("message", async (event) => {
         const data = event.data;
         if (!data || data.channel !== "${CHANNEL}") return;
 
         if (data.type === "gantt:annotate") {
-          annotateGanttBars(data.payload?.tasks || [], data.payload?.showDates !== false);
+          lastGanttAnnotation = {
+            tasks: data.payload?.tasks || [],
+            showDates: data.payload?.showDates !== false,
+          };
+          annotateGanttBars(lastGanttAnnotation.tasks, lastGanttAnnotation.showDates);
           return;
         }
 
@@ -3166,12 +3215,7 @@ function App() {
                   Delete
                 </button>
                 <button className="soft-btn primary" onClick={() => {
-                  if (toolsetKey === "erDiagram" && nodeEditModal.attributes) {
-                    setCode((prev) => updateErEntity(prev, nodeEditModal.nodeId, {
-                      newName: nodeEditModal.label,
-                      attributes: nodeEditModal.attributes,
-                    }));
-                  } else if (isFlowchart) {
+                  if (isFlowchart) {
                     // Recombine label + description with <br> tags
                     let combinedLabel = nodeEditModal.label || "";
                     if (nodeEditModal.description) {
@@ -3179,6 +3223,14 @@ function App() {
                     }
                     const updates = { label: combinedLabel };
                     setCode((prev) => updateFlowchartNode(prev, nodeEditModal.nodeId, updates));
+                  } else if (adapter?.updateNode) {
+                    setCode((prev) =>
+                      adapter.updateNode(prev, nodeEditModal.nodeId, {
+                        label: nodeEditModal.label,
+                        attributes: nodeEditModal.attributes,
+                        newName: nodeEditModal.label,
+                      })
+                    );
                   } else {
                     setCode((prev) => replaceFirstLabel(prev, selectedElement?.label || "", nodeEditModal.label));
                   }
@@ -3267,6 +3319,7 @@ function App() {
       {/* ── Edge Edit Modal (right-click on edge) ────── */}
       {nodeEditModal?.type === "edge" && (() => {
         const arrowTypes = ["-->", "--->", "-.->", "==>", "---", "-.-", "==="];
+        const adapter = getDiagramAdapter(toolsetKey);
         return (
           <div className="modal-backdrop" onClick={() => setNodeEditModal(null)}>
             <div className="node-edit-modal" onClick={(e) => e.stopPropagation()}>
@@ -3307,9 +3360,16 @@ function App() {
               <div className="task-modal-actions">
                 <button className="soft-btn" onClick={() => setNodeEditModal(null)}>Cancel</button>
                 <button className="soft-btn danger" onClick={() => {
-                  setCode((prev) => removeFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget));
-                  setPositionOverrides({});
-                  setRenderMessage(`Deleted edge ${nodeEditModal.edgeSource} --> ${nodeEditModal.edgeTarget}`);
+                  if (toolsetKey === "flowchart") {
+                    setCode((prev) => removeFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget));
+                    setPositionOverrides({});
+                    setRenderMessage(`Deleted edge ${nodeEditModal.edgeSource} --> ${nodeEditModal.edgeTarget}`);
+                  } else if (adapter?.removeEdge) {
+                    setCode((prev) => adapter.removeEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget));
+                    setRenderMessage(`Deleted edge ${nodeEditModal.edgeSource} -> ${nodeEditModal.edgeTarget}`);
+                  } else {
+                    setRenderMessage("Edge delete is not supported for this diagram type");
+                  }
                   setNodeEditModal(null);
                 }}>
                   Delete
@@ -3318,8 +3378,15 @@ function App() {
                   const updates = {};
                   if (nodeEditModal.label !== undefined) updates.label = nodeEditModal.label;
                   if (nodeEditModal.arrowType) updates.arrowType = nodeEditModal.arrowType;
-                  setCode((prev) => updateFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget, updates));
-                  setRenderMessage("Updated edge");
+                  if (toolsetKey === "flowchart") {
+                    setCode((prev) => updateFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget, updates));
+                    setRenderMessage("Updated edge");
+                  } else if (adapter?.updateEdge) {
+                    setCode((prev) => adapter.updateEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget, updates));
+                    setRenderMessage("Updated edge");
+                  } else {
+                    setRenderMessage("Edge update is not supported for this diagram type");
+                  }
                   setNodeEditModal(null);
                 }}>
                   Apply

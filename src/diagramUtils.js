@@ -2,6 +2,20 @@
 /* Parsers and mutation functions for: class, ER, state,   */
 /* sequence, mindmap, pie, timeline, C4, block, and others */
 
+function getLineIndent(line) {
+  let i = 0;
+  while (i < line.length && /\s/.test(line[i])) i++;
+  return line.slice(0, i);
+}
+
+function escapeDiagramString(value) {
+  return String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function escapeRegExp(value) {
+  return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /* ────────────────────────────────────────────────────────  */
 /* ── Class Diagram ─────────────────────────────────────── */
 /* ────────────────────────────────────────────────────────  */
@@ -19,8 +33,10 @@ export function parseClassDiagram(code) {
     // Class definition: class ClassName {
     const classMatch = trimmed.match(/^class\s+(\w+)\s*(?:\["([^"]+)"\])?\s*\{?\s*$/);
     if (classMatch) {
-      currentClass = { id: classMatch[1], label: classMatch[2] || classMatch[1], members: [], lineIndex: i };
-      classes.push(currentClass);
+      const hasBlock = trimmed.includes("{");
+      const classEntry = { id: classMatch[1], label: classMatch[2] || classMatch[1], members: [], lineIndex: i };
+      classes.push(classEntry);
+      currentClass = hasBlock ? classEntry : null;
       continue;
     }
 
@@ -68,31 +84,36 @@ export function addClassDiagramClass(code, { name, members = [] }) {
 }
 
 export function removeClassDiagramClass(code, className) {
+  const parsed = parseClassDiagram(code);
+  const targetClass = parsed.classes.find((cls) => cls.id === className);
+  if (!targetClass) return code;
+
   const lines = code.split("\n");
-  const result = [];
-  let skipBlock = false;
+  const toRemove = new Set();
 
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-
-    // Skip class block
-    if (trimmed.match(new RegExp(`^class\\s+${className}\\s`))) {
-      skipBlock = trimmed.includes("{");
-      if (!skipBlock) continue; // single-line class def
-      continue;
+  // Remove the class declaration (single-line or block form).
+  toRemove.add(targetClass.lineIndex);
+  if (lines[targetClass.lineIndex]?.includes("{")) {
+    for (let i = targetClass.lineIndex + 1; i < lines.length; i++) {
+      toRemove.add(i);
+      if (lines[i].trim() === "}") break;
     }
-    if (skipBlock) {
-      if (trimmed === "}") { skipBlock = false; }
-      continue;
-    }
-
-    // Skip relationships involving this class
-    if (new RegExp(`\\b${className}\\b`).test(trimmed) && /--|\.\./.test(trimmed)) continue;
-
-    result.push(lines[i]);
   }
 
-  return result.join("\n");
+  // Remove relationships that reference this class.
+  for (const rel of parsed.relationships) {
+    if ((rel.source === className || rel.target === className) && rel.lineIndex >= 0) {
+      toRemove.add(rel.lineIndex);
+    }
+  }
+
+  // Remove annotations like <<interface>> ClassName.
+  const annRe = new RegExp(`^\\s*<<\\w+>>\\s+${escapeRegExp(className)}\\s*$`);
+  for (let i = 0; i < lines.length; i++) {
+    if (annRe.test(lines[i])) toRemove.add(i);
+  }
+
+  return lines.filter((_, idx) => !toRemove.has(idx)).join("\n");
 }
 
 export function addClassDiagramRelationship(code, { source, target, type = "-->", label = "" }) {
@@ -102,13 +123,56 @@ export function addClassDiagramRelationship(code, { source, target, type = "-->"
 }
 
 export function removeClassDiagramRelationship(code, source, target) {
+  const parsed = parseClassDiagram(code);
+  const toRemove = new Set(
+    parsed.relationships
+      .filter(
+        (r) =>
+          (r.source === source && r.target === target) ||
+          (r.source === target && r.target === source)
+      )
+      .map((r) => r.lineIndex)
+  );
+  if (!toRemove.size) return code;
+  return code
+    .split("\n")
+    .filter((_, idx) => !toRemove.has(idx))
+    .join("\n");
+}
+
+export function updateClassDiagramClass(code, classId, { label }) {
+  const nextLabel = (label || "").trim();
+  if (!nextLabel) return code;
   const lines = code.split("\n");
-  return lines.filter((line) => {
-    const trimmed = line.trim();
-    const re = new RegExp(`^${source}\\s+(?:<[|*o])?(?:--|\\.\\.)(?:[|*o]>)?\\s+${target}`);
-    const reReverse = new RegExp(`^${target}\\s+(?:<[|*o])?(?:--|\\.\\.)(?:[|*o]>)?\\s+${source}`);
-    return !re.test(trimmed) && !reReverse.test(trimmed);
-  }).join("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed.startsWith("class ")) continue;
+    const match = trimmed.match(/^class\s+(\w+)(?:\s*\["([^"]*)"\])?(\s*\{)?\s*$/);
+    if (!match || match[1] !== classId) continue;
+    const indent = getLineIndent(lines[i]);
+    const hasBlock = Boolean(match[3]);
+    const useAlias = nextLabel !== classId;
+    const alias = useAlias ? `["${escapeDiagramString(nextLabel)}"]` : "";
+    const block = hasBlock ? " {" : "";
+    lines[i] = `${indent}class ${classId}${alias}${block}`;
+    return lines.join("\n");
+  }
+
+  return code;
+}
+
+export function updateClassDiagramRelationship(code, source, target, { type, arrowType, label } = {}) {
+  const parsed = parseClassDiagram(code);
+  const rel = parsed.relationships.find((r) => r.source === source && r.target === target);
+  if (!rel || rel.lineIndex < 0) return code;
+  const lines = code.split("\n");
+  const indent = getLineIndent(lines[rel.lineIndex]);
+  const nextType = type || arrowType || rel.type || "-->";
+  const nextLabel = label !== undefined ? label : rel.label;
+  const labelPart = nextLabel ? ` : ${nextLabel}` : "";
+  lines[rel.lineIndex] = `${indent}${source} ${nextType} ${target}${labelPart}`;
+  return lines.join("\n");
 }
 
 /* ────────────────────────────────────────────────────────  */
@@ -126,13 +190,13 @@ export function parseErDiagram(code) {
     if (!trimmed || trimmed.startsWith("%%") || trimmed === "erDiagram") continue;
 
     // Relationship: ENTITY1 ||--o{ ENTITY2 : label
-    const relMatch = trimmed.match(/^(\w+)\s+([|o{}\s]+--[|o{}\s]+)\s+(\w+)\s*:\s*(.+)$/);
+    const relMatch = trimmed.match(/^(\w+)\s+([|o{}\s]+--[|o{}\s]+)\s+(\w+)(?:\s*:\s*(.+))?$/);
     if (relMatch) {
       relationships.push({
         source: relMatch[1],
         target: relMatch[3],
         cardinality: relMatch[2].trim(),
-        label: relMatch[4].trim(),
+        label: (relMatch[4] || "").trim(),
         lineIndex: i,
       });
       continue;
@@ -170,66 +234,98 @@ export function addErEntity(code, { name, attributes = [] }) {
 }
 
 export function removeErEntity(code, entityName) {
-  const lines = code.split("\n");
-  const result = [];
-  let skipBlock = false;
-  const re = new RegExp(`\\b${entityName}\\b`);
+  const parsed = parseErDiagram(code);
+  const entity = parsed.entities.find((e) => e.id === entityName);
+  if (!entity) return code;
 
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed.match(new RegExp(`^${entityName}\\s*\\{`))) {
-      skipBlock = true;
-      continue;
-    }
-    if (skipBlock) {
-      if (trimmed === "}") { skipBlock = false; }
-      continue;
-    }
-    // Skip relationships involving this entity
-    if (re.test(trimmed) && /--/.test(trimmed)) continue;
-    result.push(lines[i]);
+  const lines = code.split("\n");
+  const toRemove = new Set();
+
+  // Remove entity block.
+  toRemove.add(entity.lineIndex);
+  for (let i = entity.lineIndex + 1; i < lines.length; i++) {
+    toRemove.add(i);
+    if (lines[i].trim() === "}") break;
   }
 
-  return result.join("\n");
+  // Remove relationships that reference this entity.
+  for (const rel of parsed.relationships) {
+    if ((rel.source === entityName || rel.target === entityName) && rel.lineIndex >= 0) {
+      toRemove.add(rel.lineIndex);
+    }
+  }
+
+  return lines.filter((_, idx) => !toRemove.has(idx)).join("\n");
 }
 
 export function updateErEntity(code, entityName, { newName, attributes }) {
-  const lines = code.split("\n");
-  const result = [];
-  let inEntity = false;
-  let found = false;
+  const parsed = parseErDiagram(code);
+  const entity = parsed.entities.find((e) => e.id === entityName);
+  if (!entity) return code;
 
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed.match(new RegExp(`^${entityName}\\s*\\{`))) {
-      inEntity = true;
-      found = true;
-      const name = newName || entityName;
-      result.push(`    ${name} {`);
-      for (const attr of attributes) {
-        result.push(`        ${attr}`);
+  const lines = code.split("\n");
+  const nextName = (newName || entityName).trim() || entityName;
+  const nextAttributes = Array.isArray(attributes) && attributes.length ? attributes : entity.attributes;
+
+  // Rename references in relationship lines (works even when relationships appear before entity blocks).
+  if (nextName !== entityName) {
+    const nameRe = new RegExp(`\\b${escapeRegExp(entityName)}\\b`, "g");
+    for (const rel of parsed.relationships) {
+      if (rel.lineIndex >= 0) {
+        lines[rel.lineIndex] = lines[rel.lineIndex].replace(nameRe, nextName);
       }
-      continue;
-    }
-    if (inEntity) {
-      if (trimmed === "}") {
-        inEntity = false;
-        result.push(`    }`);
-      }
-      continue;
-    }
-    if (found && newName && newName !== entityName) {
-      const re = new RegExp(`\\b${entityName}\\b`, 'g');
-      result.push(lines[i].replace(re, newName));
-    } else {
-      result.push(lines[i]);
     }
   }
-  return result.join("\n");
+
+  // Replace entity block while preserving existing indentation.
+  let blockEnd = entity.lineIndex;
+  for (let i = entity.lineIndex + 1; i < lines.length; i++) {
+    if (lines[i].trim() === "}") {
+      blockEnd = i;
+      break;
+    }
+  }
+  const baseIndent = getLineIndent(lines[entity.lineIndex] || "");
+  const attrIndent =
+    blockEnd > entity.lineIndex ? getLineIndent(lines[entity.lineIndex + 1] || `${baseIndent}  `) : `${baseIndent}  `;
+  const block = [
+    `${baseIndent}${nextName} {`,
+    ...nextAttributes.map((attr) => `${attrIndent}${attr}`),
+    `${baseIndent}}`,
+  ];
+  lines.splice(entity.lineIndex, blockEnd - entity.lineIndex + 1, ...block);
+  return lines.join("\n");
 }
 
 export function addErRelationship(code, { source, target, cardinality = "||--o{", label = "relates" }) {
   return code + `\n    ${source} ${cardinality} ${target} : ${label}`;
+}
+
+export function removeErRelationship(code, source, target) {
+  const parsed = parseErDiagram(code);
+  const lineIndexes = new Set(
+    parsed.relationships
+      .filter((r) => r.source === source && r.target === target)
+      .map((r) => r.lineIndex)
+  );
+  if (!lineIndexes.size) return code;
+  return code
+    .split("\n")
+    .filter((_, idx) => !lineIndexes.has(idx))
+    .join("\n");
+}
+
+export function updateErRelationship(code, source, target, { label, cardinality, arrowType } = {}) {
+  const parsed = parseErDiagram(code);
+  const rel = parsed.relationships.find((r) => r.source === source && r.target === target);
+  if (!rel || rel.lineIndex < 0) return code;
+  const lines = code.split("\n");
+  const indent = getLineIndent(lines[rel.lineIndex]);
+  const nextCardinality = (cardinality || arrowType || rel.cardinality || "||--o{").trim();
+  const nextLabel = (label !== undefined ? label : rel.label || "").trim();
+  const labelPart = nextLabel ? ` : ${nextLabel}` : "";
+  lines[rel.lineIndex] = `${indent}${source} ${nextCardinality} ${target}${labelPart}`;
+  return lines.join("\n");
 }
 
 /* ────────────────────────────────────────────────────────  */
@@ -290,12 +386,13 @@ export function addStateDiagramState(code, { id, label }) {
 }
 
 export function removeStateDiagramState(code, stateId) {
+  const escapedStateId = escapeRegExp(stateId);
   const lines = code.split("\n");
-  const re = new RegExp(`\\b${stateId}\\b`);
+  const re = new RegExp(`\\b${escapedStateId}\\b`);
   return lines.filter((line) => {
     const trimmed = line.trim();
     if (re.test(trimmed) && /-->/.test(trimmed)) return false;
-    if (trimmed.match(new RegExp(`^state\\s+"[^"]*"\\s+as\\s+${stateId}`))) return false;
+    if (trimmed.match(new RegExp(`^state\\s+"[^"]*"\\s+as\\s+${escapedStateId}`))) return false;
     return true;
   }).join("\n");
 }
@@ -303,6 +400,56 @@ export function removeStateDiagramState(code, stateId) {
 export function addStateDiagramTransition(code, { source, target, label = "" }) {
   const labelPart = label ? ` : ${label}` : "";
   return code + `\n    ${source} --> ${target}${labelPart}`;
+}
+
+export function removeStateDiagramTransition(code, source, target) {
+  const parsed = parseStateDiagram(code);
+  const lineIndexes = new Set(
+    parsed.transitions
+      .filter((t) => t.source === source && t.target === target)
+      .map((t) => t.lineIndex)
+  );
+  if (!lineIndexes.size) return code;
+  return code
+    .split("\n")
+    .filter((_, idx) => !lineIndexes.has(idx))
+    .join("\n");
+}
+
+export function updateStateDiagramState(code, stateId, { label }) {
+  const nextLabel = (label || "").trim();
+  if (!nextLabel) return code;
+  const lines = code.split("\n");
+  const declarationRe = new RegExp(`^\\s*state\\s+"[^"]*"\\s+as\\s+${escapeRegExp(stateId)}\\s*$`);
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!declarationRe.test(lines[i])) continue;
+    const indent = getLineIndent(lines[i]);
+    lines[i] = `${indent}state "${escapeDiagramString(nextLabel)}" as ${stateId}`;
+    return lines.join("\n");
+  }
+
+  const insertion = `    state "${escapeDiagramString(nextLabel)}" as ${stateId}`;
+  let insertIdx = lines.findIndex((line) => /^\s*stateDiagram/.test(line));
+  if (insertIdx >= 0) {
+    insertIdx += 1;
+  } else {
+    insertIdx = 0;
+  }
+  lines.splice(insertIdx, 0, insertion);
+  return lines.join("\n");
+}
+
+export function updateStateDiagramTransition(code, source, target, { label } = {}) {
+  const parsed = parseStateDiagram(code);
+  const transition = parsed.transitions.find((t) => t.source === source && t.target === target);
+  if (!transition || transition.lineIndex < 0) return code;
+  const lines = code.split("\n");
+  const indent = getLineIndent(lines[transition.lineIndex]);
+  const nextLabel = label !== undefined ? label : transition.label;
+  const labelPart = nextLabel ? ` : ${nextLabel}` : "";
+  lines[transition.lineIndex] = `${indent}${source} --> ${target}${labelPart}`;
+  return lines.join("\n");
 }
 
 /* ────────────────────────────────────────────────────────  */
@@ -329,13 +476,13 @@ export function parseSequenceDiagram(code) {
     }
 
     // Message: A->>B: text or A-->>B: text
-    const msgMatch = trimmed.match(/^(\w+)\s*(->>|-->>|->|-->|-x|--x|-\)|--)?\s*(\w+)\s*:\s*(.+)$/);
+    const msgMatch = trimmed.match(/^(\w+)\s*(->>|-->>|->|-->|-x|--x|-\)|--)?\s*(\w+)(?:\s*:\s*(.+))?$/);
     if (msgMatch) {
       messages.push({
         source: msgMatch[1],
         target: msgMatch[3],
         arrowType: msgMatch[2] || "->>",
-        text: msgMatch[4].trim(),
+        text: (msgMatch[4] || "").trim(),
         lineIndex: i,
       });
       if (!participantIds.has(msgMatch[1])) participantIds.add(msgMatch[1]);
@@ -369,20 +516,85 @@ export function addSequenceParticipant(code, { id, label, type = "participant" }
 }
 
 export function removeSequenceParticipant(code, participantId) {
+  const parsed = parseSequenceDiagram(code);
+  const toRemove = new Set();
+  for (const participant of parsed.participants) {
+    if (participant.id === participantId && participant.lineIndex >= 0) {
+      toRemove.add(participant.lineIndex);
+    }
+  }
+  for (const message of parsed.messages) {
+    if (
+      (message.source === participantId || message.target === participantId) &&
+      message.lineIndex >= 0
+    ) {
+      toRemove.add(message.lineIndex);
+    }
+  }
+  if (!toRemove.size) return code;
+  return code
+    .split("\n")
+    .filter((_, idx) => !toRemove.has(idx))
+    .join("\n");
+}
+
+export function updateSequenceParticipant(code, participantId, { label }) {
+  const parsed = parseSequenceDiagram(code);
+  const participant = parsed.participants.find((p) => p.id === participantId);
+  if (!participant) return code;
   const lines = code.split("\n");
-  const re = new RegExp(`\\b${participantId}\\b`);
-  return lines.filter((line) => {
-    const trimmed = line.trim();
-    // Remove participant declaration
-    if (trimmed.match(new RegExp(`^(participant|actor)\\s+${participantId}(\\s|$)`))) return false;
-    // Remove messages to/from this participant
-    if (re.test(trimmed) && /(->|-->>|->>|-x|--x|-\))/.test(trimmed)) return false;
-    return true;
-  }).join("\n");
+  const nextLabel = (label || "").trim();
+  if (!nextLabel) return code;
+  if (participant.lineIndex >= 0) {
+    const existingLine = lines[participant.lineIndex];
+    const role = existingLine.trim().startsWith("actor ") ? "actor" : "participant";
+    const indent = getLineIndent(existingLine);
+    const aliasPart = nextLabel === participantId ? "" : ` as ${nextLabel}`;
+    lines[participant.lineIndex] = `${indent}${role} ${participantId}${aliasPart}`;
+    return lines.join("\n");
+  }
+
+  let insertIdx = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (/^sequenceDiagram/.test(trimmed)) insertIdx = i + 1;
+    if (/^(participant|actor)\s+/.test(trimmed)) insertIdx = i + 1;
+  }
+  const aliasPart = nextLabel === participantId ? "" : ` as ${nextLabel}`;
+  lines.splice(insertIdx, 0, `    participant ${participantId}${aliasPart}`);
+  return lines.join("\n");
 }
 
 export function addSequenceMessage(code, { source, target, text, arrowType = "->>" }) {
-  return code + `\n    ${source}${arrowType}${target}: ${text}`;
+  const labelPart = text ? `: ${text}` : "";
+  return code + `\n    ${source}${arrowType}${target}${labelPart}`;
+}
+
+export function removeSequenceMessage(code, source, target) {
+  const parsed = parseSequenceDiagram(code);
+  const lineIndexes = new Set(
+    parsed.messages
+      .filter((m) => m.source === source && m.target === target)
+      .map((m) => m.lineIndex)
+  );
+  if (!lineIndexes.size) return code;
+  return code
+    .split("\n")
+    .filter((_, idx) => !lineIndexes.has(idx))
+    .join("\n");
+}
+
+export function updateSequenceMessage(code, source, target, { label, arrowType } = {}) {
+  const parsed = parseSequenceDiagram(code);
+  const message = parsed.messages.find((m) => m.source === source && m.target === target);
+  if (!message || message.lineIndex < 0) return code;
+  const lines = code.split("\n");
+  const indent = getLineIndent(lines[message.lineIndex]);
+  const nextArrow = arrowType || message.arrowType || "->>";
+  const nextText = label !== undefined ? label : message.text;
+  const labelPart = nextText ? `: ${nextText}` : "";
+  lines[message.lineIndex] = `${indent}${source}${nextArrow}${target}${labelPart}`;
+  return lines.join("\n");
 }
 
 /* ────────────────────────────────────────────────────────  */
@@ -625,8 +837,10 @@ export function getDiagramAdapter(toolsetKey) {
       return {
         parse: parseClassDiagram,
         addNode: addClassDiagramClass,
+        updateNode: updateClassDiagramClass,
         removeNode: removeClassDiagramClass,
         addEdge: addClassDiagramRelationship,
+        updateEdge: updateClassDiagramRelationship,
         removeEdge: removeClassDiagramRelationship,
         nodeLabel: "class",
         edgeLabel: "relationship",
@@ -635,9 +849,11 @@ export function getDiagramAdapter(toolsetKey) {
       return {
         parse: parseErDiagram,
         addNode: addErEntity,
+        updateNode: updateErEntity,
         removeNode: removeErEntity,
         addEdge: addErRelationship,
-        removeEdge: null,
+        updateEdge: updateErRelationship,
+        removeEdge: removeErRelationship,
         nodeLabel: "entity",
         edgeLabel: "relationship",
       };
@@ -645,9 +861,11 @@ export function getDiagramAdapter(toolsetKey) {
       return {
         parse: parseStateDiagram,
         addNode: addStateDiagramState,
+        updateNode: updateStateDiagramState,
         removeNode: removeStateDiagramState,
         addEdge: addStateDiagramTransition,
-        removeEdge: null,
+        updateEdge: updateStateDiagramTransition,
+        removeEdge: removeStateDiagramTransition,
         nodeLabel: "state",
         edgeLabel: "transition",
       };
@@ -655,9 +873,11 @@ export function getDiagramAdapter(toolsetKey) {
       return {
         parse: parseSequenceDiagram,
         addNode: addSequenceParticipant,
+        updateNode: updateSequenceParticipant,
         removeNode: removeSequenceParticipant,
         addEdge: addSequenceMessage,
-        removeEdge: null,
+        updateEdge: updateSequenceMessage,
+        removeEdge: removeSequenceMessage,
         nodeLabel: "participant",
         edgeLabel: "message",
       };

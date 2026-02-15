@@ -240,7 +240,8 @@ export function classifyDiagramType(rawType = "") {
   if (normalized.includes("flow") || normalized === "graph") return "flowchart";
   if (normalized.includes("sequence") || normalized.includes("zenuml")) return "sequenceDiagram";
   if (normalized.includes("gantt")) return "gantt";
-  if (normalized.includes("er")) return "erDiagram";
+  if (normalized.includes("requirement")) return "requirementDiagram";
+  if (normalized.includes("erdiagram") || normalized === "er") return "erDiagram";
   if (normalized.includes("class")) return "classDiagram";
   if (normalized.includes("state")) return "stateDiagram";
   if (normalized.includes("mindmap")) return "mindmap";
@@ -248,13 +249,12 @@ export function classifyDiagramType(rawType = "") {
   if (normalized.includes("timeline")) return "timeline";
   if (normalized.includes("journey")) return "journey";
   if (normalized.includes("git")) return "gitGraph";
-  if (normalized.includes("c4")) return "c4";
+  if (normalized.includes("c4")) return "C4";
   if (normalized.includes("sankey")) return "sankey";
-  if (normalized.includes("quadrant")) return "quadrant";
+  if (normalized.includes("quadrant")) return "quadrantChart";
   if (normalized.includes("xy")) return "xychart";
   if (normalized.includes("block")) return "block";
   if (normalized.includes("architecture")) return "architecture";
-  if (normalized.includes("requirement")) return "requirement";
   if (normalized.includes("treemap")) return "treemap";
   if (normalized.includes("packet")) return "packet";
   if (normalized.includes("radar")) return "radar";

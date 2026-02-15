@@ -315,6 +315,161 @@ function parseLineContent(trimmed, lineIndex, rawLine, nodesMap, edges) {
   }
 }
 
+/**
+ * Scan a line and return node token ranges with source offsets.
+ * This lets us replace exact node references without fragile regexes.
+ */
+function findNodeTokenRanges(line) {
+  let pos = 0;
+  const ranges = [];
+
+  while (pos < line.length) {
+    while (pos < line.length && /\s/.test(line[pos])) pos++;
+    if (pos >= line.length) break;
+
+    // Handle arrows with inline labels: -- text --> or -- text ---
+    const inlineLabelMatch = line.slice(pos).match(/^--\s+([^-][^>]*?)\s+(-->|---)/);
+    if (inlineLabelMatch) {
+      pos += inlineLabelMatch[0].length;
+      continue;
+    }
+
+    // Handle plain arrow patterns
+    let matchedArrow = false;
+    for (const { pattern } of ARROW_PATTERNS) {
+      if (line.slice(pos).startsWith(pattern)) {
+        pos += pattern.length;
+        // Optional |label|
+        if (line[pos] === "|") {
+          const labelEnd = line.indexOf("|", pos + 1);
+          pos = labelEnd > pos ? labelEnd + 1 : pos + 1;
+        }
+        matchedArrow = true;
+        break;
+      }
+    }
+    if (matchedArrow) continue;
+
+    if (line[pos] === "&") {
+      pos++;
+      continue;
+    }
+
+    const idMatch = line.slice(pos).match(/^([A-Za-z_\u00C0-\u024F][\w\u00C0-\u024F]*)/);
+    if (!idMatch) {
+      pos++;
+      continue;
+    }
+
+    const id = idMatch[1];
+    const start = pos;
+    pos += id.length;
+    const shapeInfo = extractNodeShape(line, pos);
+    if (shapeInfo) {
+      ranges.push({ id, start, end: shapeInfo.endIndex, hasShape: true });
+      pos = shapeInfo.endIndex;
+    } else {
+      ranges.push({ id, start, end: pos, hasShape: false });
+    }
+  }
+
+  return ranges;
+}
+
+/**
+ * Scan a line and return node/arrow tokens with source offsets.
+ * Used for robust edge updates without regex reconstruction.
+ */
+function findFlowTokensWithRanges(line) {
+  let pos = 0;
+  const tokens = [];
+
+  while (pos < line.length) {
+    while (pos < line.length && /\s/.test(line[pos])) pos++;
+    if (pos >= line.length) break;
+
+    const arrowStart = pos;
+    const inlineLabelMatch = line.slice(pos).match(/^--\s+([^-][^>]*?)\s+(-->|---)/);
+    if (inlineLabelMatch) {
+      pos += inlineLabelMatch[0].length;
+      tokens.push({
+        type: "arrow",
+        arrowType: inlineLabelMatch[2],
+        label: inlineLabelMatch[1].trim(),
+        start: arrowStart,
+        end: pos,
+      });
+      continue;
+    }
+
+    let matchedArrow = false;
+    for (const { pattern, type } of ARROW_PATTERNS) {
+      if (!line.slice(pos).startsWith(pattern)) continue;
+      pos += pattern.length;
+      let label = "";
+      if (line[pos] === "|") {
+        const labelEnd = line.indexOf("|", pos + 1);
+        if (labelEnd > pos) {
+          label = line.slice(pos + 1, labelEnd).trim();
+          pos = labelEnd + 1;
+        } else {
+          pos += 1;
+        }
+      }
+      tokens.push({ type: "arrow", arrowType: type, label, start: arrowStart, end: pos });
+      matchedArrow = true;
+      break;
+    }
+    if (matchedArrow) continue;
+
+    if (line[pos] === "&") {
+      pos++;
+      continue;
+    }
+
+    const idMatch = line.slice(pos).match(/^([A-Za-z_\u00C0-\u024F][\w\u00C0-\u024F]*)/);
+    if (!idMatch) {
+      pos++;
+      continue;
+    }
+
+    const id = idMatch[1];
+    const nodeStart = pos;
+    pos += id.length;
+    const shapeInfo = extractNodeShape(line, pos);
+    if (shapeInfo) {
+      pos = shapeInfo.endIndex;
+      tokens.push({ type: "node", id, start: nodeStart, end: pos });
+    } else {
+      tokens.push({ type: "node", id, start: nodeStart, end: pos });
+    }
+  }
+
+  return tokens;
+}
+
+function findEdgeTokenRanges(line) {
+  const tokens = findFlowTokensWithRanges(line);
+  const edges = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type !== "arrow") continue;
+    const prev = tokens[i - 1];
+    const next = tokens[i + 1];
+    if (prev?.type !== "node" || next?.type !== "node") continue;
+    edges.push({
+      source: prev.id,
+      target: next.id,
+      arrowType: tokens[i].arrowType,
+      label: tokens[i].label || "",
+      sourceRange: prev,
+      targetRange: next,
+      start: prev.start,
+      end: next.end,
+    });
+  }
+  return edges;
+}
+
 /* ── Find ────────────────────────────────────────────────── */
 
 export function findNodeById(nodes, id) {
@@ -405,13 +560,13 @@ export function removeFlowchartNode(code, nodeId) {
  * Check if a line references a specific node ID.
  */
 function lineReferencesNode(line, nodeId) {
-  // Match nodeId as a word boundary - could be a node declaration or edge endpoint
-  const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`(?:^|[\\s&])${escaped}(?:\\s*[\\[({<>]|\\s*-->|\\s*---|\\s*-\\.->|\\s*==>|\\s*$|\\s+)`, "");
-  return re.test(line) || new RegExp(`-->\\s*${escaped}(?:\\s|$|[\\[({])`, "").test(line) ||
-         new RegExp(`---\\s*${escaped}(?:\\s|$|[\\[({])`, "").test(line) ||
-         new RegExp(`==>\\s*${escaped}(?:\\s|$|[\\[({])`, "").test(line) ||
-         new RegExp(`-\\.->\\s*${escaped}(?:\\s|$|[\\[({])`, "").test(line);
+  const trimmed = line.trim();
+  if (!trimmed || isDirectiveLine(trimmed)) return false;
+  const nodesMap = new Map();
+  const edges = [];
+  parseLineContent(trimmed, 0, line, nodesMap, edges);
+  if (nodesMap.has(nodeId)) return true;
+  return edges.some((edge) => edge.source === nodeId || edge.target === nodeId);
 }
 
 /**
@@ -462,22 +617,50 @@ export function updateFlowchartNode(code, nodeId, updates) {
   const newLabel = updates.label !== undefined ? updates.label : node.label;
   const newShape = updates.shape !== undefined ? updates.shape : node.shape;
   const delimiters = SHAPE_TO_DELIMITERS[newShape] || SHAPE_TO_DELIMITERS.rect;
+  const escapedLabel = String(newLabel).replace(/"/g, '\\"');
+  const replacement = `${nodeId}${delimiters[0]}"${escapedLabel}"${delimiters[1]}`;
 
-  // Find and replace the node declaration in the code
-  const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Match: nodeId followed by shape delimiters
-  const nodePattern = new RegExp(
-    `(${escaped})\\s*(?:\\([\\[({]|\\[[\\/\\[({]|\\{\\{|\\{|>|\\(\\(|\\()(?:["\\'](.*?)["\\']|[^\\]})\\)>]*)(?:\\]\\)|\\]\\]|\\)\\]|\\)\\)|\\}\\}|\\}|\\]|\\)|\\\\\\]|\\/\\])`,
-    ""
-  );
-
+  let fallbackBareRef = null;
   for (let i = 0; i < lines.length; i++) {
-    if (nodePattern.test(lines[i])) {
-      lines[i] = lines[i].replace(nodePattern, `$1${delimiters[0]}"${newLabel}"${delimiters[1]}`);
-      break;
+    const trimmed = lines[i].trim();
+    if (isDirectiveLine(trimmed)) continue;
+
+    const ranges = findNodeTokenRanges(lines[i]);
+    const explicit = ranges.find((r) => r.id === nodeId && r.hasShape);
+    if (explicit) {
+      lines[i] = lines[i].slice(0, explicit.start) + replacement + lines[i].slice(explicit.end);
+      return lines.join("\n");
+    }
+    if (!fallbackBareRef) {
+      const bare = ranges.find((r) => r.id === nodeId);
+      if (bare) fallbackBareRef = { lineIndex: i, range: bare };
     }
   }
 
+  if (fallbackBareRef) {
+    const { lineIndex, range } = fallbackBareRef;
+    lines[lineIndex] =
+      lines[lineIndex].slice(0, range.start) + replacement + lines[lineIndex].slice(range.end);
+    return lines.join("\n");
+  }
+
+  // If the node isn't directly declared in a mutatable line, append a declaration.
+  const nodeLine = `    ${replacement}`;
+  let insertIdx = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const t = lines[i].trim();
+    if (
+      t &&
+      !t.startsWith("classDef ") &&
+      !t.startsWith("class ") &&
+      !t.startsWith("style ") &&
+      !t.startsWith("linkStyle ")
+    ) {
+      insertIdx = i + 1;
+      break;
+    }
+  }
+  lines.splice(insertIdx, 0, nodeLine);
   return lines.join("\n");
 }
 
@@ -559,37 +742,25 @@ export function removeFlowchartEdge(code, source, target) {
  */
 export function updateFlowchartEdge(code, source, target, updates) {
   const lines = code.split("\n");
-  const escaped_src = source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const escaped_tgt = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   for (let i = 0; i < lines.length; i++) {
-    // Check if this line contains the edge
-    const nodesMap = new Map();
-    const lineEdges = [];
     const trimmed = lines[i].trim();
     if (!trimmed || isDirectiveLine(trimmed)) continue;
-    parseLineContent(trimmed, 0, lines[i], nodesMap, lineEdges);
-
-    const edgeMatch = lineEdges.find((e) => e.source === source && e.target === target);
+    const edgeRanges = findEdgeTokenRanges(lines[i]);
+    const edgeMatch = edgeRanges.find((e) => e.source === source && e.target === target);
     if (!edgeMatch) continue;
 
     const newArrow = updates.arrowType || edgeMatch.arrowType;
     const newLabel = updates.label !== undefined ? updates.label : edgeMatch.label;
     const labelPart = newLabel ? `|${newLabel}|` : "";
-
-    // Build a regex to find and replace this specific edge pattern
-    const oldLabelPart = edgeMatch.label ? `\\|${edgeMatch.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\|` : "";
-    const edgeRe = new RegExp(
-      `${escaped_src}(\\s*(?:\\[[^\\]]*\\]|\\([^)]*\\)|\\{[^}]*\\}|\\(\\([^)]*\\)\\))?)\\s*${edgeMatch.arrowType.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${oldLabelPart}\\s*${escaped_tgt}`
-    );
-
-    if (edgeRe.test(lines[i])) {
-      lines[i] = lines[i].replace(edgeRe, `${source}$1 ${newArrow}${labelPart} ${target}`);
-      break;
-    }
+    const sourceRef = lines[i].slice(edgeMatch.sourceRange.start, edgeMatch.sourceRange.end);
+    const targetRef = lines[i].slice(edgeMatch.targetRange.start, edgeMatch.targetRange.end);
+    const updatedSegment = `${sourceRef} ${newArrow}${labelPart} ${targetRef}`;
+    lines[i] = lines[i].slice(0, edgeMatch.start) + updatedSegment + lines[i].slice(edgeMatch.end);
+    return lines.join("\n");
   }
 
-  return lines.join("\n");
+  return code;
 }
 
 /**
