@@ -3658,7 +3658,6 @@ function getIframeSrcDoc() {
           const box = anchor.rectEl.getBBox();
           return Math.max(max, box.x + box.width);
         }, 0);
-        const viewBox = svg.viewBox?.baseVal;
         const rightBound = viewBox?.width ? viewBox.x + viewBox.width - (compactMode ? 10 : 12) : maxRight + 18;
         const iconRadius = compactMode ? 6 : 7;
         const iconFontSize = compactMode ? 11 : 12;
