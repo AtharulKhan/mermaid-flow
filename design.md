@@ -1,8 +1,8 @@
-# Design Document: Custom HTML/CSS Gantt Renderer
+# Design Document: Custom HTML/CSS Diagram Renderers
 
 ## Overview
 
-MermaidFlow uses Mermaid.js as the source of truth for diagram definitions. Users write and edit Mermaid syntax in a code editor, and the app renders the visual output. For most diagram types (flowchart, ER, sequence, class, state), Mermaid's built-in SVG renderer works well. For Gantt charts, we bypass Mermaid's SVG renderer entirely and use a custom HTML/CSS renderer instead.
+MermaidFlow uses Mermaid.js as the source of truth for diagram definitions. Users write and edit Mermaid syntax in a code editor, and the app renders the visual output. For some diagram types (ER, sequence, class, state), Mermaid's built-in SVG renderer works well. For **Gantt charts** and **Flowcharts**, we bypass Mermaid's SVG renderer entirely and use custom HTML/CSS renderers instead.
 
 ## Why Not Mermaid's Gantt SVG?
 
@@ -146,11 +146,148 @@ CSS Grid provides sticky positioning that `<table>` doesn't support without hack
 
 Mermaid's `ganttDb` API is internal and undocumented. It changes between versions without notice. Our parser (`parseGanttTasks`) reads the raw Mermaid syntax directly, which is stable because it's the user-facing format. We also need line indices and token positions for code mutation, which Mermaid's API doesn't expose.
 
+---
+
+# Custom HTML/CSS Flowchart Renderer
+
+## Why Not Mermaid's Flowchart SVG?
+
+Mermaid renders flowcharts as SVG with absolute-positioned `<g>` groups containing `<rect>`, `<polygon>`, and `<text>` elements. For an interactive editor this has limitations:
+
+1. **Limited styling control.** SVG elements don't support CSS `box-shadow`, `backdrop-filter`, complex `border-radius` variants, or `clip-path` as cleanly as HTML divs. Getting a "modern card-like" appearance for nodes requires extensive SVG attribute manipulation.
+
+2. **Interaction complexity.** SVG click/drag handlers require coordinate transforms through nested `<g>` transforms. HTML pointer events on absolutely-positioned divs are simpler and more predictable.
+
+3. **Text layout.** SVG `<text>` doesn't support word-wrap, text-overflow, or inline HTML. Mermaid pre-computes text layout, but we lose control over how multi-line labels render.
+
+4. **Tight coupling.** Layering custom HTML overlays (edge labels, port indicators, toolbars) on top of Mermaid's SVG requires reverse-engineering its coordinate system, which breaks across versions.
+
+## Architecture
+
+### Data Flow
+
+```
+Mermaid Code (source of truth)
+        |
+        v
+mermaid.parse()             -- syntax validation only, no SVG output
+        |
+        v
+parseFlowchart()            -- extracts { direction, nodes[], edges[], subgraphs[] }
+parseClassDefs()            -- extracts classDef name → { fill, stroke, color }
+parseClassAssignments()     -- maps nodeId → className
+        |
+        v
+dagre.layout()              -- graph layout engine (loaded via CDN)
+        |
+        v
+renderCustomFlowchart()     -- builds HTML nodes + SVG edge paths
+        |
+        v
+Interactive HTML Flowchart  -- click, drag, right-click, connect handlers → postMessage
+        |
+        v
+React handlers              -- update Mermaid code using flowchartUtils mutation functions
+        |
+        v
+Re-render                   -- code change triggers postRender() → renderCustomFlowchart()
+```
+
+### Layout Engine: dagre
+
+Flowcharts require a directed graph layout algorithm (unlike Gantt charts, where layout is just a timeline). We use **dagre** (`@dagrejs/dagre`), the same engine Mermaid uses internally, loaded via CDN (`esm.sh`).
+
+dagre computes:
+- **Node positions** (x, y center coordinates) based on rank direction and spacing
+- **Edge control points** for routing paths between nodes
+- **Compound graph support** for subgraphs (dagre groups child nodes within a parent bounding box)
+
+Configuration: `rankdir` from Mermaid's direction (TB, LR, RL, BT), `nodesep: 50`, `ranksep: 60`.
+
+### Node Measurement
+
+dagre needs node dimensions before layout. We measure each node's content by:
+1. Creating a hidden DOM element with the node's CSS class and label content
+2. Reading `offsetWidth`/`offsetHeight`
+3. Adjusting for shape-specific padding (diamonds need diagonal, circles need square, hexagons need extra width)
+
+### Node Rendering: HTML Divs
+
+Each node is an absolutely-positioned `<div>` with a shape-specific CSS class:
+
+| Mermaid Shape | CSS Class | Technique |
+|---|---|---|
+| `[text]` rect | `.mf-shape-rect` | `border-radius: 4px` |
+| `(text)` rounded | `.mf-shape-rounded` | `border-radius: 12px` |
+| `([text])` stadium | `.mf-shape-stadium` | `border-radius: 9999px` |
+| `{text}` diamond | `.mf-shape-diamond` | `clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)` |
+| `((text))` circle | `.mf-shape-circle` | `border-radius: 50%` |
+| `{{text}}` hexagon | `.mf-shape-hexagon` | `clip-path: polygon(...)` |
+| `[[text]]` subroutine | `.mf-shape-subroutine` | `box-shadow: inset` for double borders |
+| `[(text)]` cylinder | `.mf-shape-cylinder` | Elliptical `border-radius: 50%/12%` |
+| `[/text/]` parallelogram | `.mf-shape-parallelogram` | `transform: skewX(-10deg)` |
+| `[/text\]` trapezoid | `.mf-shape-trapezoid` | `clip-path: polygon(...)` |
+
+For clip-path shapes (diamond, hexagon, trapezoid), CSS `border` is invisible. A background border layer div provides the visual border effect.
+
+### Edge Rendering: SVG Overlay
+
+Edges render as SVG `<path>` elements in a transparent overlay `<svg>` positioned on top of the HTML container. This is standard practice for HTML-based graph libraries (React Flow, Cytoscape).
+
+- **Path computation**: dagre provides edge control points; we render them as line segments or cubic bezier curves during drag updates
+- **Arrow markers**: SVG `<marker>` elements with triangular arrowheads
+- **Edge styles**: Solid (`-->`), dashed (` -.-> `), thick (`==>`), no-arrow (`---`)
+- **Edge labels**: SVG `<text>` at the midpoint with a rounded background `<rect>`
+- **Hit area**: Invisible wide `<path>` (14px stroke) for easier click targeting
+
+### Node Colors: classDef
+
+Mermaid's `classDef` directive defines custom styles:
+```
+classDef monthlyClass fill:#fef3c7,stroke:#f59e0b,stroke-width:3px,color:#000
+```
+
+The parser extracts these into `{ fill, stroke, strokeWidth, color }` objects. The renderer applies them as inline styles on the HTML div, overriding the default white background.
+
+### Subgraphs
+
+dagre supports compound graphs. Subgraph nodes are rendered as dashed-border background divs behind their child nodes, with a floating label positioned above.
+
+### Interactive Behaviors
+
+All interactions send the same `postMessage` payloads as the SVG-based renderer, so the React parent's handlers require zero changes:
+
+- **Click node** → `element:selected` with `{ label, nodeId, elementType: "node", screenBox }`
+- **Right-click node** → `element:context` with coordinates
+- **Click edge** → `element:selected` with `{ elementType: "edge", edgeSource, edgeTarget }`
+- **Drag node** → updates position live, recomputes connected edge paths, sends `element:dragged`
+- **Port indicators** → `+` circles appear on hover at node edges, click sends `port:clicked`
+- **Connect mode** → crosshair cursor, click target node sends `connect:complete`
+
+### Position Overrides
+
+When a user drags a node, the delta is stored in `positionOverrides[nodeId] = { dx, dy }`. On re-render, the renderer applies these offsets to dagre's computed positions, preserving the user's manual adjustments.
+
+## Shared Design Language
+
+Both the Gantt and Flowchart renderers share a consistent visual language:
+
+- **Font**: Manrope, system-ui, sans-serif at 13px
+- **Node elevation**: `box-shadow: 0 2px 8px rgba(0,0,0,0.08)`
+- **Border radius**: 12px on containers, 4-12px on nodes (shape-dependent)
+- **Selection**: `outline: 2.5px solid #2563eb; outline-offset: 2px` with blue glow
+- **Hover**: Enhanced shadow + brightness filter
+- **Transitions**: 0.12s ease on shadows and filters
+- **Colors**: Tailwind CSS palette (slate, indigo, blue, green, red)
+
+---
+
 ## File Structure
 
 | File | Role |
 |------|------|
 | `src/App.jsx` | React component + iframe HTML/CSS/JS (single file architecture) |
+| `src/flowchartUtils.js` | Mermaid flowchart parsing and node/edge mutation utilities |
 | `src/ganttUtils.js` | Mermaid Gantt parsing and code mutation utilities |
 | `src/diagramData.js` | Diagram templates and type classification |
 | `src/styles.css` | React app styles (not iframe styles) |
