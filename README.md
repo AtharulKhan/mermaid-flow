@@ -54,6 +54,7 @@ firebase deploy --only firestore:rules,firestore:indexes,storage
 5. Deploy Notion proxy function:
 
 ```bash
+cp functions/.env.example functions/.env
 cd functions && npm install && cd ..
 firebase deploy --only functions:notionProxy
 ```

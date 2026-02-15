@@ -30,6 +30,14 @@ VITE_FIREBASE_APP_ID=
 VITE_FIREBASE_MEASUREMENT_ID=
 ```
 
+If you want to keep Firebase Admin credentials in env (server-only), also set:
+
+```bash
+FIREBASE_ADMIN_PROJECT_ID=
+FIREBASE_ADMIN_CLIENT_EMAIL=
+FIREBASE_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
+
 ## 3. Deploy Firestore/Storage Rules + Indexes
 
 Install Firebase CLI:
@@ -110,7 +118,8 @@ firebase deploy --only functions:notionProxy
 ```
 
 Optional hardening:
-- Set `ALLOWED_ORIGINS` for the function (comma-separated domains) so only your frontend origins can call it.
+- Copy `functions/.env.example` to `functions/.env`
+- Set `ALLOWED_ORIGINS` (comma-separated domains) so only your frontend origins can call it.
 
 If this proxy is not available:
 - Import/Export live sync will fail.
