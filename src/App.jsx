@@ -229,6 +229,7 @@ function getIframeSrcDoc() {
         display: grid;
         flex: 0 0 auto;
         position: relative;
+        margin-top: 16px;
         border-radius: 12px;
         border: 1px solid #d9dee8;
       }
@@ -250,6 +251,7 @@ function getIframeSrcDoc() {
         text-align: center;
         line-height: 1.3;
         padding: 4px 8px;
+        box-shadow: 10px 0 12px -12px rgba(15, 23, 42, 0.28);
       }
       .mf-gantt-timeline-header {
         position: sticky;
@@ -259,8 +261,8 @@ function getIframeSrcDoc() {
       .mf-gantt-role-cell {
         position: sticky;
         left: 0;
-        z-index: 2;
-        background: rgba(255, 255, 255, 0.97);
+        z-index: 5;
+        background: #ffffff;
         border-right: 2px solid #d9dee8;
         border-bottom: 1px solid #e8ecf2;
         display: flex;
@@ -274,6 +276,8 @@ function getIframeSrcDoc() {
         overflow-wrap: break-word;
         box-sizing: border-box;
         line-height: 1.4;
+        overflow: hidden;
+        box-shadow: 10px 0 12px -12px rgba(15, 23, 42, 0.25);
       }
       .mf-gantt-track {
         border-bottom: 1px solid #e8ecf2;
@@ -411,18 +415,19 @@ function getIframeSrcDoc() {
       }
       .mf-gantt-today-header-label {
         position: absolute;
-        top: 4px;
+        top: -14px;
         transform: translateX(-50%);
         font-size: 10px;
         font-weight: 600;
         color: #94a3b8;
-        background: rgba(255,255,255,0.72);
+        background: rgba(255,255,255,0.9);
         border: 1px solid rgba(148,163,184,0.25);
         border-radius: 999px;
         padding: 1px 6px;
         white-space: nowrap;
         pointer-events: none;
-        z-index: 6;
+        z-index: 8;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
       }
       .mf-gantt-insert-btn {
         position: absolute;
