@@ -17,6 +17,43 @@ import {
 } from "firebase/firestore";
 import { db } from "./config";
 
+function normalizeFirestoreError(err) {
+  return {
+    code: err?.code || "unknown",
+    message: err?.message || String(err),
+    name: err?.name || "Error",
+  };
+}
+
+export function formatFirestoreError(err) {
+  const details = normalizeFirestoreError(err);
+  return `${details.code}: ${details.message}`;
+}
+
+function logFirestoreError(operation, err, context = {}) {
+  const details = normalizeFirestoreError(err);
+  const payload = {
+    operation,
+    ...details,
+    context,
+    timestamp: new Date().toISOString(),
+  };
+  console.error("[Firestore]", payload);
+  if (typeof window !== "undefined") {
+    window.__MF_FIRESTORE_ERRORS__ = window.__MF_FIRESTORE_ERRORS__ || [];
+    window.__MF_FIRESTORE_ERRORS__.push(payload);
+  }
+}
+
+async function runFirestoreOperation(operation, context, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    logFirestoreError(operation, err, context);
+    throw err;
+  }
+}
+
 // ── Firestore Schema ─────────────────────────────────
 //
 // users/{uid}
@@ -63,17 +100,19 @@ function chunkArray(arr, size) {
 // ── Projects ──────────────────────────────────────────
 
 export async function createProject(ownerId, name, description = "") {
-  const ref = await addDoc(collection(db, "projects"), {
-    name,
-    description,
-    ownerId,
-    members: { [ownerId]: "owner" },
-    memberUids: [ownerId],
-    tags: [],
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  return runFirestoreOperation("createProject", { ownerId, name }, async () => {
+    const ref = await addDoc(collection(db, "projects"), {
+      name,
+      description,
+      ownerId,
+      members: { [ownerId]: "owner" },
+      memberUids: [ownerId],
+      tags: [],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return { id: ref.id, name, description, ownerId, members: { [ownerId]: "owner" }, memberUids: [ownerId], tags: [] };
   });
-  return { id: ref.id, name, description, ownerId, members: { [ownerId]: "owner" }, memberUids: [ownerId], tags: [] };
 }
 
 export async function getProject(projectId) {
@@ -82,13 +121,15 @@ export async function getProject(projectId) {
 }
 
 export async function getUserProjects(uid) {
-  const q = query(
-    collection(db, "projects"),
-    where("memberUids", "array-contains", uid),
-    orderBy("updatedAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return runFirestoreOperation("getUserProjects", { uid }, async () => {
+    const q = query(
+      collection(db, "projects"),
+      where("memberUids", "array-contains", uid),
+      orderBy("updatedAt", "desc")
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  });
 }
 
 export async function updateProject(projectId, updates) {
@@ -183,109 +224,125 @@ export async function deleteSubproject(projectId, subprojectId) {
 // ── Flows ─────────────────────────────────────────────
 
 export async function createFlow(ownerId, { name, code, diagramType, projectId, subprojectId, tags }) {
-  const ref = await addDoc(collection(db, "flows"), {
-    name: name || "Untitled",
-    code: code || "",
-    diagramType: diagramType || "flowchart",
-    ownerId,
-    projectId: projectId || null,
-    subprojectId: subprojectId || null,
-    tags: tags || [],
-    sharing: { [ownerId]: "edit" },
-    sharedWith: [ownerId],
-    publicAccess: null,
-    thumbnailUrl: null,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  return runFirestoreOperation("createFlow", { ownerId, name, projectId, subprojectId }, async () => {
+    const ref = await addDoc(collection(db, "flows"), {
+      name: name || "Untitled",
+      code: code || "",
+      diagramType: diagramType || "flowchart",
+      ownerId,
+      projectId: projectId || null,
+      subprojectId: subprojectId || null,
+      tags: tags || [],
+      sharing: { [ownerId]: "edit" },
+      sharedWith: [ownerId],
+      publicAccess: null,
+      thumbnailUrl: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return { id: ref.id, name, code, diagramType, ownerId, projectId, subprojectId, tags: tags || [] };
   });
-  return { id: ref.id, name, code, diagramType, ownerId, projectId, subprojectId, tags: tags || [] };
 }
 
 export async function getFlow(flowId) {
-  const snap = await getDoc(doc(db, "flows", flowId));
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  return runFirestoreOperation("getFlow", { flowId }, async () => {
+    const snap = await getDoc(doc(db, "flows", flowId));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  });
 }
 
 export async function getUserFlows(uid, { projectId, subprojectId, tag, limitCount } = {}) {
-  const constraints = [orderBy("updatedAt", "desc")];
+  return runFirestoreOperation(
+    "getUserFlows",
+    { uid, projectId: projectId || null, subprojectId: subprojectId || null, tag: tag || null, limitCount: limitCount || null },
+    async () => {
+      const constraints = [orderBy("updatedAt", "desc")];
 
-  if (projectId && subprojectId) {
-    constraints.unshift(
-      where("projectId", "==", projectId),
-      where("subprojectId", "==", subprojectId)
-    );
-  } else if (projectId) {
-    constraints.unshift(where("projectId", "==", projectId));
-  }
+      if (projectId && subprojectId) {
+        constraints.unshift(
+          where("projectId", "==", projectId),
+          where("subprojectId", "==", subprojectId)
+        );
+      } else if (projectId) {
+        constraints.unshift(where("projectId", "==", projectId));
+      }
 
-  // Pull both owned and shared flows for project/subproject views.
-  const [ownedSnap, sharedSnap] = await Promise.all([
-    getDocs(query(collection(db, "flows"), where("ownerId", "==", uid), ...constraints)),
-    getDocs(query(collection(db, "flows"), where("sharedWith", "array-contains", uid), ...constraints)),
-  ]);
+      // Pull both owned and shared flows for project/subproject views.
+      const [ownedSnap, sharedSnap] = await Promise.all([
+        getDocs(query(collection(db, "flows"), where("ownerId", "==", uid), ...constraints)),
+        getDocs(query(collection(db, "flows"), where("sharedWith", "array-contains", uid), ...constraints)),
+      ]);
 
-  const byId = new Map();
-  ownedSnap.docs.forEach((d) => byId.set(d.id, { id: d.id, ...d.data() }));
-  sharedSnap.docs.forEach((d) => byId.set(d.id, { id: d.id, ...d.data() }));
+      const byId = new Map();
+      ownedSnap.docs.forEach((d) => byId.set(d.id, { id: d.id, ...d.data() }));
+      sharedSnap.docs.forEach((d) => byId.set(d.id, { id: d.id, ...d.data() }));
 
-  let results = [...byId.values()];
+      let results = [...byId.values()];
 
-  // Client-side tag filter.
-  if (tag) {
-    results = results.filter((f) => f.tags?.includes(tag));
-  }
+      // Client-side tag filter.
+      if (tag) {
+        results = results.filter((f) => f.tags?.includes(tag));
+      }
 
-  results.sort((a, b) => {
-    const aTime = a.updatedAt?.toMillis?.() || 0;
-    const bTime = b.updatedAt?.toMillis?.() || 0;
-    return bTime - aTime;
-  });
+      results.sort((a, b) => {
+        const aTime = a.updatedAt?.toMillis?.() || 0;
+        const bTime = b.updatedAt?.toMillis?.() || 0;
+        return bTime - aTime;
+      });
 
-  if (limitCount) {
-    results = results.slice(0, limitCount);
-  }
+      if (limitCount) {
+        results = results.slice(0, limitCount);
+      }
 
-  return results;
+      return results;
+    }
+  );
 }
 
 export async function getSharedFlows(uid) {
-  const q = query(
-    collection(db, "flows"),
-    where("sharedWith", "array-contains", uid),
-    orderBy("updatedAt", "desc")
-  );
-  const snap = await getDocs(q);
-  // Exclude flows owned by the user (they appear in sharedWith too)
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((f) => f.ownerId !== uid);
+  return runFirestoreOperation("getSharedFlows", { uid }, async () => {
+    const q = query(
+      collection(db, "flows"),
+      where("sharedWith", "array-contains", uid),
+      orderBy("updatedAt", "desc")
+    );
+    const snap = await getDocs(q);
+    // Exclude flows owned by the user (they appear in sharedWith too)
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((f) => f.ownerId !== uid);
+  });
 }
 
 export async function getAllUserFlows(uid) {
-  // Get owned flows
-  const ownedQ = query(
-    collection(db, "flows"),
-    where("ownerId", "==", uid),
-    orderBy("updatedAt", "desc")
-  );
-  const ownedSnap = await getDocs(ownedQ);
-  const owned = ownedSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return runFirestoreOperation("getAllUserFlows", { uid }, async () => {
+    // Get owned flows
+    const ownedQ = query(
+      collection(db, "flows"),
+      where("ownerId", "==", uid),
+      orderBy("updatedAt", "desc")
+    );
+    const ownedSnap = await getDocs(ownedQ);
+    const owned = ownedSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-  // Get shared flows
-  const shared = await getSharedFlows(uid);
+    // Get shared flows
+    const shared = await getSharedFlows(uid);
 
-  // Merge and sort by updatedAt descending
-  return [...owned, ...shared].sort((a, b) => {
-    const aTime = a.updatedAt?.toMillis?.() || 0;
-    const bTime = b.updatedAt?.toMillis?.() || 0;
-    return bTime - aTime;
+    // Merge and sort by updatedAt descending
+    return [...owned, ...shared].sort((a, b) => {
+      const aTime = a.updatedAt?.toMillis?.() || 0;
+      const bTime = b.updatedAt?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
   });
 }
 
 export async function updateFlow(flowId, updates) {
-  await updateDoc(doc(db, "flows", flowId), {
-    ...updates,
-    updatedAt: serverTimestamp(),
+  return runFirestoreOperation("updateFlow", { flowId, updateKeys: Object.keys(updates || {}) }, async () => {
+    await updateDoc(doc(db, "flows", flowId), {
+      ...updates,
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 

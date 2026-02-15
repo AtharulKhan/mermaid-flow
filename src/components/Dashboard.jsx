@@ -16,6 +16,7 @@ import {
   updateFlow,
   addFlowTag,
   removeFlowTag,
+  formatFirestoreError,
 } from "../firebase/firestore";
 import { DEFAULT_CODE } from "../diagramData";
 
@@ -45,6 +46,15 @@ export default function Dashboard() {
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [newSubprojectName, setNewSubprojectName] = useState("");
   const [newFlowName, setNewFlowName] = useState("");
+  const [loadError, setLoadError] = useState("");
+
+  const logDashboardError = (operation, err, context = {}) => {
+    console.error(`[Dashboard] ${operation} failed`, {
+      error: formatFirestoreError(err),
+      code: err?.code || "unknown",
+      context,
+    });
+  };
 
   // Load data
   useEffect(() => {
@@ -54,16 +64,27 @@ export default function Dashboard() {
 
   const loadAll = async () => {
     setLoading(true);
-    try {
-      const [p, f] = await Promise.all([
-        getUserProjects(user.uid),
-        getAllUserFlows(user.uid),
-      ]);
-      setProjects(p);
-      setAllFlows(f);
-    } catch (err) {
-      console.error("Failed to load data:", err);
+    setLoadError("");
+    const [projectsResult, flowsResult] = await Promise.allSettled([
+      getUserProjects(user.uid),
+      getAllUserFlows(user.uid),
+    ]);
+
+    if (projectsResult.status === "fulfilled") {
+      setProjects(projectsResult.value);
+    } else {
+      logDashboardError("loadAll/getUserProjects", projectsResult.reason, { uid: user.uid });
+      setLoadError(`Projects load failed: ${formatFirestoreError(projectsResult.reason)}`);
     }
+
+    if (flowsResult.status === "fulfilled") {
+      setAllFlows(flowsResult.value);
+    } else {
+      logDashboardError("loadAll/getAllUserFlows", flowsResult.reason, { uid: user.uid });
+      const flowsError = `Flows load failed: ${formatFirestoreError(flowsResult.reason)}`;
+      setLoadError((prev) => (prev ? `${prev} | ${flowsError}` : flowsError));
+    }
+
     setLoading(false);
   };
 
@@ -71,15 +92,31 @@ export default function Dashboard() {
   useEffect(() => {
     if (!selectedProject || !user) return;
     (async () => {
-      const [subs, flows] = await Promise.all([
+      const [subsResult, flowsResult] = await Promise.allSettled([
         getSubprojects(selectedProject.id),
         getUserFlows(user.uid, {
           projectId: selectedProject.id,
           subprojectId: selectedSubproject?.id,
         }),
       ]);
-      setSubprojects(subs);
-      setProjectFlows(flows);
+
+      if (subsResult.status === "fulfilled") {
+        setSubprojects(subsResult.value);
+      } else {
+        logDashboardError("projectDetail/getSubprojects", subsResult.reason, {
+          projectId: selectedProject.id,
+        });
+      }
+
+      if (flowsResult.status === "fulfilled") {
+        setProjectFlows(flowsResult.value);
+      } else {
+        logDashboardError("projectDetail/getUserFlows", flowsResult.reason, {
+          uid: user.uid,
+          projectId: selectedProject.id,
+          subprojectId: selectedSubproject?.id || null,
+        });
+      }
     })();
   }, [selectedProject, selectedSubproject, user]);
 
@@ -146,17 +183,27 @@ export default function Dashboard() {
 
   const handleCreateFlow = async () => {
     const name = newFlowName.trim() || "Untitled";
-    const flow = await createFlow(user.uid, {
-      name,
-      code: DEFAULT_CODE,
-      diagramType: "flowchart",
-      projectId: selectedProject?.id || null,
-      subprojectId: selectedSubproject?.id || null,
-      tags: [],
-    });
-    setNewFlowName("");
-    setShowNewFlow(false);
-    navigate(`/editor/${flow.id}`);
+    try {
+      const flow = await createFlow(user.uid, {
+        name,
+        code: DEFAULT_CODE,
+        diagramType: "flowchart",
+        projectId: selectedProject?.id || null,
+        subprojectId: selectedSubproject?.id || null,
+        tags: [],
+      });
+      setNewFlowName("");
+      setShowNewFlow(false);
+      setLoadError("");
+      navigate(`/editor/${flow.id}`);
+    } catch (err) {
+      logDashboardError("handleCreateFlow/createFlow", err, {
+        uid: user.uid,
+        projectId: selectedProject?.id || null,
+        subprojectId: selectedSubproject?.id || null,
+      });
+      setLoadError(`Create flow failed: ${formatFirestoreError(err)}`);
+    }
   };
 
   const handleDeleteFlow = async (flowId) => {
@@ -286,6 +333,12 @@ export default function Dashboard() {
 
         {/* ── Main Content ─────────────────────────────── */}
         <main className="dash-main">
+          {loadError && (
+            <div className="auth-error" style={{ marginBottom: 10 }}>
+              {loadError}
+            </div>
+          )}
+
           {/* Search */}
           <div className="dash-search-bar">
             <input

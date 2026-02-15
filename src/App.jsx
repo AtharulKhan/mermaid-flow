@@ -20,7 +20,7 @@ import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeF
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
-import { createFlow, getFlow, updateFlow, getUserSettings } from "./firebase/firestore";
+import { createFlow, getFlow, updateFlow, getUserSettings, formatFirestoreError } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
@@ -4087,6 +4087,14 @@ function App() {
     DIAGRAM_LIBRARY.find((entry) => entry.id === toolsetKey)?.quickTools ||
     DIAGRAM_LIBRARY.find((entry) => entry.id === "flowchart")?.quickTools ||
     [];
+  const logAppFirestoreError = (operation, err, context = {}) => {
+    console.error(`[App] ${operation} failed`, {
+      error: formatFirestoreError(err),
+      code: err?.code || "unknown",
+      context,
+    });
+  };
+
   const currentFlowRole = currentUser && flowMeta
     ? (flowMeta.ownerId === currentUser.uid ? "owner" : flowMeta.sharing?.[currentUser.uid] || null)
     : null;
@@ -4298,14 +4306,20 @@ function App() {
     if (!flowId) return;
     flowLoadedRef.current = false;
     (async () => {
-      const flow = await getFlow(flowId);
-      if (flow) {
-        setCode(flow.code || DEFAULT_CODE);
-        if (flow.diagramType) setDiagramType(flow.diagramType);
-        setFlowMeta(flow);
-        // Delay marking loaded so the auto-save doesn't fire on initial load
-        window.setTimeout(() => { flowLoadedRef.current = true; }, 3000);
-      } else {
+      try {
+        const flow = await getFlow(flowId);
+        if (flow) {
+          setCode(flow.code || DEFAULT_CODE);
+          if (flow.diagramType) setDiagramType(flow.diagramType);
+          setFlowMeta(flow);
+          // Delay marking loaded so the auto-save doesn't fire on initial load
+          window.setTimeout(() => { flowLoadedRef.current = true; }, 3000);
+        } else {
+          flowLoadedRef.current = true;
+        }
+      } catch (err) {
+        logAppFirestoreError("loadFlow/getFlow", err, { flowId });
+        setRenderMessage(`Load failed: ${formatFirestoreError(err)}`);
         flowLoadedRef.current = true;
       }
     })();
@@ -4325,7 +4339,12 @@ function App() {
       try {
         await updateFlow(flowId, { code, diagramType });
       } catch (err) {
-        console.warn("Auto-save failed:", err.message);
+        logAppFirestoreError("autoSave/updateFlow", err, {
+          flowId,
+          diagramType,
+          userUid: currentUser?.uid || null,
+        });
+        console.warn("Auto-save failed:", formatFirestoreError(err));
       }
     }, 2000);
     return () => window.clearTimeout(handle);
@@ -5072,7 +5091,11 @@ function App() {
       setRenderMessage("Saved to Firebase. Autosave is now active.");
       navigate(`/editor/${created.id}`);
     } catch (err) {
-      setRenderMessage(`Cloud save failed: ${err.message}`);
+      logAppFirestoreError("saveToCloud/createFlow", err, {
+        userUid: currentUser.uid,
+        diagramType,
+      });
+      setRenderMessage(`Cloud save failed: ${formatFirestoreError(err)}`);
     } finally {
       setCloudSaving(false);
     }
