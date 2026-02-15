@@ -340,7 +340,7 @@ function getIframeSrcDoc() {
       }
       .mf-gantt-today-label {
         position: absolute;
-        top: 2px;
+        top: -16px;
         left: 4px;
         font-size: 10px;
         color: #9ca3af;
