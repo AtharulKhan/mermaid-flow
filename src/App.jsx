@@ -1184,7 +1184,7 @@ function getIframeSrcDoc() {
           el.style.maxWidth = "220px";
           const raw = node.label || node.id || "";
           const brRe = new RegExp("<br\\s*\\/?>", "gi");
-          const lines = raw.replace(brRe, "\n").split("\n");
+          const lines = raw.replace(brRe, "\\n").split("\\n");
           el.innerHTML = '<div class="mf-node-label">' + lines.map(l => '<span class="mf-label-line">' + escapeHtml(l) + '<\/span>').join("") + '<\/div>';
           const cn = classAssignments[node.id];
           const cd = cn ? classDefMap[cn] : null;
@@ -1484,7 +1484,7 @@ function getIframeSrcDoc() {
           labelDiv.className = "mf-node-label";
           const raw = node.label || node.id || "";
           const brRe2 = new RegExp("<br\\s*\\/?>", "gi");
-          const labelLines = raw.replace(brRe2, "\n").split("\n");
+          const labelLines = raw.replace(brRe2, "\\n").split("\\n");
           labelDiv.innerHTML = labelLines.map(l => '<span class="mf-label-line">' + escapeHtml(l) + '<\/span>').join("");
           el.appendChild(labelDiv);
 
