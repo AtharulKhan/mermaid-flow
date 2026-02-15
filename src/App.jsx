@@ -20,10 +20,11 @@ import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeF
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
-import { createFlow, getFlow, updateFlow, getUserSettings, formatFirestoreError } from "./firebase/firestore";
+import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
+import VersionHistoryPanel from "./components/VersionHistoryPanel";
 
 const CHANNEL = "mermaid-flow";
 const ENABLE_NOTION_INTEGRATION = false; // Temporarily disabled.
@@ -229,7 +230,6 @@ function getIframeSrcDoc() {
         flex: 0 0 auto;
         position: relative;
         border-radius: 12px;
-        overflow: hidden;
         border: 1px solid #d9dee8;
       }
       .mf-gantt-corner {
@@ -1212,7 +1212,7 @@ function getIframeSrcDoc() {
         return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories) => {
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "flex-start";
@@ -1331,6 +1331,7 @@ function getIframeSrcDoc() {
         corner.textContent = "Category / Phase";
         const headerHeight = scale === "month" ? 24 : 48;
         corner.style.height = headerHeight + "px";
+        if (!pinCategories) corner.style.position = "relative";
         container.appendChild(corner);
 
         // === Header: Timeline ===
@@ -1375,7 +1376,7 @@ function getIframeSrcDoc() {
           const roleCell = document.createElement("div");
           roleCell.className = "mf-gantt-role-cell";
           roleCell.style.height = trackHeight + "px";
-          roleCell.style.position = "sticky";
+          if (!pinCategories) roleCell.style.position = "relative";
           const roleLabel = document.createElement("span");
           roleLabel.textContent = section;
           roleCell.appendChild(roleLabel);
@@ -3929,7 +3930,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4077,6 +4078,7 @@ function App() {
   const [flowMeta, setFlowMeta] = useState(null); // { name, projectId, sharing, etc. }
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [notionSyncOpen, setNotionSyncOpen] = useState(false);
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
@@ -4107,6 +4109,7 @@ function App() {
   const [ganttScale, setGanttScale] = useState("week"); // "week" | "month"
   const [compactMode, setCompactMode] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
+  const [pinCategories, setPinCategories] = useState(true); // sticky Category/Phase column
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -4321,6 +4324,7 @@ function App() {
       showGrid,
       compact: compactMode || directives.displayMode === "compact",
       ganttZoom,
+      pinCategories,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -4406,6 +4410,7 @@ function App() {
     const handle = window.setTimeout(async () => {
       try {
         await updateFlow(flowId, { code, diagramType });
+        saveFlowVersion(flowId, { code, diagramType }).catch(() => {});
       } catch (err) {
         logAppFirestoreError("autoSave/updateFlow", err, {
           flowId,
@@ -4801,7 +4806,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -5341,6 +5346,14 @@ function App() {
               Comments
             </button>
           )}
+          {flowId && currentUser && (
+            <button
+              className="soft-btn small"
+              onClick={() => setVersionPanelOpen(!versionPanelOpen)}
+            >
+              History
+            </button>
+          )}
 
           {ENABLE_NOTION_INTEGRATION && toolsetKey === "gantt" && (
             <button
@@ -5430,6 +5443,12 @@ function App() {
                     onClick={() => setCompactMode((prev) => !prev)}
                   >
                     {compactMode ? "Expanded" : "Compact"}
+                  </button>
+                  <button
+                    className={`date-toggle-btn${pinCategories ? " active" : ""}`}
+                    onClick={() => setPinCategories((prev) => !prev)}
+                  >
+                    {pinCategories ? "Unpin labels" : "Pin labels"}
                   </button>
                 </>
               )}
@@ -6575,6 +6594,21 @@ function App() {
           flowId={flowId}
           allowAnonymous={!currentUser && hasPublicCommentAccess}
           onClose={() => setCommentPanelOpen(false)}
+        />
+      )}
+
+      {/* ── Version History Panel ──────────────────────── */}
+      {versionPanelOpen && flowId && (
+        <VersionHistoryPanel
+          flowId={flowId}
+          currentCode={code}
+          onRestore={(restoredCode, restoredType) => {
+            setCode(restoredCode);
+            if (restoredType) setDiagramType(restoredType);
+            setVersionPanelOpen(false);
+            setRenderMessage("Version restored");
+          }}
+          onClose={() => setVersionPanelOpen(false)}
         />
       )}
 

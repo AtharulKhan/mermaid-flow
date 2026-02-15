@@ -14,6 +14,7 @@ import {
   arrayUnion,
   arrayRemove,
   writeBatch,
+  limit,
 } from "firebase/firestore";
 import { db } from "./config";
 
@@ -347,15 +348,70 @@ export async function updateFlow(flowId, updates) {
 }
 
 export async function deleteFlow(flowId) {
-  // Delete comments subcollection in batches
-  const commentsSnap = await getDocs(collection(db, "flows", flowId, "comments"));
-  const allDocs = [...commentsSnap.docs.map((d) => d.ref), doc(db, "flows", flowId)];
+  // Delete comments and versions subcollections in batches
+  const [commentsSnap, versionsSnap] = await Promise.all([
+    getDocs(collection(db, "flows", flowId, "comments")),
+    getDocs(collection(db, "flows", flowId, "versions")),
+  ]);
+  const allDocs = [
+    ...commentsSnap.docs.map((d) => d.ref),
+    ...versionsSnap.docs.map((d) => d.ref),
+    doc(db, "flows", flowId),
+  ];
   const chunks = chunkArray(allDocs, 499);
   for (const chunk of chunks) {
     const batch = writeBatch(db);
     chunk.forEach((ref) => batch.delete(ref));
     await batch.commit();
   }
+}
+
+// ── Flow Versions ─────────────────────────────────────
+
+const MAX_VERSIONS = 10;
+
+export async function saveFlowVersion(flowId, { code, diagramType }) {
+  // Dedup: skip if latest version has identical code
+  const latestQ = query(
+    collection(db, "flows", flowId, "versions"),
+    orderBy("createdAt", "desc"),
+    limit(1)
+  );
+  const latestSnap = await getDocs(latestQ);
+  if (!latestSnap.empty && latestSnap.docs[0].data().code === code) {
+    return null;
+  }
+
+  // Create new version
+  const ref = await addDoc(collection(db, "flows", flowId, "versions"), {
+    code,
+    diagramType,
+    createdAt: serverTimestamp(),
+  });
+
+  // Enforce cap: delete versions beyond MAX_VERSIONS
+  const allQ = query(
+    collection(db, "flows", flowId, "versions"),
+    orderBy("createdAt", "desc")
+  );
+  const allSnap = await getDocs(allQ);
+  if (allSnap.size > MAX_VERSIONS) {
+    const toDelete = allSnap.docs.slice(MAX_VERSIONS);
+    const batch = writeBatch(db);
+    toDelete.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+
+  return ref.id;
+}
+
+export async function getFlowVersions(flowId) {
+  const q = query(
+    collection(db, "flows", flowId, "versions"),
+    orderBy("createdAt", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 // ── Flow Sharing ──────────────────────────────────────

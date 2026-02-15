@@ -137,6 +137,13 @@ service cloud.firestore {
 
         allow update: if false;
       }
+
+      match /versions/{versionId} {
+        allow read: if canReadFlow(flowId);
+        allow create: if canEditFlow(flowId);
+        allow delete: if isFlowOwner(flowId);
+        allow update: if false;
+      }
     }
   }
 }

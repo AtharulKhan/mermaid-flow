@@ -2561,6 +2561,114 @@ input:focus {
   white-space: pre-wrap;
 }
 
+/* ── Version History Panel ─────────────────────────── */
+
+.version-panel {
+  position: fixed;
+  right: 0;
+  top: var(--header-height);
+  bottom: 0;
+  width: 340px;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  z-index: 200;
+  animation: slideInRight 0.15s ease;
+}
+
+.version-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.version-panel-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.version-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.version-empty {
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 13px;
+  padding: 24px;
+}
+
+.version-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  cursor: default;
+  transition: background 0.1s;
+}
+
+.version-item:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.02));
+}
+
+.version-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.version-meta span {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.version-meta .version-type {
+  font-size: 11px;
+  padding: 1px 6px;
+  background: var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+}
+
+.version-preview {
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-muted);
+  white-space: pre;
+  overflow: hidden;
+  max-height: 3.6em;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: var(--surface, #f1f5f9);
+  border-radius: var(--radius-sm);
+}
+
+.version-restore-btn {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.version-restore-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 /* ══════════════════════════════════════════════════════
    Settings Page
    ══════════════════════════════════════════════════════ */
@@ -2678,7 +2786,8 @@ input:focus {
     grid-template-columns: 1fr;
   }
 
-  .comment-panel {
+  .comment-panel,
+  .version-panel {
     width: 100%;
   }
 }
