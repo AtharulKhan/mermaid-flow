@@ -1170,7 +1170,7 @@ function getIframeSrcDoc() {
 
       /* ── Custom HTML Flowchart Renderer ─────────────────── */
 
-      const escapeHtml = (str) => String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const escapeHtml = (str) => { const s = String(str).replace(/&/g, "&amp;"); return s.replace(new RegExp("<","g"), "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); };
 
       const measureNodeDimensions = (nodes, classDefMap, classAssignments) => {
         const measurer = document.createElement("div");
@@ -1183,8 +1183,9 @@ function getIframeSrcDoc() {
           el.style.position = "static";
           el.style.maxWidth = "220px";
           const raw = node.label || node.id || "";
-          const lines = raw.replace(/<br\s*\/?>/gi, "\n").split("\n");
-          el.innerHTML = '<div class="mf-node-label">' + lines.map(l => '<span class="mf-label-line">' + escapeHtml(l) + '</span>').join("") + '</div>';
+          const brRe = new RegExp("<br\\s*\\/?>", "gi");
+          const lines = raw.replace(brRe, "\n").split("\n");
+          el.innerHTML = '<div class="mf-node-label">' + lines.map(l => '<span class="mf-label-line">' + escapeHtml(l) + '<\/span>').join("") + '<\/div>';
           const cn = classAssignments[node.id];
           const cd = cn ? classDefMap[cn] : null;
           if (cd?.fill) el.style.background = cd.fill;
@@ -1482,8 +1483,9 @@ function getIframeSrcDoc() {
           const labelDiv = document.createElement("div");
           labelDiv.className = "mf-node-label";
           const raw = node.label || node.id || "";
-          const labelLines = raw.replace(/<br\s*\/?>/gi, "\n").split("\n");
-          labelDiv.innerHTML = labelLines.map(l => '<span class="mf-label-line">' + escapeHtml(l) + '</span>').join("");
+          const brRe2 = new RegExp("<br\\s*\\/?>", "gi");
+          const labelLines = raw.replace(brRe2, "\n").split("\n");
+          labelDiv.innerHTML = labelLines.map(l => '<span class="mf-label-line">' + escapeHtml(l) + '<\/span>').join("");
           el.appendChild(labelDiv);
 
           // Tooltip
