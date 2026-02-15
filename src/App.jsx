@@ -3,6 +3,9 @@ import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramDat
 import {
   findTaskByLabel,
   parseGanttTasks,
+  parseGanttDirectives,
+  resolveDependencies,
+  addWorkingDays,
   shiftIsoDate,
   updateGanttTask,
   toggleGanttStatus,
@@ -246,7 +249,7 @@ function getIframeSrcDoc() {
         border-bottom: 1px solid #e8ecf2;
         display: flex;
         align-items: flex-start;
-        padding: 10px 12px;
+        padding: 10px 12px 28px 12px;
         font-weight: 700;
         font-size: 12px;
         color: #1f2937;
@@ -337,29 +340,31 @@ function getIframeSrcDoc() {
       }
       .mf-gantt-insert-btn {
         position: absolute;
-        right: -22px;
-        width: 16px;
-        height: 16px;
+        bottom: 6px;
+        right: 6px;
+        width: 18px;
+        height: 18px;
         border-radius: 50%;
-        background: rgba(255,255,255,0.85);
+        background: rgba(255,255,255,0.9);
         border: 1px solid #d5dbe8;
         color: #a3b0c4;
-        font-size: 12px;
-        font-weight: 600;
+        font-size: 13px;
+        font-weight: 700;
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
         opacity: 0;
-        transition: opacity 0.15s;
-        z-index: 1;
+        transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+        z-index: 5;
       }
-      .mf-gantt-track:hover .mf-gantt-insert-btn { opacity: 0.5; }
+      .mf-gantt-role-cell:hover .mf-gantt-insert-btn { opacity: 0.6; }
       .mf-gantt-insert-btn:hover {
         opacity: 1 !important;
         border-color: #93c5fd;
         color: #3b82f6;
         background: #ffffff;
+        box-shadow: 0 1px 4px rgba(59,130,246,0.2);
       }
       .mf-gantt-bar.mf-selected {
         outline: 2.5px solid #2563eb;
@@ -375,6 +380,75 @@ function getIframeSrcDoc() {
         background: #dc2626;
         pointer-events: none;
       }
+      /* ── Milestone diamond ── */
+      .mf-gantt-milestone {
+        position: absolute;
+        cursor: grab;
+        overflow: visible;
+        box-sizing: border-box;
+        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+        transition: box-shadow 0.12s ease, filter 0.12s ease;
+        min-width: 0;
+      }
+      .mf-gantt-milestone:hover {
+        filter: brightness(1.1);
+      }
+      .mf-gantt-milestone:active { cursor: grabbing; }
+      .mf-gantt-milestone .bar-label {
+        position: absolute;
+        left: calc(100% + 8px);
+        top: 50%;
+        transform: translateY(-50%);
+        white-space: nowrap;
+        color: #374151;
+        font-size: 11.5px;
+        font-weight: 700;
+        text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+        pointer-events: none;
+      }
+      .mf-gantt-milestone .bar-date-suffix { display: none; }
+      .mf-gantt-milestone.mf-selected {
+        outline: 2.5px solid #2563eb;
+        outline-offset: 2px;
+        box-shadow: 0 0 10px rgba(37, 99, 235, 0.3);
+      }
+      /* ── Excluded day shading ── */
+      .mf-gantt-excluded-day {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        background: repeating-linear-gradient(
+          135deg,
+          rgba(148, 163, 184, 0.1),
+          rgba(148, 163, 184, 0.1) 2px,
+          transparent 2px,
+          transparent 6px
+        );
+        pointer-events: none;
+        z-index: 0;
+      }
+      /* ── Vertical markers ── */
+      .mf-gantt-vert-marker {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #8b5cf6;
+        z-index: 3;
+        pointer-events: none;
+      }
+      .mf-gantt-vert-label {
+        position: absolute;
+        top: -18px;
+        left: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        color: #7c3aed;
+        white-space: nowrap;
+        background: rgba(255,255,255,0.9);
+        padding: 1px 4px;
+        border-radius: 3px;
+      }
       /* ── Custom HTML Flowchart ── */
       .mf-flow-container {
         font-family: "Manrope", system-ui, sans-serif;
@@ -389,8 +463,8 @@ function getIframeSrcDoc() {
         align-items: center;
         justify-content: center;
         text-align: center;
-        background: #ffffff;
-        border: 1.5px solid #94a3b8;
+        background: #f8fafc;
+        border: 1.5px solid #cbd5e1;
         color: #1e293b;
         font-size: 13px;
         font-weight: 500;
@@ -398,7 +472,7 @@ function getIframeSrcDoc() {
         padding: 10px 16px;
         cursor: grab;
         transition: box-shadow 0.12s ease, filter 0.12s ease;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         box-sizing: border-box;
         z-index: 2;
         word-break: break-word;
@@ -408,6 +482,16 @@ function getIframeSrcDoc() {
         box-shadow: 0 4px 16px rgba(0,0,0,0.12);
         filter: brightness(1.02);
       }
+      /* Shape-specific default colors for visual richness */
+      .mf-shape-rect { background: #ffffff; border-color: #6366f1; }
+      .mf-shape-rounded { background: #f0f9ff; border-color: #3b82f6; }
+      .mf-shape-stadium { background: #f0fdf4; border-color: #22c55e; }
+      .mf-shape-diamond { background: #fef3c7; }
+      .mf-shape-circle { background: #faf5ff; border-color: #8b5cf6; }
+      .mf-shape-hexagon { background: #fce7f3; }
+      .mf-shape-subroutine { background: #f1f5f9; border-color: #64748b; }
+      .mf-shape-cylinder { background: #ecfeff; border-color: #06b6d4; }
+      .mf-shape-asymmetric { background: #fff7ed; }
       .mf-flow-node:active { cursor: grabbing; }
       .mf-flow-node.mf-selected {
         outline: 2.5px solid #2563eb;
@@ -441,7 +525,7 @@ function getIframeSrcDoc() {
       }
       .mf-shape-subroutine {
         border-radius: 4px;
-        box-shadow: inset 5px 0 0 0 #94a3b8, inset -5px 0 0 0 #94a3b8, 0 2px 8px rgba(0,0,0,0.08);
+        box-shadow: inset 5px 0 0 0 #64748b, inset -5px 0 0 0 #64748b, 0 2px 8px rgba(0,0,0,0.06);
         padding: 10px 22px;
       }
       .mf-shape-cylinder {
@@ -643,20 +727,20 @@ function getIframeSrcDoc() {
       }
       .mf-flow-subgraph {
         position: absolute;
-        border: 1.5px dashed #94a3b8;
+        border: 1.5px dashed #a5b4fc;
         border-radius: 10px;
-        background: rgba(241, 245, 249, 0.45);
+        background: rgba(238, 242, 255, 0.4);
         z-index: 0;
       }
       .mf-flow-subgraph-label {
         position: absolute;
         top: -11px;
         left: 12px;
-        background: #f1f5f9;
+        background: #eef2ff;
         padding: 2px 8px;
         font-size: 11px;
         font-weight: 700;
-        color: #475569;
+        color: #4338ca;
         border-radius: 4px;
         white-space: nowrap;
       }
@@ -1033,7 +1117,7 @@ function getIframeSrcDoc() {
         return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact) => {
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "flex-start";
@@ -1046,6 +1130,10 @@ function getIframeSrcDoc() {
           return;
         }
 
+        directives = directives || {};
+        const excludes = directives.excludes || [];
+        const weekend = directives.weekend || "";
+
         const dayMs = 86400000;
         const isoToMs = (iso) => {
           if (!iso || !/^\\d{4}-\\d{2}-\\d{2}$/.test(iso)) return null;
@@ -1053,8 +1141,35 @@ function getIframeSrcDoc() {
           return Number.isFinite(val) ? val : null;
         };
 
+        // Inline excludes checker for the iframe
+        const dayNames = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
+        const isExcludedDay = (ms) => {
+          if (!excludes.length) return false;
+          const d = new Date(ms);
+          const dow = d.getUTCDay();
+          for (const excl of excludes) {
+            if (excl === "weekends") {
+              if (weekend === "friday") { if (dow === 5 || dow === 6) return true; }
+              else { if (dow === 0 || dow === 6) return true; }
+            } else {
+              const idx = dayNames.indexOf(excl);
+              if (idx >= 0 && idx === dow) return true;
+            }
+            // Specific date check
+            if (/^\\d{4}-\\d{2}-\\d{2}$/.test(excl)) {
+              const exclMs = Date.parse(excl + "T00:00:00Z");
+              if (Math.abs(ms - exclMs) < dayMs) return true;
+            }
+          }
+          return false;
+        };
+
+        // Separate vert markers from regular tasks
+        const vertTasks = tasks.filter((t) => t.isVertMarker);
+        const regularTasks = tasks.filter((t) => !t.isVertMarker);
+
         // Enrich tasks with resolved end dates
-        const enriched = tasks.map((t) => {
+        const enriched = regularTasks.map((t) => {
           let resolvedEnd = t.endDate || t.computedEnd || "";
           if (!resolvedEnd && t.startDate && t.durationDays) {
             const d = new Date(t.startDate + "T00:00:00Z");
@@ -1064,9 +1179,10 @@ function getIframeSrcDoc() {
           return { ...t, resolvedEnd };
         });
 
-        // Date range
-        const allStartMs = enriched.map((t) => isoToMs(t.startDate)).filter(Number.isFinite);
-        const allEndMs = enriched.map((t) => isoToMs(t.resolvedEnd) || isoToMs(t.startDate)).filter(Number.isFinite);
+        // Date range (include vert markers in range calculation)
+        const allItems = [...enriched, ...vertTasks.map((t) => ({ startDate: t.startDate, resolvedEnd: t.startDate }))];
+        const allStartMs = allItems.map((t) => isoToMs(t.startDate)).filter(Number.isFinite);
+        const allEndMs = allItems.map((t) => isoToMs(t.resolvedEnd) || isoToMs(t.startDate)).filter(Number.isFinite);
         if (!allStartMs.length) {
           canvas.textContent = "No dated tasks found.";
           return;
@@ -1120,13 +1236,53 @@ function getIframeSrcDoc() {
 
         // === Body: Section rows ===
         for (const [section, sectionTasks] of sectionMap.entries()) {
-          const trackHeight = sectionTasks.length * rowHeight;
+          // Compact mode: greedy lane packing
+          let rowAssignments;
+          if (compact) {
+            const lanes = [];
+            rowAssignments = sectionTasks.map((task) => {
+              const sMs = isoToMs(task.startDate) || 0;
+              const eMs = isoToMs(task.resolvedEnd) || isoToMs(task.startDate) || sMs;
+              const effectiveEnd = Math.max(eMs, sMs + dayMs);
+              for (let lane = 0; lane < lanes.length; lane++) {
+                const conflicts = lanes[lane].some(
+                  (iv) => sMs < iv.endMs && effectiveEnd > iv.startMs
+                );
+                if (!conflicts) {
+                  lanes[lane].push({ startMs: sMs, endMs: effectiveEnd });
+                  return lane;
+                }
+              }
+              lanes.push([{ startMs: sMs, endMs: effectiveEnd }]);
+              return lanes.length - 1;
+            });
+          } else {
+            rowAssignments = sectionTasks.map((_, idx) => idx);
+          }
+
+          const numRows = compact ? Math.max(0, ...rowAssignments) + 1 : sectionTasks.length;
+          const trackHeight = numRows * rowHeight;
 
           // Role cell
           const roleCell = document.createElement("div");
           roleCell.className = "mf-gantt-role-cell";
-          roleCell.textContent = section;
           roleCell.style.height = trackHeight + "px";
+          roleCell.style.position = "sticky";
+          const roleLabel = document.createElement("span");
+          roleLabel.textContent = section;
+          roleCell.appendChild(roleLabel);
+          // Insert (+) button per section
+          const lastTask = sectionTasks[sectionTasks.length - 1];
+          if (lastTask) {
+            const insertBtn = document.createElement("div");
+            insertBtn.className = "mf-gantt-insert-btn";
+            insertBtn.textContent = "+";
+            insertBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              send("gantt:add-between", { afterLabel: lastTask.label, section: section });
+            });
+            roleCell.appendChild(insertBtn);
+          }
           container.appendChild(roleCell);
 
           // Track
@@ -1136,6 +1292,20 @@ function getIframeSrcDoc() {
           track.style.setProperty("--px-per-day", pxPerDay + "px");
           if (showGrid) track.classList.add("mf-show-grid-lines");
 
+          // Excluded day shading
+          if (excludes.length) {
+            for (let dayIdx = 0; dayIdx < totalDays; dayIdx++) {
+              const dMs = paddedMin + dayIdx * dayMs;
+              if (isExcludedDay(dMs)) {
+                const stripe = document.createElement("div");
+                stripe.className = "mf-gantt-excluded-day";
+                stripe.style.left = (dayIdx * pxPerDay) + "px";
+                stripe.style.width = pxPerDay + "px";
+                track.appendChild(stripe);
+              }
+            }
+          }
+
           sectionTasks.forEach((task, idx) => {
             const startMs = isoToMs(task.startDate);
             const endMs = isoToMs(task.resolvedEnd) || startMs;
@@ -1143,7 +1313,7 @@ function getIframeSrcDoc() {
 
             const left = Math.round(((startMs - paddedMin) / dayMs) * pxPerDay);
             const width = Math.max(Math.round(pxPerDay), Math.round(((Math.max(endMs, startMs + dayMs) - startMs) / dayMs) * pxPerDay));
-            const top = idx * rowHeight + barGap;
+            const top = rowAssignments[idx] * rowHeight + barGap;
 
             // Status-based color
             const statuses = task.statusTokens || [];
@@ -1155,12 +1325,24 @@ function getIframeSrcDoc() {
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
             const bar = document.createElement("div");
-            const isNarrow = width < 70;
-            bar.className = "mf-gantt-bar " + barClass + (isNarrow ? " mf-bar-narrow" : "");
-            bar.style.left = left + "px";
-            bar.style.width = width + "px";
-            bar.style.top = top + "px";
-            bar.style.height = barHeight + "px";
+
+            // Milestone rendering: diamond shape
+            if (task.isMilestone) {
+              const diamondSize = barHeight;
+              const milestoneLeft = left + Math.floor(width / 2) - Math.floor(diamondSize / 2);
+              bar.className = "mf-gantt-milestone " + barClass;
+              bar.style.left = milestoneLeft + "px";
+              bar.style.width = diamondSize + "px";
+              bar.style.height = diamondSize + "px";
+              bar.style.top = top + "px";
+            } else {
+              const isNarrow = width < 70;
+              bar.className = "mf-gantt-bar " + barClass + (isNarrow ? " mf-bar-narrow" : "");
+              bar.style.left = left + "px";
+              bar.style.width = width + "px";
+              bar.style.top = top + "px";
+              bar.style.height = barHeight + "px";
+            }
             bar.setAttribute("data-label", task.label || "");
 
             // Bar label
@@ -1169,8 +1351,8 @@ function getIframeSrcDoc() {
             labelSpan.textContent = task.label || "";
             bar.appendChild(labelSpan);
 
-            // Date suffix
-            if (showDates && task.startDate) {
+            // Date suffix (not for milestones)
+            if (!task.isMilestone && showDates && task.startDate) {
               const dateSuffix = document.createElement("span");
               dateSuffix.className = "bar-date-suffix";
               const startStr = fmtShort(task.startDate);
@@ -1185,6 +1367,7 @@ function getIframeSrcDoc() {
             const isDone = statuses.includes("done");
             const isOverdue = task.resolvedEnd && !isDone && task.resolvedEnd < today;
             let tip = task.label || "";
+            if (task.isMilestone) tip += "\\nMilestone";
             if (statuses.length) {
               const sMap = { done: "Done", active: "Active", crit: "Critical" };
               tip += "\\nStatus: " + statuses.map((s) => sMap[s] || s).join(", ");
@@ -1197,7 +1380,7 @@ function getIframeSrcDoc() {
             bar.setAttribute("data-mf-tip", tip);
 
             // Overdue dot
-            if (isOverdue) {
+            if (isOverdue && !task.isMilestone) {
               const dot = document.createElement("div");
               dot.className = "mf-gantt-overdue-dot";
               dot.style.left = (left - 12) + "px";
@@ -1209,7 +1392,7 @@ function getIframeSrcDoc() {
             bar.addEventListener("click", (e) => {
               e.stopPropagation();
               // Clear previous selection
-              canvas.querySelectorAll(".mf-gantt-bar.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
               bar.classList.add("mf-selected");
               send("element:selected", { label: task.label, id: "", elementType: "node" });
             });
@@ -1218,7 +1401,7 @@ function getIframeSrcDoc() {
             bar.addEventListener("contextmenu", (e) => {
               e.preventDefault();
               e.stopPropagation();
-              canvas.querySelectorAll(".mf-gantt-bar.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
               bar.classList.add("mf-selected");
               send("element:context", {
                 label: task.label,
@@ -1238,8 +1421,11 @@ function getIframeSrcDoc() {
               const relX = e.clientX - rect.left;
               const edgeZone = Math.max(rect.width * 0.15, 8);
               let mode = "shift";
-              if (relX > rect.width - edgeZone) mode = "resize-end";
-              else if (relX < edgeZone) mode = "resize-start";
+              // Milestones only support shift (no resize)
+              if (!task.isMilestone) {
+                if (relX > rect.width - edgeZone) mode = "resize-end";
+                else if (relX < edgeZone) mode = "resize-start";
+              }
 
               dragInfo = {
                 startX: e.clientX,
@@ -1292,37 +1478,56 @@ function getIframeSrcDoc() {
             track.appendChild(bar);
           });
 
-          // Insert (+) buttons
-          sectionTasks.forEach((task, idx) => {
-            const btnTop = (idx + 1) * rowHeight - 8;
-            const insertBtn = document.createElement("div");
-            insertBtn.className = "mf-gantt-insert-btn";
-            insertBtn.textContent = "+";
-            insertBtn.style.top = btnTop + "px";
-            insertBtn.addEventListener("click", (e) => {
-              e.stopPropagation();
-              send("gantt:add-between", { afterLabel: task.label });
-            });
-            track.appendChild(insertBtn);
-          });
+          // (Insert buttons moved to role cell)
 
           container.appendChild(track);
         }
 
-        // Today line
-        const todayMs = isoToMs(today);
-        if (todayMs !== null && todayMs >= paddedMin && todayMs <= paddedMax) {
-          const todayLeft = roleColWidth + Math.round(((todayMs - paddedMin) / dayMs) * pxPerDay);
-          const todayLine = document.createElement("div");
-          todayLine.className = "mf-gantt-today-line";
-          todayLine.style.left = todayLeft + "px";
-          container.appendChild(todayLine);
+        // Vertical markers (vert)
+        for (const vt of vertTasks) {
+          const vtMs = isoToMs(vt.startDate || vt.computedEnd);
+          if (vtMs === null || vtMs < paddedMin || vtMs > paddedMax) continue;
+          const vtLeft = roleColWidth + Math.round(((vtMs - paddedMin) / dayMs) * pxPerDay);
+          const vtLine = document.createElement("div");
+          vtLine.className = "mf-gantt-vert-marker";
+          vtLine.style.left = vtLeft + "px";
+          const vtLabel = document.createElement("div");
+          vtLabel.className = "mf-gantt-vert-label";
+          vtLabel.textContent = vt.label || "";
+          vtLine.appendChild(vtLabel);
+          container.appendChild(vtLine);
+        }
+
+        // Today line (respect todayMarker directive)
+        const todayMarkerVal = (directives.todayMarker || "on").trim().toLowerCase();
+        if (todayMarkerVal !== "off") {
+          const todayMs = isoToMs(today);
+          if (todayMs !== null && todayMs >= paddedMin && todayMs <= paddedMax) {
+            const todayLeft = roleColWidth + Math.round(((todayMs - paddedMin) / dayMs) * pxPerDay);
+            const todayLine = document.createElement("div");
+            todayLine.className = "mf-gantt-today-line";
+            todayLine.style.left = todayLeft + "px";
+            // Custom styling support
+            if (todayMarkerVal !== "on" && todayMarkerVal !== "") {
+              const pairs = (directives.todayMarker || "").split(",");
+              for (const pair of pairs) {
+                const parts = pair.split(":");
+                if (parts.length < 2) continue;
+                const key = parts[0].trim();
+                const val = parts.slice(1).join(":").trim();
+                if (key === "stroke") todayLine.style.background = val;
+                if (key === "stroke-width") todayLine.style.width = val;
+                if (key === "opacity") todayLine.style.opacity = val;
+              }
+            }
+            container.appendChild(todayLine);
+          }
         }
 
         // Click on empty area deselects
         container.addEventListener("click", (e) => {
           if (e.target === container || e.target.classList.contains("mf-gantt-track")) {
-            canvas.querySelectorAll(".mf-gantt-bar.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+            canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
             send("element:selected", null);
           }
         });
@@ -1571,12 +1776,12 @@ function getIframeSrcDoc() {
           l2.setAttribute("stroke", color); l2.setAttribute("stroke-width", "1.5");
           m.appendChild(l1); m.appendChild(l2); return m;
         };
-        defs.appendChild(mkArrow("mf-arrow", "#94a3b8"));
-        defs.appendChild(mkArrow("mf-arrow-thick", "#64748b"));
-        defs.appendChild(mkArrowRev("mf-arrow-rev", "#94a3b8"));
-        defs.appendChild(mkArrowRev("mf-arrow-thick-rev", "#64748b"));
-        defs.appendChild(mkCircleMarker("mf-circle", "#94a3b8"));
-        defs.appendChild(mkCrossMarker("mf-cross", "#94a3b8"));
+        defs.appendChild(mkArrow("mf-arrow", "#8b9dc3"));
+        defs.appendChild(mkArrow("mf-arrow-thick", "#6366f1"));
+        defs.appendChild(mkArrowRev("mf-arrow-rev", "#8b9dc3"));
+        defs.appendChild(mkArrowRev("mf-arrow-thick-rev", "#6366f1"));
+        defs.appendChild(mkCircleMarker("mf-circle", "#8b9dc3"));
+        defs.appendChild(mkCrossMarker("mf-cross", "#8b9dc3"));
         edgeSvg.appendChild(defs);
 
         // Render edges
@@ -1603,7 +1808,7 @@ function getIframeSrcDoc() {
 
           const path = document.createElementNS(ns, "path");
           path.setAttribute("d", d); path.setAttribute("fill", "none");
-          path.setAttribute("stroke", isThick ? "#64748b" : "#94a3b8");
+          path.setAttribute("stroke", isThick ? "#6366f1" : "#8b9dc3");
           path.setAttribute("stroke-width", isThick ? "2.5" : "1.5");
           if (isDashed) path.setAttribute("stroke-dasharray", "6,3");
           if (hasArrow) path.setAttribute("marker-end", isThick ? "url(#mf-arrow-thick)" : "url(#mf-arrow)");
@@ -1705,7 +1910,7 @@ function getIframeSrcDoc() {
             el.setAttribute("data-clip-shape", shape);
             const borderLayer = document.createElement("div");
             borderLayer.className = "mf-flow-border-layer mf-shape-" + shape;
-            borderLayer.style.background = sd?.stroke || cd?.stroke || so?.stroke || "#94a3b8";
+            borderLayer.style.background = sd?.stroke || cd?.stroke || so?.stroke || "#cbd5e1";
             el.appendChild(borderLayer);
           }
 
@@ -2125,6 +2330,30 @@ function getIframeSrcDoc() {
       let styleOverrides = {};  // nodeId → { fill, stroke, strokeStyle, textColor }
 
       const applyStyleOverrides = () => {
+        // Custom flowchart: apply to HTML nodes
+        const flowContainer = canvas.querySelector(".mf-flow-container");
+        if (flowContainer) {
+          for (const [nodeId, style] of Object.entries(styleOverrides)) {
+            const el = flowContainer.querySelector('[data-node-id="' + CSS.escape(nodeId) + '"]');
+            if (!el) continue;
+            if (style.fill) el.style.background = style.fill;
+            if (style.stroke) {
+              el.style.borderColor = style.stroke;
+              el.style.setProperty("--node-stroke", style.stroke);
+              const borderLayer = el.querySelector(".mf-flow-border-layer");
+              if (borderLayer) borderLayer.style.background = style.stroke;
+            }
+            if (style.textColor) {
+              el.style.color = style.textColor;
+              el.querySelectorAll(".mf-label-line").forEach(s => { s.style.color = style.textColor; });
+            }
+            if (style.strokeStyle === "dashed") el.style.borderStyle = "dashed";
+            else if (style.strokeStyle === "solid") el.style.borderStyle = "solid";
+            else if (style.strokeStyle === "none") el.style.borderColor = "transparent";
+          }
+          return;
+        }
+        // SVG diagrams: apply to SVG elements
         const svg = canvas.querySelector("svg");
         if (!svg) return;
         for (const [nodeId, style] of Object.entries(styleOverrides)) {
@@ -3551,9 +3780,9 @@ function getIframeSrcDoc() {
 
         if (data.type === "gantt:select") {
           const label = data.payload?.label || "";
-          canvas.querySelectorAll(".mf-gantt-bar.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+          canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
           if (label) {
-            const bar = canvas.querySelector('.mf-gantt-bar[data-label="' + CSS.escape(label) + '"]');
+            const bar = canvas.querySelector('.mf-gantt-bar[data-label="' + CSS.escape(label) + '"], .mf-gantt-milestone[data-label="' + CSS.escape(label) + '"]');
             if (bar) bar.classList.add("mf-selected");
           }
           return;
@@ -3577,7 +3806,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -3686,6 +3915,7 @@ function App() {
   const [showDates, setShowDates] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [ganttScale, setGanttScale] = useState("week"); // "week" | "month"
+  const [compactMode, setCompactMode] = useState(false);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -3847,18 +4077,24 @@ function App() {
     setRenderStatus("rendering");
 
     // Pre-compute gantt data so the iframe can render custom HTML gantt
-    const tasks = parseGanttTasks(code);
+    const directives = parseGanttDirectives(code);
+    const tasks = resolveDependencies(parseGanttTasks(code));
     const ganttData = {
       tasks: tasks.map((t) => {
-        let computedEnd = t.endDate || "";
-        if (!computedEnd && t.startDate && t.durationDays) {
-          const d = new Date(t.startDate + "T00:00:00Z");
-          d.setUTCDate(d.getUTCDate() + t.durationDays);
-          computedEnd = d.toISOString().slice(0, 10);
+        const effectiveStart = t.startDate || t.resolvedStartDate || "";
+        let computedEnd = t.endDate || t.resolvedEndDate || "";
+        if (!computedEnd && effectiveStart && t.durationDays) {
+          computedEnd = directives.excludes.length
+            ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
+            : (() => {
+                const d = new Date(effectiveStart + "T00:00:00Z");
+                d.setUTCDate(d.getUTCDate() + t.durationDays);
+                return d.toISOString().slice(0, 10);
+              })();
         }
         return {
           label: t.label,
-          startDate: t.startDate,
+          startDate: effectiveStart,
           endDate: t.endDate,
           durationDays: t.durationDays,
           computedEnd,
@@ -3866,11 +4102,18 @@ function App() {
           statusTokens: t.statusTokens || [],
           notes: t.notes || "",
           section: t.section || "",
+          isMilestone: t.isMilestone || false,
+          isVertMarker: t.isVertMarker || false,
+          afterDeps: t.afterDeps || [],
+          idToken: t.idToken || "",
+          hasExplicitDate: t.hasExplicitDate,
         };
       }),
+      directives,
       scale: ganttScale,
       showDates,
       showGrid,
+      compact: compactMode || directives.displayMode === "compact",
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -4238,7 +4481,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -4648,6 +4891,12 @@ function App() {
                     onClick={() => setGanttScale("month")}
                   >
                     Month view
+                  </button>
+                  <button
+                    className={`date-toggle-btn${compactMode ? " active" : ""}`}
+                    onClick={() => setCompactMode((prev) => !prev)}
+                  >
+                    {compactMode ? "Expanded" : "Compact"}
                   </button>
                 </>
               )}
