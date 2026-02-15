@@ -1,0 +1,42 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function flowDoc(flowId) {
+      return firestore.get(/databases/(default)/documents/flows/$(flowId));
+    }
+
+    function flowRole(flowId) {
+      return flowDoc(flowId).data.sharing[request.auth.uid];
+    }
+
+    function isFlowOwner(flowId) {
+      return signedIn() && flowDoc(flowId).data.ownerId == request.auth.uid;
+    }
+
+    function canReadFlowAsset(flowId) {
+      return isFlowOwner(flowId) ||
+        (signedIn() && flowRole(flowId) in ["read", "comment", "edit"]) ||
+        flowDoc(flowId).data.publicAccess in ["read", "comment", "edit"];
+    }
+
+    function canEditFlowAsset(flowId) {
+      return isFlowOwner(flowId) ||
+        (signedIn() && flowRole(flowId) == "edit") ||
+        (signedIn() && flowDoc(flowId).data.publicAccess == "edit");
+    }
+
+    match /thumbnails/{flowId}.png {
+      allow read: if canReadFlowAsset(flowId);
+      allow write, delete: if canEditFlowAsset(flowId);
+    }
+
+    match /exports/{flowId}/{fileName} {
+      allow read: if canReadFlowAsset(flowId);
+      allow write, delete: if canEditFlowAsset(flowId);
+    }
+  }
+}

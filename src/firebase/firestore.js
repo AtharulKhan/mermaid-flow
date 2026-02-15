@@ -10,7 +10,6 @@ import {
   query,
   where,
   orderBy,
-  limit,
   serverTimestamp,
   arrayUnion,
   arrayRemove,
@@ -219,17 +218,31 @@ export async function getUserFlows(uid, { projectId, subprojectId, tag, limitCou
     constraints.unshift(where("projectId", "==", projectId));
   }
 
-  if (limitCount) {
-    constraints.push(limit(limitCount));
-  }
+  // Pull both owned and shared flows for project/subproject views.
+  const [ownedSnap, sharedSnap] = await Promise.all([
+    getDocs(query(collection(db, "flows"), where("ownerId", "==", uid), ...constraints)),
+    getDocs(query(collection(db, "flows"), where("sharedWith", "array-contains", uid), ...constraints)),
+  ]);
 
-  const q = query(collection(db, "flows"), where("ownerId", "==", uid), ...constraints);
-  const snap = await getDocs(q);
-  let results = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const byId = new Map();
+  ownedSnap.docs.forEach((d) => byId.set(d.id, { id: d.id, ...d.data() }));
+  sharedSnap.docs.forEach((d) => byId.set(d.id, { id: d.id, ...d.data() }));
 
-  // Client-side tag filter (Firestore doesn't support array-contains + other inequality)
+  let results = [...byId.values()];
+
+  // Client-side tag filter.
   if (tag) {
     results = results.filter((f) => f.tags?.includes(tag));
+  }
+
+  results.sort((a, b) => {
+    const aTime = a.updatedAt?.toMillis?.() || 0;
+    const bTime = b.updatedAt?.toMillis?.() || 0;
+    return bTime - aTime;
+  });
+
+  if (limitCount) {
+    results = results.slice(0, limitCount);
   }
 
   return results;

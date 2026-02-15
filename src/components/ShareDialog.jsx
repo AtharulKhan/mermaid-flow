@@ -69,7 +69,7 @@ export default function ShareDialog({ flowId, onClose }) {
   };
 
   const copyShareLink = () => {
-    const url = `${window.location.origin}/editor/${flowId}`;
+    const url = `${window.location.origin}/flow/${flowId}`;
     navigator.clipboard.writeText(url);
     setMessage("Link copied");
   };
@@ -142,8 +142,8 @@ export default function ShareDialog({ flowId, onClose }) {
           >
             <option value="none">Private — only shared users</option>
             <option value="read">Anyone with link can view</option>
-            <option value="comment">Anyone with link can comment</option>
-            <option value="edit">Anyone with link can edit</option>
+            <option value="comment">Signed-in users with link can comment</option>
+            <option value="edit">Signed-in users with link can edit</option>
           </select>
         </div>
 

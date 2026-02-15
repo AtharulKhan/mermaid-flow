@@ -31,9 +31,45 @@ Build:
 npm run build
 ```
 
+## Firebase setup
+
+1. Copy `.env.example` to `.env` and fill in Firebase values.
+2. Create a Firebase project with:
+   - Authentication (Email/Password and Google)
+   - Firestore
+   - Storage
+3. Install Firebase CLI and log in:
+
+```bash
+npm install -g firebase-tools
+firebase login
+```
+
+4. Deploy security configuration and indexes:
+
+```bash
+firebase deploy --only firestore:rules,firestore:indexes,storage
+```
+
+5. Deploy the app (optional):
+
+```bash
+npm run build
+firebase deploy --only hosting
+```
+
+The project includes:
+- `firestore.rules`
+- `firestore.indexes.json`
+- `storage.rules`
+- `firebase.json` (SPA rewrite for deep links)
+
+Public share links use `/flow/:flowId`. Access still depends on Firestore rules and each flow’s `publicAccess` setting.
+
+Detailed setup checklist: `docs/NEXT_STEPS_SETUP.md`.
+
 ## Notes
 
-- This is intentionally backend-free and account-free.
 - For untrusted Mermaid input, keep `securityLevel` on `strict` or `sandbox`.
 - Visual drag-to-manual-layout is not supported in v1 (Mermaid layout engines control positioning).
 - Gantt drag date updates require explicit task dates (e.g., `2026-02-10, 3d`), not `after task` dependency-only dates.

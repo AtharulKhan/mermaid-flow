@@ -64,6 +64,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* Public share route: read/comment/edit access controlled by Firestore rules */}
+      <Route path="/flow/:flowId" element={<App />} />
       {/* Legacy route: editor without flow ID (local mode) */}
       <Route path="/editor" element={<App />} />
       {/* Embed route: no auth required */}

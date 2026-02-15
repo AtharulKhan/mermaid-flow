@@ -21,6 +21,69 @@
 
 import { parseGanttTasks } from "./ganttUtils";
 
+const FALLBACK_START_DATE = "2026-03-01";
+
+function readPlainText(nodes = []) {
+  return nodes
+    .map((node) => node?.plain_text || node?.text?.content || "")
+    .join("")
+    .trim();
+}
+
+function findPropertyByName(properties, candidates) {
+  if (!properties) return null;
+
+  for (const name of candidates) {
+    if (properties[name]) return properties[name];
+  }
+
+  const lowerMap = new Map(
+    Object.entries(properties).map(([name, value]) => [name.toLowerCase(), value])
+  );
+  for (const name of candidates) {
+    const hit = lowerMap.get(name.toLowerCase());
+    if (hit) return hit;
+  }
+
+  return null;
+}
+
+function readDateProperty(prop) {
+  if (!prop?.date) return { start: "", end: "" };
+  return {
+    start: prop.date.start || "",
+    end: prop.date.end || "",
+  };
+}
+
+function readAssigneeProperty(prop) {
+  if (!prop) return "";
+
+  if (Array.isArray(prop.people) && prop.people.length > 0) {
+    return prop.people
+      .map((person) => person?.name || person?.person?.email || "")
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (Array.isArray(prop.rich_text)) {
+    return readPlainText(prop.rich_text);
+  }
+
+  if (prop.select?.name) return prop.select.name;
+  return "";
+}
+
+function readTitleProperty(properties) {
+  const explicit = findPropertyByName(properties, ["Name", "Task Name", "Title"]);
+  if (explicit?.title) return readPlainText(explicit.title) || "Untitled";
+
+  const anyTitle = Object.values(properties || {}).find((prop) => Array.isArray(prop?.title));
+  if (anyTitle?.title) return readPlainText(anyTitle.title) || "Untitled";
+
+  return "Untitled";
+}
+
 // ── Gantt → Notion: Convert Mermaid code to Notion page payloads ──
 
 export function ganttToNotionPages(mermaidCode, databaseId) {
@@ -81,14 +144,38 @@ export function notionPagesToGantt(pages, title = "Project Timeline") {
   const sections = new Map();
 
   for (const page of pages) {
-    const props = page.properties;
+    const props = page.properties || {};
 
-    const name = props.Name?.title?.[0]?.plain_text || "Untitled";
-    const section = props.Section?.select?.name || "Tasks";
-    const status = props.Status?.select?.name || "";
-    const startDate = props["Start Date"]?.date?.start || "";
-    const endDate = props["Start Date"]?.date?.end || "";
-    const assignee = props.Assignee?.rich_text?.[0]?.plain_text || "";
+    const name = readTitleProperty(props);
+    const sectionProp = findPropertyByName(props, ["Section", "Group", "Phase"]);
+    const statusProp = findPropertyByName(props, ["Status", "State"]);
+    const startDateProp = findPropertyByName(props, [
+      "Start Date",
+      "Timeline",
+      "Date",
+      "Dates",
+    ]);
+    const endDateProp = findPropertyByName(props, [
+      "End Date",
+      "Due Date",
+      "Finish Date",
+      "End",
+    ]);
+    const assigneeProp = findPropertyByName(props, ["Assignee", "Owner", "Assignees"]);
+
+    const section =
+      sectionProp?.select?.name ||
+      readPlainText(sectionProp?.rich_text || []) ||
+      "Tasks";
+    const status =
+      statusProp?.select?.name ||
+      readPlainText(statusProp?.rich_text || []) ||
+      "";
+    const startDateRange = readDateProperty(startDateProp);
+    const endDateRange = readDateProperty(endDateProp);
+    const startDate = startDateRange.start || "";
+    const endDate = endDateRange.start || startDateRange.end || endDateRange.end || "";
+    const assignee = readAssigneeProperty(assigneeProp);
 
     if (!sections.has(section)) sections.set(section, []);
 
@@ -123,12 +210,19 @@ export function notionPagesToGantt(pages, title = "Project Timeline") {
   let code = `gantt\n    title ${title}\n    dateFormat  YYYY-MM-DD\n    axisFormat  %b %d\n`;
 
   for (const [section, tasks] of sections) {
+    tasks.sort((a, b) => {
+      if (!a.startDate && !b.startDate) return 0;
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return a.startDate.localeCompare(b.startDate);
+    });
+
     code += `\n    section ${section}\n`;
     for (const t of tasks) {
       const statusStr = t.statusTokens.length > 0
         ? t.statusTokens.join(", ") + ", "
         : "";
-      const dateStr = t.startDate || "2026-03-01";
+      const dateStr = t.startDate || FALLBACK_START_DATE;
       code += `    ${t.name.padEnd(30)}:${statusStr}${t.taskId}, ${dateStr}, ${t.duration}\n`;
 
       if (t.assignee) {
@@ -185,9 +279,7 @@ export async function importFromNotion(databaseId, accessToken, title) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({
-      sorts: [{ property: "Start Date", direction: "ascending" }],
-    }),
+    body: JSON.stringify({}),
   });
 
   if (!res.ok) {

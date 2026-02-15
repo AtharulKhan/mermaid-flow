@@ -21,7 +21,7 @@ import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
 import { getFlow, updateFlow, getUserSettings } from "./firebase/firestore";
-import { ganttToNotionPages, importFromNotion } from "./notionSync";
+import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 
@@ -4086,6 +4086,11 @@ function App() {
     DIAGRAM_LIBRARY.find((entry) => entry.id === toolsetKey)?.quickTools ||
     DIAGRAM_LIBRARY.find((entry) => entry.id === "flowchart")?.quickTools ||
     [];
+  const currentFlowRole = currentUser && flowMeta
+    ? (flowMeta.ownerId === currentUser.uid ? "owner" : flowMeta.sharing?.[currentUser.uid] || null)
+    : null;
+  const canEditCurrentFlow = currentFlowRole === "owner" || currentFlowRole === "edit";
+  const canCommentCurrentFlow = canEditCurrentFlow || currentFlowRole === "comment";
 
   // Get connected nodes for any diagram type (for edit modal navigation)
   const getNodeConnections = (nodeId) => {
@@ -4951,13 +4956,37 @@ function App() {
       return;
     }
     try {
-      const pages = ganttToNotionPages(code, notionDbId.trim());
-      setRenderMessage(`Generated ${pages.length} Notion pages — sync requires server proxy`);
-      // Copy the payload for manual use
-      await navigator.clipboard.writeText(JSON.stringify(pages, null, 2));
-      setRenderMessage(`${pages.length} task payloads copied to clipboard`);
+      const created = await syncGanttToNotion(
+        code,
+        notionDbId.trim(),
+        notionToken.trim()
+      );
+      setRenderMessage(`Synced ${created.length} tasks to Notion`);
     } catch (err) {
-      setRenderMessage("Notion sync error: " + err.message);
+      // Fallback for missing proxy: copy payload so user can send it manually.
+      try {
+        const pages = ganttToNotionPages(code, notionDbId.trim());
+        await navigator.clipboard.writeText(JSON.stringify(pages, null, 2));
+        setRenderMessage(
+          `Notion sync failed (${err.message}). Copied ${pages.length} task payloads to clipboard for manual proxy use.`
+        );
+      } catch (fallbackErr) {
+        setRenderMessage("Notion sync error: " + fallbackErr.message);
+      }
+    }
+  };
+
+  const handleCopyNotionPayload = async () => {
+    if (!notionDbId.trim()) {
+      setRenderMessage("Enter Notion database ID");
+      return;
+    }
+    try {
+      const pages = ganttToNotionPages(code, notionDbId.trim());
+      await navigator.clipboard.writeText(JSON.stringify(pages, null, 2));
+      setRenderMessage(`${pages.length} Notion task payloads copied`);
+    } catch (err) {
+      setRenderMessage("Payload generation error: " + err.message);
     }
   };
 
@@ -5129,21 +5158,21 @@ function App() {
           </div>
 
           {/* Share & Comment buttons (only when editing a cloud flow) */}
-          {flowId && currentUser && (
-            <>
-              <button
-                className="soft-btn small"
-                onClick={() => setShareDialogOpen(true)}
-              >
-                Share
-              </button>
-              <button
-                className="soft-btn small"
-                onClick={() => setCommentPanelOpen(!commentPanelOpen)}
-              >
-                Comments
-              </button>
-            </>
+          {flowId && currentUser && canEditCurrentFlow && (
+            <button
+              className="soft-btn small"
+              onClick={() => setShareDialogOpen(true)}
+            >
+              Share
+            </button>
+          )}
+          {flowId && currentUser && canCommentCurrentFlow && (
+            <button
+              className="soft-btn small"
+              onClick={() => setCommentPanelOpen(!commentPanelOpen)}
+            >
+              Comments
+            </button>
           )}
 
           {/* Notion Sync (only for Gantt diagrams) */}
@@ -6468,13 +6497,16 @@ function App() {
               <button className="soft-btn" onClick={handleNotionImport} disabled={!notionToken || !notionDbId}>
                 Import from Notion
               </button>
-              <button className="soft-btn primary" onClick={handleNotionSync} disabled={!notionDbId}>
+              <button className="soft-btn primary" onClick={handleNotionSync} disabled={!notionToken || !notionDbId}>
                 Export to Notion
+              </button>
+              <button className="soft-btn" onClick={handleCopyNotionPayload} disabled={!notionDbId}>
+                Copy payload
               </button>
             </div>
             <p style={{ fontSize: 11, color: "var(--ink-muted)", marginTop: 12 }}>
               Note: Direct Notion API calls require a server proxy due to CORS.
-              Export copies task payloads to clipboard for use with your proxy.
+              If proxy sync fails, payloads are copied so you can send them from your own server.
             </p>
           </div>
         </div>
