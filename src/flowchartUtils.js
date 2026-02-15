@@ -5,6 +5,7 @@ const FRONT_MATTER_RE = /^---[\s\S]*?---\s*/;
 
 /* Shape delimiters → shape name lookup */
 const SHAPE_TABLE = [
+  { open: "(((", close: ")))", shape: "double-circle" },
   { open: "([", close: "])", shape: "stadium" },
   { open: "[[", close: "]]", shape: "subroutine" },
   { open: "[(", close: ")]", shape: "cylinder" },
@@ -26,6 +27,7 @@ const SHAPE_TO_DELIMITERS = {
   stadium: ["([", "])"],
   diamond: ["{", "}"],
   circle: ["((", "))"],
+  "double-circle": ["(((", ")))"],
   hexagon: ["{{", "}}"],
   subroutine: ["[[", "]]"],
   cylinder: ["[(", ")]"],
@@ -36,10 +38,103 @@ const SHAPE_TO_DELIMITERS = {
   asymmetric: [">", "]"],
 };
 
-/* Arrow types we recognise */
+/* v11.3.0+ shape name mappings: short name / alias → internal CSS shape name */
+const V11_SHAPE_MAP = {
+  // Direct mappings to existing classic shapes
+  "rect": "rect", "proc": "rect", "process": "rect", "rectangle": "rect",
+  "rounded": "rounded", "event": "rounded",
+  "stadium": "stadium", "pill": "stadium", "terminal": "stadium",
+  "diamond": "diamond", "diam": "diamond", "decision": "diamond", "question": "diamond",
+  "circle": "circle", "circ": "circle",
+  "dbl-circ": "double-circle", "double-circle": "double-circle",
+  "hex": "hexagon", "hexagon": "hexagon", "prepare": "hexagon",
+  "subproc": "subroutine", "subroutine": "subroutine", "subprocess": "subroutine",
+  "fr-rect": "subroutine", "framed-rectangle": "subroutine",
+  "cyl": "cylinder", "cylinder": "cylinder", "database": "cylinder", "db": "cylinder",
+  "lean-r": "parallelogram", "lean-right": "parallelogram", "in-out": "parallelogram",
+  "lean-l": "parallelogram-alt", "lean-left": "parallelogram-alt", "out-in": "parallelogram-alt",
+  "trap-b": "trapezoid", "trapezoid": "trapezoid", "trapezoid-bottom": "trapezoid", "priority": "trapezoid",
+  "trap-t": "trapezoid-alt", "trapezoid-top": "trapezoid-alt", "inv-trapezoid": "trapezoid-alt", "manual": "trapezoid-alt",
+  "odd": "asymmetric",
+  // New shapes requiring new CSS
+  "doc": "document", "document": "document",
+  "docs": "documents", "documents": "documents", "st-doc": "documents", "stacked-document": "documents",
+  "notch-rect": "notched-rect", "card": "notched-rect", "notched-rectangle": "notched-rect",
+  "cloud": "cloud",
+  "bang": "bang",
+  "bolt": "bolt", "com-link": "bolt", "lightning-bolt": "bolt",
+  "brace-l": "brace-l", "comment": "brace-l", "brace": "brace-l",
+  "brace-r": "brace-r",
+  "braces": "braces",
+  "tri": "triangle", "triangle": "triangle", "extract": "triangle",
+  "flag": "flag", "paper-tape": "flag",
+  "hourglass": "hourglass", "collate": "hourglass",
+  "lin-rect": "lined-rect", "lin-proc": "lined-rect", "lined-rectangle": "lined-rect", "lined-process": "lined-rect", "shaded-process": "lined-rect",
+  "sm-circ": "small-circle", "small-circle": "small-circle", "start": "small-circle",
+  "fr-circ": "framed-circle", "framed-circle": "framed-circle", "stop": "framed-circle",
+  "f-circ": "filled-circle", "filled-circle": "filled-circle", "junction": "filled-circle",
+  "fork": "fork", "join": "fork",
+  "text": "text-block",
+  "delay": "delay", "half-rounded-rectangle": "delay",
+  "h-cyl": "h-cylinder", "horizontal-cylinder": "h-cylinder", "das": "h-cylinder",
+  "lin-cyl": "lined-cylinder", "lined-cylinder": "lined-cylinder", "disk": "lined-cylinder",
+  "curv-trap": "curved-trapezoid", "curved-trapezoid": "curved-trapezoid", "display": "curved-trapezoid",
+  "div-rect": "divided-rect", "divided-rectangle": "divided-rect", "div-proc": "divided-rect", "divided-process": "divided-rect",
+  "flip-tri": "flipped-triangle", "flipped-triangle": "flipped-triangle", "manual-file": "flipped-triangle",
+  "sl-rect": "sloped-rect", "sloped-rectangle": "sloped-rect", "manual-input": "sloped-rect",
+  "win-pane": "window-pane", "window-pane": "window-pane", "internal-storage": "window-pane",
+  "cross-circ": "crossed-circle", "crossed-circle": "crossed-circle", "summary": "crossed-circle",
+  "lin-doc": "lined-document", "lined-document": "lined-document",
+  "notch-pent": "notched-pentagon", "notched-pentagon": "notched-pentagon", "loop-limit": "notched-pentagon",
+  "tag-doc": "tag-document", "tagged-document": "tag-document",
+  "tag-rect": "tag-rect", "tag-proc": "tag-rect", "tagged-rectangle": "tag-rect", "tagged-process": "tag-rect",
+  "bow-rect": "bow-rect", "bow-tie-rectangle": "bow-rect", "stored-data": "bow-rect",
+  "st-rect": "stacked-rect", "stacked-rectangle": "stacked-rect", "processes": "stacked-rect", "procs": "stacked-rect",
+};
+
+/* Reverse mapping: internal CSS shape name → v11 short name (for code generation) */
+const INTERNAL_TO_V11 = {};
+for (const [k, v] of Object.entries(V11_SHAPE_MAP)) {
+  if (!INTERNAL_TO_V11[v]) INTERNAL_TO_V11[v] = k;
+}
+
+function mapV11Shape(name) {
+  return V11_SHAPE_MAP[name] || V11_SHAPE_MAP[name.toLowerCase()] || "rect";
+}
+
+/* Regex-based arrow matching (order matters: longer/more-specific first).
+   Each entry has a regex to match, a canonical type, and a base length for minlen calculation. */
+const ARROW_REGEX = /^(<={2,}>|<-\.{1,}->|<-{2,}>|o-{2,}o|x-{2,}x|={2,}>|-\.{1,}->|-{2,}o|-{2,}x|-{2,}>|-{3,}|-\.{1,}-|={3,}|~{3,})/;
+
+function classifyArrow(raw) {
+  if (raw.startsWith("<=") && raw.endsWith(">")) return { type: "<==>", minlen: raw.length - 3 };
+  if (raw.startsWith("<-") && raw.endsWith(">") && raw.includes(".")) return { type: "<-.->", minlen: Math.max(1, raw.length - 4) };
+  if (raw.startsWith("<-") && raw.endsWith(">")) return { type: "<-->", minlen: raw.length - 3 };
+  if (raw.startsWith("o") && raw.endsWith("o")) return { type: "o--o", minlen: raw.length - 3 };
+  if (raw.startsWith("x") && raw.endsWith("x")) return { type: "x--x", minlen: raw.length - 3 };
+  if (raw.startsWith("=") && raw.endsWith(">")) return { type: "==>", minlen: raw.length - 2 };
+  if (raw.startsWith("-") && raw.includes(".") && raw.endsWith(">")) return { type: "-.->", minlen: Math.max(1, raw.length - 3) };
+  if (raw.startsWith("-") && raw.endsWith("o")) return { type: "--o", minlen: raw.length - 2 };
+  if (raw.startsWith("-") && raw.endsWith("x")) return { type: "--x", minlen: raw.length - 2 };
+  if (raw.startsWith("-") && raw.endsWith(">")) return { type: "-->", minlen: raw.length - 2 };
+  if (raw.startsWith("-") && raw.includes(".")) return { type: "-.-", minlen: Math.max(1, raw.length - 2) };
+  if (raw.startsWith("-")) return { type: "---", minlen: raw.length - 2 };
+  if (raw.startsWith("=")) return { type: "===", minlen: raw.length - 2 };
+  if (raw.startsWith("~")) return { type: "~~~", minlen: 1 };
+  return { type: raw, minlen: 1 };
+}
+
+/* Legacy static list for backwards compat with simple startsWith checks */
 const ARROW_PATTERNS = [
+  { pattern: "<==>", type: "<==>" },
+  { pattern: "<-.->", type: "<-.->" },
+  { pattern: "<-->", type: "<-->" },
+  { pattern: "o--o", type: "o--o" },
+  { pattern: "x--x", type: "x--x" },
   { pattern: "==>", type: "==>" },
   { pattern: "-.->", type: "-.->" },
+  { pattern: "--o", type: "--o" },
+  { pattern: "--x", type: "--x" },
   { pattern: "--->", type: "--->" },
   { pattern: "-->", type: "-->" },
   { pattern: "---", type: "---" },
@@ -180,8 +275,29 @@ export function parseFlowchart(code) {
       continue;
     }
 
-    // Skip @{shape:} annotation lines
-    if (/^\w+@\{/.test(trimmed)) continue;
+    // Handle @{shape:, label:} annotation lines (v11.3.0+ syntax)
+    const annotationMatch = trimmed.match(/^(\w+)@\{\s*(.+?)\s*\}$/);
+    if (annotationMatch) {
+      const nodeId = annotationMatch[1];
+      const body = annotationMatch[2];
+      const shapeMatch = body.match(/shape:\s*([\w-]+)/);
+      const labelMatch = body.match(/label:\s*"([^"]*)"/);
+      const mappedShape = shapeMatch ? mapV11Shape(shapeMatch[1]) : null;
+      if (nodesMap.has(nodeId)) {
+        const existing = nodesMap.get(nodeId);
+        if (mappedShape) existing.shape = mappedShape;
+        if (labelMatch) existing.label = labelMatch[1];
+      } else {
+        nodesMap.set(nodeId, {
+          id: nodeId,
+          label: labelMatch ? labelMatch[1] : nodeId,
+          shape: mappedShape || "rect",
+          shapeOpen: "[", shapeClose: "]",
+          lineIndex, rawLine,
+        });
+      }
+      continue;
+    }
 
     // Parse nodes and edges from this line
     parseLineContent(trimmed, lineIndex, rawLine, nodesMap, edges);
@@ -215,34 +331,35 @@ function parseLineContent(trimmed, lineIndex, rawLine, nodesMap, edges) {
     let foundArrow = false;
 
     // Handle arrows with inline labels: -- text --> or -- text ---
-    const inlineLabelMatch = trimmed.slice(pos).match(/^--\s+([^-][^>]*?)\s+(-->|---)/);
+    const inlineLabelMatch = trimmed.slice(pos).match(/^--\s+([^-][^>]*?)\s+(-{2,}>|-{3,})/);
     if (inlineLabelMatch) {
-      tokens.push({ type: "arrow", arrowType: inlineLabelMatch[2], label: inlineLabelMatch[1].trim() });
+      const { type: ilType, minlen: ilMinlen } = classifyArrow(inlineLabelMatch[2]);
+      tokens.push({ type: "arrow", arrowType: ilType, label: inlineLabelMatch[1].trim(), minlen: ilMinlen });
       pos += inlineLabelMatch[0].length;
       foundArrow = true;
     }
 
     if (!foundArrow) {
-      for (const { pattern, type } of ARROW_PATTERNS) {
-        if (trimmed.slice(pos).startsWith(pattern)) {
-          let label = "";
-          const afterArrow = pos + pattern.length;
-          // Check for |label| after arrow
-          if (trimmed[afterArrow] === "|") {
-            const labelEnd = trimmed.indexOf("|", afterArrow + 1);
-            if (labelEnd > afterArrow) {
-              label = trimmed.slice(afterArrow + 1, labelEnd).trim();
-              pos = labelEnd + 1;
-            } else {
-              pos = afterArrow;
-            }
+      const arrowMatch = trimmed.slice(pos).match(ARROW_REGEX);
+      if (arrowMatch) {
+        const raw = arrowMatch[1];
+        const { type: arrowType, minlen } = classifyArrow(raw);
+        let label = "";
+        const afterArrow = pos + raw.length;
+        // Check for |label| after arrow
+        if (trimmed[afterArrow] === "|") {
+          const labelEnd = trimmed.indexOf("|", afterArrow + 1);
+          if (labelEnd > afterArrow) {
+            label = trimmed.slice(afterArrow + 1, labelEnd).trim();
+            pos = labelEnd + 1;
           } else {
             pos = afterArrow;
           }
-          tokens.push({ type: "arrow", arrowType: type, label });
-          foundArrow = true;
-          break;
+        } else {
+          pos = afterArrow;
         }
+        tokens.push({ type: "arrow", arrowType, label, minlen });
+        foundArrow = true;
       }
     }
 
@@ -307,6 +424,7 @@ function parseLineContent(trimmed, lineIndex, rawLine, nodesMap, edges) {
           target: next.id,
           label: tokens[i].label || "",
           arrowType: tokens[i].arrowType,
+          minlen: tokens[i].minlen || 1,
           lineIndex,
           rawLine,
         });
@@ -499,8 +617,15 @@ export function generateNodeId(existingNodes) {
  * Add a new node to the flowchart code.
  */
 export function addFlowchartNode(code, { id, label, shape = "rect" }) {
-  const delimiters = SHAPE_TO_DELIMITERS[shape] || SHAPE_TO_DELIMITERS.rect;
-  const nodeLine = `    ${id}${delimiters[0]}"${label}"${delimiters[1]}`;
+  const delimiters = SHAPE_TO_DELIMITERS[shape];
+  let nodeLine;
+  if (delimiters) {
+    nodeLine = `    ${id}${delimiters[0]}"${label}"${delimiters[1]}`;
+  } else {
+    // v11 shape — use @{shape:} annotation syntax
+    const v11Name = INTERNAL_TO_V11[shape] || shape;
+    nodeLine = `    ${id}["${label}"]\n    ${id}@{ shape: ${v11Name}, label: "${label}" }`;
+  }
 
   const lines = code.split("\n");
   // Find last non-empty, non-directive line to insert after
@@ -616,19 +741,48 @@ export function updateFlowchartNode(code, nodeId, updates) {
   const lines = code.split("\n");
   const newLabel = updates.label !== undefined ? updates.label : node.label;
   const newShape = updates.shape !== undefined ? updates.shape : node.shape;
-  const delimiters = SHAPE_TO_DELIMITERS[newShape] || SHAPE_TO_DELIMITERS.rect;
+  const delimiters = SHAPE_TO_DELIMITERS[newShape];
   const escapedLabel = String(newLabel).replace(/"/g, '\\"');
-  const replacement = `${nodeId}${delimiters[0]}"${escapedLabel}"${delimiters[1]}`;
+  const isV11Shape = !delimiters;
+  const replacement = delimiters
+    ? `${nodeId}${delimiters[0]}"${escapedLabel}"${delimiters[1]}`
+    : `${nodeId}["${escapedLabel}"]`;
+
+  // Helper: manage @{shape:} annotation lines for v11 shapes
+  const manageAnnotation = (linesArr) => {
+    // Remove any existing annotation for this node
+    for (let i = linesArr.length - 1; i >= 0; i--) {
+      if (new RegExp(`^\\s*${nodeId}@\\{`).test(linesArr[i])) {
+        linesArr.splice(i, 1);
+      }
+    }
+    // Add annotation if this is a v11-only shape
+    if (isV11Shape) {
+      const v11Name = INTERNAL_TO_V11[newShape] || newShape;
+      let insertAt = linesArr.length;
+      for (let i = linesArr.length - 1; i >= 0; i--) {
+        const t = linesArr[i].trim();
+        if (t && !t.startsWith("classDef ") && !t.startsWith("class ") && !t.startsWith("style ") && !t.startsWith("linkStyle ")) {
+          insertAt = i + 1;
+          break;
+        }
+      }
+      linesArr.splice(insertAt, 0, `    ${nodeId}@{ shape: ${v11Name}, label: "${escapedLabel}" }`);
+    }
+  };
 
   let fallbackBareRef = null;
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (isDirectiveLine(trimmed)) continue;
+    // Skip annotation lines during node search
+    if (/^\w+@\{/.test(trimmed)) continue;
 
     const ranges = findNodeTokenRanges(lines[i]);
     const explicit = ranges.find((r) => r.id === nodeId && r.hasShape);
     if (explicit) {
       lines[i] = lines[i].slice(0, explicit.start) + replacement + lines[i].slice(explicit.end);
+      manageAnnotation(lines);
       return lines.join("\n");
     }
     if (!fallbackBareRef) {
@@ -641,6 +795,7 @@ export function updateFlowchartNode(code, nodeId, updates) {
     const { lineIndex, range } = fallbackBareRef;
     lines[lineIndex] =
       lines[lineIndex].slice(0, range.start) + replacement + lines[lineIndex].slice(range.end);
+    manageAnnotation(lines);
     return lines.join("\n");
   }
 
@@ -661,6 +816,7 @@ export function updateFlowchartNode(code, nodeId, updates) {
     }
   }
   lines.splice(insertIdx, 0, nodeLine);
+  manageAnnotation(lines);
   return lines.join("\n");
 }
 
@@ -788,6 +944,36 @@ export function parseClassDefs(code) {
     const widthMatch = raw.match(/stroke-width:\s*([^,;]+)/);
     if (widthMatch) style.strokeWidth = widthMatch[1].trim();
     result.push(style);
+  }
+  return result;
+}
+
+/**
+ * Parse per-node style directives.
+ * Lines: "style nodeId prop1:val1,prop2:val2,..."
+ * Returns { nodeId: { fill, stroke, color, strokeWidth, strokeDasharray } }
+ */
+export function parseStyleDirectives(code) {
+  const result = {};
+  const lines = code.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const m = trimmed.match(/^style\s+(\S+)\s+(.+)$/);
+    if (!m) continue;
+    const nodeId = m[1];
+    const raw = m[2];
+    const style = {};
+    const fillMatch = raw.match(/fill:\s*([^,;]+)/);
+    if (fillMatch) style.fill = fillMatch[1].trim();
+    const strokeMatch = raw.match(/stroke:\s*([^,;]+)/);
+    if (strokeMatch) style.stroke = strokeMatch[1].trim();
+    const colorMatch = raw.match(/(?:^|,)\s*color:\s*([^,;]+)/);
+    if (colorMatch) style.color = colorMatch[1].trim();
+    const dashMatch = raw.match(/stroke-dasharray:\s*([^,;]+)/);
+    if (dashMatch) style.strokeDasharray = dashMatch[1].trim();
+    const widthMatch = raw.match(/stroke-width:\s*([^,;]+)/);
+    if (widthMatch) style.strokeWidth = widthMatch[1].trim();
+    result[nodeId] = style;
   }
   return result;
 }
