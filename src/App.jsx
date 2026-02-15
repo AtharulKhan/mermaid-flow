@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
 import {
   findTaskByLabel,
@@ -14,6 +15,14 @@ import {
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
+import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
+import { useAuth } from "./firebase/AuthContext";
+import { getFlow, updateFlow } from "./firebase/firestore";
+import { uploadThumbnail } from "./firebase/storage";
+import { svgToPngBlob } from "./exportUtils";
+import { ganttToNotionPages, importFromNotion, getNotionAuthUrl } from "./notionSync";
+import ShareDialog from "./components/ShareDialog";
+import CommentPanel from "./components/CommentPanel";
 
 const CHANNEL = "mermaid-flow";
 
@@ -3527,6 +3536,14 @@ function App() {
   const editorRef = useRef(null);
   const exportMenuRef = useRef(null);
 
+  // Router integration
+  const params = useParams();
+  const navigate = useNavigate();
+  const flowId = params?.flowId || null;
+
+  // Auth context
+  const { user: currentUser } = useAuth();
+
   // URL params (read once on mount)
   const urlParams = useRef(getUrlParams());
   const isEmbed = urlParams.current.embed;
@@ -3546,6 +3563,12 @@ function App() {
   // Core state
   const [code, setCode] = useState(initialCode);
   const [theme, setTheme] = useState(urlParams.current.themeParam || "neo");
+  const [flowMeta, setFlowMeta] = useState(null); // { name, projectId, sharing, etc. }
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [notionSyncOpen, setNotionSyncOpen] = useState(false);
+  const [notionDbId, setNotionDbId] = useState("");
+  const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
   const [renderer, setRenderer] = useState("dagre");
   const [autoRender, setAutoRender] = useState(true);
@@ -3787,6 +3810,29 @@ function App() {
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
   }, [code, autoRender, mermaidRenderConfig]);
+
+  /* ── Load flow from Firestore ────────────────────────── */
+  useEffect(() => {
+    if (!flowId) return;
+    (async () => {
+      const flow = await getFlow(flowId);
+      if (flow) {
+        setCode(flow.code || DEFAULT_CODE);
+        setFlowMeta(flow);
+      }
+    })();
+  }, [flowId]);
+
+  /* ── Auto-save to Firestore (debounced) ────────────── */
+  useEffect(() => {
+    if (!flowId || isEmbed) return;
+    const handle = window.setTimeout(async () => {
+      try {
+        await updateFlow(flowId, { code, diagramType });
+      } catch {}
+    }, 2000);
+    return () => window.clearTimeout(handle);
+  }, [code, flowId, diagramType]);
 
   /* ── Auto-save to localStorage ─────────────────────── */
   useEffect(() => {
@@ -4381,40 +4427,63 @@ function App() {
 
   const downloadSvg = () => {
     if (!renderSvg) return;
-    const blob = new Blob([renderSvg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "diagram.svg";
-    link.click();
-    URL.revokeObjectURL(url);
+    const name = flowMeta?.name || "diagram";
+    downloadSvgHQ(renderSvg, `${name}.svg`);
   };
 
-  const downloadPng = () => {
+  const downloadPng = async () => {
     if (!renderSvg) return;
-    const blob = new Blob([renderSvg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width || 1600;
-      canvas.height = img.height || 900;
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      canvas.toBlob((pngBlob) => {
-        if (!pngBlob) return;
-        const pngUrl = URL.createObjectURL(pngBlob);
-        const link = document.createElement("a");
-        link.href = pngUrl;
-        link.download = "diagram.png";
-        link.click();
-        URL.revokeObjectURL(pngUrl);
-      });
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
+    const name = flowMeta?.name || "diagram";
+    try {
+      await downloadPngHQ(renderSvg, `${name}.png`, 3);
+    } catch (err) {
+      setRenderMessage("PNG export failed: " + err.message);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!renderSvg) return;
+    const name = flowMeta?.name || "diagram";
+    try {
+      await downloadPdf(renderSvg, `${name}.pdf`);
+      setRenderMessage("PDF downloaded");
+    } catch (err) {
+      setRenderMessage("PDF export failed: " + err.message);
+    }
+  };
+
+  const handleNotionSync = async () => {
+    if (!notionDbId.trim() || !notionToken.trim()) {
+      setRenderMessage("Enter Notion database ID and token");
+      return;
+    }
+    try {
+      const pages = ganttToNotionPages(code, notionDbId.trim());
+      setRenderMessage(`Generated ${pages.length} Notion pages — sync requires server proxy`);
+      // Copy the payload for manual use
+      await navigator.clipboard.writeText(JSON.stringify(pages, null, 2));
+      setRenderMessage(`${pages.length} task payloads copied to clipboard`);
+    } catch (err) {
+      setRenderMessage("Notion sync error: " + err.message);
+    }
+  };
+
+  const handleNotionImport = async () => {
+    if (!notionDbId.trim() || !notionToken.trim()) {
+      setRenderMessage("Enter Notion database ID and token");
+      return;
+    }
+    try {
+      const ganttCode = await importFromNotion(
+        notionDbId.trim(),
+        notionToken.trim(),
+        flowMeta?.name || "Imported Timeline"
+      );
+      setCode(ganttCode);
+      setRenderMessage("Imported from Notion");
+    } catch (err) {
+      setRenderMessage("Notion import error: " + err.message);
+    }
   };
 
   const copyShareLink = async () => {
@@ -4554,7 +4623,10 @@ function App() {
                 Download SVG
               </button>
               <button className="dropdown-item" onClick={() => { downloadPng(); setExportMenuOpen(false); }}>
-                Download PNG
+                Download PNG (3x)
+              </button>
+              <button className="dropdown-item" onClick={() => { handleDownloadPdf(); setExportMenuOpen(false); }}>
+                Download PDF
               </button>
               <div className="dropdown-sep" />
               <button className="dropdown-item" onClick={() => { setSaveDialogOpen(true); setExportMenuOpen(false); }}>
@@ -4562,6 +4634,52 @@ function App() {
               </button>
             </div>
           </div>
+
+          {/* Share & Comment buttons (only when editing a cloud flow) */}
+          {flowId && currentUser && (
+            <>
+              <button
+                className="soft-btn small"
+                onClick={() => setShareDialogOpen(true)}
+              >
+                Share
+              </button>
+              <button
+                className="soft-btn small"
+                onClick={() => setCommentPanelOpen(!commentPanelOpen)}
+              >
+                Comments
+              </button>
+            </>
+          )}
+
+          {/* Notion Sync (only for Gantt diagrams) */}
+          {toolsetKey === "gantt" && (
+            <button
+              className="soft-btn small"
+              onClick={() => setNotionSyncOpen(!notionSyncOpen)}
+            >
+              Notion
+            </button>
+          )}
+
+          <div className="toolbar-sep" />
+
+          {/* Back to dashboard */}
+          {currentUser && (
+            <button
+              className="icon-btn"
+              title="Dashboard"
+              onClick={() => navigate("/dashboard")}
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="6" height="6" rx="1" />
+                <rect x="11" y="3" width="6" height="6" rx="1" />
+                <rect x="3" y="11" width="6" height="6" rx="1" />
+                <rect x="11" y="11" width="6" height="6" rx="1" />
+              </svg>
+            </button>
+          )}
 
           <div className="toolbar-sep" />
 
@@ -5767,6 +5885,55 @@ function App() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Share Dialog ───────────────────────────────── */}
+      {shareDialogOpen && flowId && (
+        <ShareDialog flowId={flowId} onClose={() => setShareDialogOpen(false)} />
+      )}
+
+      {/* ── Comment Panel ──────────────────────────────── */}
+      {commentPanelOpen && flowId && (
+        <CommentPanel flowId={flowId} onClose={() => setCommentPanelOpen(false)} />
+      )}
+
+      {/* ── Notion Sync Panel ──────────────────────────── */}
+      {notionSyncOpen && (
+        <div className="modal-overlay" onClick={() => setNotionSyncOpen(false)}>
+          <div className="modal save-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Notion Gantt Sync</h3>
+            <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+              Sync your Gantt chart with a Notion database. Requires a Notion integration token
+              and database ID.
+            </p>
+            <input
+              className="modal-input"
+              placeholder="Notion Database ID"
+              value={notionDbId}
+              onChange={(e) => setNotionDbId(e.target.value)}
+            />
+            <input
+              className="modal-input"
+              placeholder="Notion Integration Token"
+              value={notionToken}
+              onChange={(e) => setNotionToken(e.target.value)}
+              type="password"
+              style={{ marginTop: 8 }}
+            />
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="soft-btn" onClick={handleNotionImport}>
+                Import from Notion
+              </button>
+              <button className="soft-btn primary" onClick={handleNotionSync}>
+                Export to Notion
+              </button>
+            </div>
+            <p style={{ fontSize: 11, color: "var(--ink-muted)", marginTop: 12 }}>
+              Note: Direct Notion API calls require a server proxy due to CORS.
+              Export copies task payloads to clipboard for use with your proxy.
+            </p>
           </div>
         </div>
       )}
