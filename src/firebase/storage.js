@@ -2,13 +2,13 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage
 import { storage } from "./config";
 
 export async function uploadThumbnail(flowId, blob) {
-  const storageRef = ref(storage, `thumbnails/${flowId}.png`);
+  const storageRef = ref(storage, `thumbnails/${flowId}/thumbnail.png`);
   await uploadBytes(storageRef, blob, { contentType: "image/png" });
   return getDownloadURL(storageRef);
 }
 
 export async function deleteThumbnail(flowId) {
-  const storageRef = ref(storage, `thumbnails/${flowId}.png`);
+  const storageRef = ref(storage, `thumbnails/${flowId}/thumbnail.png`);
   try {
     await deleteObject(storageRef);
   } catch (e) {
