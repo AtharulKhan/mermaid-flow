@@ -2545,6 +2545,101 @@ input:focus {
 }
 
 /* ══════════════════════════════════════════════════════
+   Settings Page
+   ══════════════════════════════════════════════════════ */
+
+.settings-page {
+  max-width: 640px;
+}
+
+.settings-page h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.settings-desc {
+  font-size: 14px;
+  color: var(--ink-muted);
+  margin: 0 0 32px;
+  line-height: 1.5;
+}
+
+.settings-section {
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.settings-section-desc {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.settings-section-desc a {
+  color: var(--accent);
+}
+
+.settings-field {
+  margin-bottom: 16px;
+}
+
+.settings-field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--ink);
+}
+
+.settings-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.settings-input:focus {
+  border-color: var(--accent);
+}
+
+.settings-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-message {
+  font-size: 13px;
+  color: var(--success);
+}
+
+.settings-message.error {
+  color: var(--danger);
+}
+
+/* ══════════════════════════════════════════════════════
    Responsive (Dashboard)
    ══════════════════════════════════════════════════════ */
 

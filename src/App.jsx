@@ -17,7 +17,7 @@ import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeF
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
-import { getFlow, updateFlow } from "./firebase/firestore";
+import { getFlow, updateFlow, getUserSettings } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
@@ -3809,6 +3809,19 @@ function App() {
     return () => window.clearTimeout(handle);
   }, [code, autoRender, mermaidRenderConfig]);
 
+  /* ── Load user's Notion settings when sync panel opens ── */
+  useEffect(() => {
+    if (!notionSyncOpen || !currentUser) return;
+    (async () => {
+      try {
+        const settings = await getUserSettings(currentUser.uid);
+        const notion = settings.notion || {};
+        if (notion.apiKey && !notionToken) setNotionToken(notion.apiKey);
+        if (notion.defaultDatabaseId && !notionDbId) setNotionDbId(notion.defaultDatabaseId);
+      } catch {}
+    })();
+  }, [notionSyncOpen, currentUser]);
+
   /* ── Load flow from Firestore ────────────────────────── */
   const flowLoadedRef = useRef(false);
   useEffect(() => {
@@ -5918,28 +5931,46 @@ function App() {
           <div className="modal save-modal" onClick={(e) => e.stopPropagation()}>
             <h3>Notion Gantt Sync</h3>
             <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
-              Sync your Gantt chart with a Notion database. Requires a Notion integration token
-              and database ID.
+              Sync your Gantt chart with a Notion database. Keys are loaded from your{" "}
+              <button
+                className="auth-link"
+                style={{ fontSize: 12 }}
+                onClick={() => navigate("/settings")}
+              >Settings</button>
+              {" "}— or override below for this session.
             </p>
-            <input
-              className="modal-input"
-              placeholder="Notion Database ID"
-              value={notionDbId}
-              onChange={(e) => setNotionDbId(e.target.value)}
-            />
-            <input
-              className="modal-input"
-              placeholder="Notion Integration Token"
-              value={notionToken}
-              onChange={(e) => setNotionToken(e.target.value)}
-              type="password"
-              style={{ marginTop: 8 }}
-            />
+            <div className="settings-field" style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Database ID</label>
+              <input
+                className="modal-input"
+                placeholder="Notion Database ID"
+                value={notionDbId}
+                onChange={(e) => setNotionDbId(e.target.value)}
+              />
+            </div>
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Integration Token</label>
+              <input
+                className="modal-input"
+                placeholder="ntn_..."
+                value={notionToken}
+                onChange={(e) => setNotionToken(e.target.value)}
+                type="password"
+              />
+            </div>
+            {!notionToken && (
+              <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 4 }}>
+                No token configured.{" "}
+                <button className="auth-link" style={{ fontSize: 11 }} onClick={() => navigate("/settings")}>
+                  Add one in Settings
+                </button>
+              </p>
+            )}
             <div className="modal-actions" style={{ marginTop: 16 }}>
-              <button className="soft-btn" onClick={handleNotionImport}>
+              <button className="soft-btn" onClick={handleNotionImport} disabled={!notionToken || !notionDbId}>
                 Import from Notion
               </button>
-              <button className="soft-btn primary" onClick={handleNotionSync}>
+              <button className="soft-btn primary" onClick={handleNotionSync} disabled={!notionDbId}>
                 Export to Notion
               </button>
             </div>

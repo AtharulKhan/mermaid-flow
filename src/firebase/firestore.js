@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
   getDoc,
   getDocs,
   updateDoc,
@@ -43,6 +44,10 @@ import { db } from "./config";
 //
 // flows/{flowId}/comments/{commentId}
 //   - authorId, authorName, text, createdAt
+//
+// users/{uid}/settings/integrations
+//   - notion: { apiKey, defaultDatabaseId }
+//   - (extensible for future integrations)
 //
 // ──────────────────────────────────────────────────────
 
@@ -359,4 +364,21 @@ export async function getUserByEmail(email) {
   const q = query(collection(db, "users"), where("email", "==", email));
   const snap = await getDocs(q);
   return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+}
+
+// ── User Settings (per-user API keys etc.) ────────────
+
+const SETTINGS_DOC = "integrations";
+
+export async function getUserSettings(uid) {
+  const snap = await getDoc(doc(db, "users", uid, "settings", SETTINGS_DOC));
+  return snap.exists() ? snap.data() : {};
+}
+
+export async function updateUserSettings(uid, settings) {
+  await setDoc(
+    doc(db, "users", uid, "settings", SETTINGS_DOC),
+    settings,
+    { merge: true }
+  );
 }

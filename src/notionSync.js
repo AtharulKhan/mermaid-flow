@@ -6,8 +6,9 @@
  * Architecture:
  * - This module runs client-side but Notion API requires a server proxy
  *   (Notion API doesn't support CORS for browser-direct calls).
- * - For direct usage, use the Notion OAuth flow and a small proxy/serverless function.
- * - The exported functions can also be used from a Node.js backend.
+ * - API keys are stored per-user in Firestore, NOT in environment variables.
+ * - Users configure their Notion integration token and database ID
+ *   in the Settings page.
  *
  * Notion Database Schema (expected):
  *   - Name (title) — task name
@@ -145,7 +146,9 @@ const NOTION_PROXY_URL = "/api/notion"; // Your proxy endpoint
 
 /**
  * Sync Gantt chart to Notion database.
- * Requires a server proxy at NOTION_PROXY_URL that forwards to Notion API.
+ * @param {string} mermaidCode - The Mermaid Gantt code
+ * @param {string} databaseId - Notion database ID
+ * @param {string} accessToken - User's Notion integration token
  */
 export async function syncGanttToNotion(mermaidCode, databaseId, accessToken) {
   const pages = ganttToNotionPages(mermaidCode, databaseId);
@@ -171,6 +174,9 @@ export async function syncGanttToNotion(mermaidCode, databaseId, accessToken) {
 
 /**
  * Import tasks from Notion database into Gantt chart.
+ * @param {string} databaseId - Notion database ID
+ * @param {string} accessToken - User's Notion integration token
+ * @param {string} title - Title for the generated Gantt chart
  */
 export async function importFromNotion(databaseId, accessToken, title) {
   const res = await fetch(`${NOTION_PROXY_URL}/databases/${databaseId}/query`, {
@@ -190,14 +196,4 @@ export async function importFromNotion(databaseId, accessToken, title) {
 
   const data = await res.json();
   return notionPagesToGantt(data.results, title);
-}
-
-/**
- * Generate the Notion OAuth URL for user authorization.
- */
-export function getNotionAuthUrl() {
-  const clientId = import.meta.env.VITE_NOTION_CLIENT_ID;
-  const redirectUri = import.meta.env.VITE_NOTION_REDIRECT_URI;
-  if (!clientId) return null;
-  return `https://api.notion.com/v1/oauth/authorize?client_id=${clientId}&response_type=code&owner=user&redirect_uri=${encodeURIComponent(redirectUri)}`;
 }

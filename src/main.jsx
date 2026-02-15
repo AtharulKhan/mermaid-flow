@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./firebase/AuthContext";
 import App from "./App";
 import AuthPage from "./components/AuthPage";
 import Dashboard from "./components/Dashboard";
+import UserSettings from "./components/UserSettings";
 import "./styles.css";
 
 function ProtectedRoute({ children }) {
@@ -44,6 +45,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <UserSettings />
           </ProtectedRoute>
         }
       />

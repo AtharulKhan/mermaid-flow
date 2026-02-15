@@ -245,6 +245,12 @@ export default function Dashboard() {
             >
               Projects
             </button>
+            <button
+              className="dash-nav-item"
+              onClick={() => navigate("/settings")}
+            >
+              Settings
+            </button>
           </nav>
 
           {/* Tag filter */}
