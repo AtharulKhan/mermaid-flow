@@ -207,6 +207,7 @@ function getIframeSrcDoc() {
         line-height: 1;
         user-select: none;
         display: grid;
+        flex: 0 0 auto;
         position: relative;
         border-radius: 12px;
         overflow: hidden;
