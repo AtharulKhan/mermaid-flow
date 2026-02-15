@@ -9,46 +9,74 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/projects/$(projectId));
     }
 
-    function projectRole(projectId) {
-      return projectDoc(projectId).data.members[request.auth.uid];
+    function canReadProjectData(data) {
+      return signedIn() &&
+        (
+          data.members[request.auth.uid] in ["owner", "edit", "comment", "read"] ||
+          data.memberUids.hasAny([request.auth.uid])
+        );
+    }
+
+    function canEditProjectData(data) {
+      return signedIn() && data.members[request.auth.uid] in ["owner", "edit"];
     }
 
     function canReadProject(projectId) {
-      return signedIn() && projectRole(projectId) in ["owner", "edit", "comment", "read"];
+      return canReadProjectData(projectDoc(projectId).data);
     }
 
     function canEditProject(projectId) {
-      return signedIn() && projectRole(projectId) in ["owner", "edit"];
+      return canEditProjectData(projectDoc(projectId).data);
     }
 
     function flowDoc(flowId) {
       return get(/databases/$(database)/documents/flows/$(flowId));
     }
 
-    function flowRole(flowId) {
-      return flowDoc(flowId).data.sharing[request.auth.uid];
-    }
-
     function isFlowOwner(flowId) {
       return signedIn() && flowDoc(flowId).data.ownerId == request.auth.uid;
     }
 
+    function canReadFlowData(data) {
+      return (
+          signedIn() &&
+          (
+            data.ownerId == request.auth.uid ||
+            data.sharing[request.auth.uid] in ["read", "comment", "edit"] ||
+            data.sharedWith.hasAny([request.auth.uid])
+          )
+        ) ||
+        data.publicAccess in ["read", "comment", "edit"];
+    }
+
+    function canCommentFlowData(data) {
+      return (
+          signedIn() &&
+          (
+            data.ownerId == request.auth.uid ||
+            data.sharing[request.auth.uid] in ["comment", "edit"]
+          )
+        ) ||
+        data.publicAccess in ["comment", "edit"];
+    }
+
+    function canEditFlowData(data) {
+      return (
+          signedIn() &&
+          (
+            data.ownerId == request.auth.uid ||
+            data.sharing[request.auth.uid] == "edit"
+          )
+        ) ||
+        data.publicAccess == "edit";
+    }
+
     function canReadFlow(flowId) {
-      return isFlowOwner(flowId) ||
-        (signedIn() && flowRole(flowId) in ["read", "comment", "edit"]) ||
-        flowDoc(flowId).data.publicAccess in ["read", "comment", "edit"];
+      return canReadFlowData(flowDoc(flowId).data);
     }
 
     function canCommentFlow(flowId) {
-      return isFlowOwner(flowId) ||
-        (signedIn() && flowRole(flowId) in ["comment", "edit"]) ||
-        flowDoc(flowId).data.publicAccess in ["comment", "edit"];
-    }
-
-    function canEditFlow(flowId) {
-      return isFlowOwner(flowId) ||
-        (signedIn() && flowRole(flowId) == "edit") ||
-        flowDoc(flowId).data.publicAccess == "edit";
+      return canCommentFlowData(flowDoc(flowId).data);
     }
 
     match /users/{uid} {
@@ -68,9 +96,9 @@ service cloud.firestore {
         request.resource.data.members[request.auth.uid] == "owner" &&
         request.resource.data.memberUids.hasAny([request.auth.uid]);
 
-      allow read: if canReadProject(projectId);
+      allow read: if canReadProjectData(resource.data);
 
-      allow update: if canEditProject(projectId) &&
+      allow update: if canEditProjectData(resource.data) &&
         request.resource.data.ownerId == resource.data.ownerId;
 
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
@@ -87,12 +115,12 @@ service cloud.firestore {
         request.resource.data.sharing[request.auth.uid] == "edit" &&
         request.resource.data.sharedWith.hasAny([request.auth.uid]);
 
-      allow read: if canReadFlow(flowId);
+      allow read: if canReadFlowData(resource.data);
 
-      allow update: if canEditFlow(flowId) &&
+      allow update: if canEditFlowData(resource.data) &&
         request.resource.data.ownerId == resource.data.ownerId;
 
-      allow delete: if isFlowOwner(flowId);
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
 
       match /comments/{commentId} {
         allow read: if canReadFlow(flowId);
