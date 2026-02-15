@@ -91,14 +91,42 @@ Browser cannot call Notion API directly due to CORS. You must provide a server e
 - `POST /api/notion/pages`
 - `POST /api/notion/databases/:id/query`
 
+This repo now includes a Firebase Function proxy:
+- `functions/index.js` (`notionProxy`)
+- Hosting rewrite in `firebase.json` routes `/api/notion/**` to the function.
+
 Expected behavior:
 - Forward requests to official Notion API.
 - Read `Authorization: Bearer <ntn_token>` header.
 - Return raw Notion response JSON/errors.
 
+### Deploy the proxy
+
+```bash
+cd functions
+npm install
+cd ..
+firebase deploy --only functions:notionProxy
+```
+
+Optional hardening:
+- Set `ALLOWED_ORIGINS` for the function (comma-separated domains) so only your frontend origins can call it.
+
 If this proxy is not available:
 - Import/Export live sync will fail.
 - The app can still copy Notion payload JSON for manual server-side use.
+
+## 5A. Do We Actually Need Live Notion Sync?
+
+Short answer: **only if you want Notion DB integration**, not just embeds.
+
+- If your goal is just visual display in Notion via iframe/embed URL:
+  - You do **not** need live sync.
+  - Mermaid Flow can run as a normal embed and render diagrams from code.
+- You need live sync if you want Mermaid Flow to:
+  - Pull tasks from a Notion database into Gantt automatically.
+  - Push Mermaid tasks back into Notion pages via one-click sync.
+  - Keep Notion as a structured task store, not just a canvas/embed container.
 
 ## 6. Hosting / Routing
 

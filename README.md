@@ -51,7 +51,14 @@ firebase login
 firebase deploy --only firestore:rules,firestore:indexes,storage
 ```
 
-5. Deploy the app (optional):
+5. Deploy Notion proxy function:
+
+```bash
+cd functions && npm install && cd ..
+firebase deploy --only functions:notionProxy
+```
+
+6. Deploy the app (optional):
 
 ```bash
 npm run build

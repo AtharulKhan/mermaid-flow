@@ -15,6 +15,13 @@
     ],
     "rewrites": [
       {
+        "source": "/api/notion{,/**}",
+        "function": {
+          "functionId": "notionProxy",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
