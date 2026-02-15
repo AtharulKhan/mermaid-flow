@@ -208,6 +208,9 @@ function getIframeSrcDoc() {
         user-select: none;
         display: grid;
         position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #d9dee8;
       }
       .mf-gantt-corner {
         position: sticky;
@@ -215,15 +218,18 @@ function getIframeSrcDoc() {
         top: 0;
         z-index: 5;
         background: #eef2ff;
-        border: 1px solid #d9dee8;
-        border-bottom: none;
+        border-bottom: 1px solid #d9dee8;
+        border-right: 2px solid #d9dee8;
         display: flex;
         align-items: center;
         justify-content: center;
         font-weight: 700;
-        font-size: 12px;
+        font-size: 11px;
         color: #334155;
         box-sizing: border-box;
+        text-align: center;
+        line-height: 1.3;
+        padding: 4px 8px;
       }
       .mf-gantt-timeline-header {
         position: sticky;
@@ -243,16 +249,18 @@ function getIframeSrcDoc() {
         font-weight: 700;
         font-size: 12px;
         color: #1f2937;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        white-space: normal;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
         box-sizing: border-box;
+        line-height: 1.4;
       }
       .mf-gantt-track {
         border-bottom: 1px solid #e8ecf2;
         background: #ffffff;
         position: relative;
         box-sizing: border-box;
+        overflow: hidden;
       }
       .mf-gantt-track:nth-child(4n+1) {
         background: #fafbfd;
@@ -268,15 +276,15 @@ function getIframeSrcDoc() {
       }
       .mf-gantt-bar {
         position: absolute;
-        border-radius: 6px;
+        border-radius: 8px;
         display: flex;
         align-items: center;
         padding: 0 8px;
         cursor: grab;
         transition: box-shadow 0.12s ease, filter 0.12s ease;
-        overflow: hidden;
+        overflow: visible;
         box-sizing: border-box;
-        min-width: 4px;
+        min-width: 18px;
       }
       .mf-gantt-bar:hover {
         box-shadow: 0 2px 8px rgba(0,0,0,0.15);
@@ -298,7 +306,17 @@ function getIframeSrcDoc() {
         text-overflow: ellipsis;
         pointer-events: none;
         line-height: 1.2;
+        min-width: 0;
       }
+      .mf-gantt-bar.mf-bar-narrow .bar-label {
+        overflow: visible;
+        position: relative;
+        color: #374151;
+        font-weight: 700;
+        text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+        margin-left: 4px;
+      }
+      .mf-gantt-bar.mf-bar-narrow .bar-date-suffix { display: none; }
       .bar-date-suffix {
         color: rgba(255,255,255,0.72);
         font-size: 10px;
@@ -344,8 +362,9 @@ function getIframeSrcDoc() {
       }
       .mf-gantt-bar.mf-selected {
         outline: 2.5px solid #2563eb;
-        outline-offset: 1px;
-        box-shadow: 0 0 8px rgba(37, 99, 235, 0.35);
+        outline-offset: 2px;
+        box-shadow: 0 0 10px rgba(37, 99, 235, 0.3);
+        border-radius: 8px;
       }
       .mf-gantt-overdue-dot {
         position: absolute;
@@ -749,7 +768,7 @@ function getIframeSrcDoc() {
         // === Header: Corner cell ===
         const corner = document.createElement("div");
         corner.className = "mf-gantt-corner";
-        corner.textContent = "Role";
+        corner.textContent = "Category / Phase";
         const headerHeight = scale === "month" ? 24 : 48;
         corner.style.height = headerHeight + "px";
         container.appendChild(corner);
@@ -800,7 +819,8 @@ function getIframeSrcDoc() {
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
             const bar = document.createElement("div");
-            bar.className = "mf-gantt-bar " + barClass;
+            const isNarrow = width < 70;
+            bar.className = "mf-gantt-bar " + barClass + (isNarrow ? " mf-bar-narrow" : "");
             bar.style.left = left + "px";
             bar.style.width = width + "px";
             bar.style.top = top + "px";
