@@ -198,7 +198,7 @@ function getIframeSrcDoc() {
       text.taskTextOutsideRight, text.taskTextOutsideLeft { pointer-events: all; cursor: pointer; }
       /* ── Gantt Bar Styling ── */
       .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #22c55e !important; rx: 6; }
-      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #3b82f6 !important; rx: 6; }
+      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #f59e0b !important; rx: 6; }
       .crit0,.crit1,.crit2,.crit3,.crit4,.crit5,.crit6,.crit7,.crit8,.crit9 { fill: #ef4444 !important; rx: 6; }
       .activeCrit0,.activeCrit1,.activeCrit2,.activeCrit3 { fill: #dc2626 !important; rx: 6; }
       .doneCrit0,.doneCrit1,.doneCrit2,.doneCrit3 { fill: #16a34a !important; rx: 6; }
@@ -314,11 +314,18 @@ function getIframeSrcDoc() {
       .mf-bar-default { background: #d1d5db; }
       .mf-bar-done    { background: #22c55e; }
       .mf-bar-crit    { background: #ef4444; }
-      .mf-bar-active  { background: #3b82f6; }
+      .mf-bar-active  { background: #f59e0b; }
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-date-suffix { color: rgba(255,255,255,0.72); }
+      .mf-gantt-bar.mf-bar-active .bar-label {
+        color: #1f2937;
+        font-weight: 700;
+      }
+      .mf-gantt-bar.mf-bar-active .bar-date-suffix {
+        color: #475569;
+      }
       .mf-gantt-bar.mf-bar-default .bar-label {
         color: #1f2937;
         font-weight: 700;
@@ -346,6 +353,9 @@ function getIframeSrcDoc() {
         color: #1f2937;
         font-weight: 700;
         text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
       }
       .mf-gantt-bar.mf-label-outside .bar-label {
         position: absolute;
@@ -355,11 +365,17 @@ function getIframeSrcDoc() {
         color: #1f2937;
         font-weight: 700;
         text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
       }
       .mf-gantt-bar.mf-label-outside-left .bar-label {
         left: auto;
         right: calc(100% + 8px);
         text-align: right;
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
       }
       .mf-gantt-bar.mf-bar-narrow .bar-date-suffix,
       .mf-gantt-bar.mf-label-outside .bar-date-suffix,
@@ -460,6 +476,9 @@ function getIframeSrcDoc() {
         font-weight: 700;
         text-shadow: 0 0 3px #fff, 0 0 3px #fff;
         pointer-events: none;
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
       }
       .mf-gantt-milestone.mf-label-outside-left .bar-label {
         left: auto;
@@ -1272,6 +1291,18 @@ function getIframeSrcDoc() {
           sectionMap.get(key).push(t);
         }
 
+        const labelMeasureCanvas = document.createElement("canvas");
+        const labelMeasureCtx = labelMeasureCanvas.getContext("2d");
+        if (labelMeasureCtx) {
+          labelMeasureCtx.font = '600 11.5px "Manrope", system-ui, sans-serif';
+        }
+        const measureLabelWidth = (text) => {
+          const safeText = String(text || "");
+          if (!safeText) return 0;
+          if (labelMeasureCtx) return Math.ceil(labelMeasureCtx.measureText(safeText).width);
+          return Math.ceil(safeText.length * 8.4);
+        };
+
         // Build container
         const container = document.createElement("div");
         container.className = "mf-gantt-container";
@@ -1433,9 +1464,7 @@ function getIframeSrcDoc() {
               bar.style.setProperty("--date-suffix-width", "0px");
             }
 
-            const measuredLabelWidth = Math.ceil(labelSpan.scrollWidth || 0);
-            const estimatedLabelWidth = Math.ceil((task.label || "").length * 7.1);
-            const labelWidth = Math.max(measuredLabelWidth, estimatedLabelWidth);
+            const labelWidth = measureLabelWidth(task.label || "");
             if (task.isMilestone) {
               const rightSpace = timelineWidth - (barLeft + barPixelWidth);
               if (rightSpace < labelWidth + 14) bar.classList.add("mf-label-outside-left");
@@ -3547,7 +3576,7 @@ function getIframeSrcDoc() {
           const tokens = t.statusTokens || [];
           const isDone = tokens.includes("done");
           const isOverdue = endDate && !isDone && endDate < today;
-          let isDarkBar = tokens.some((s) => s === "done" || s === "crit" || s === "active" || s === "activeCrit" || s === "doneCrit");
+          let isDarkBar = tokens.some((s) => s === "done" || s === "crit" || s === "activeCrit" || s === "doneCrit");
 
           const textEl = texts.find(el => el.textContent?.trim() === t.label);
           let rectEl = null;
