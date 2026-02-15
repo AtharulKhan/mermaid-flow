@@ -103,8 +103,7 @@ function getIframeSrcDoc() {
         overscroll-behavior: contain;
       }
       #wrap.mf-gantt-mode {
-        padding-left: 0;
-        padding-right: 0;
+        padding: 2px;
       }
       #canvas {
         min-height: 100%;
@@ -115,8 +114,7 @@ function getIframeSrcDoc() {
         align-items: flex-start;
       }
       #canvas.mf-gantt-mode {
-        padding-left: 0;
-        padding-right: 0;
+        padding: 0;
       }
       #canvas > svg {
         width: 100%;
@@ -238,10 +236,9 @@ function getIframeSrcDoc() {
         display: grid;
         flex: 0 0 auto;
         position: relative;
-        margin-top: 16px;
+        margin-top: 2px;
         border-radius: 12px;
         border: 1px solid #d9dee8;
-        overflow: hidden;
       }
       .mf-gantt-corner {
         position: sticky;
@@ -1344,7 +1341,7 @@ function getIframeSrcDoc() {
         const container = document.createElement("div");
         container.className = "mf-gantt-container";
         container.style.gridTemplateColumns = roleColWidth + "px " + timelineWidth + "px";
-        container.style.width = (roleColWidth + timelineWidth + 40) + "px";
+        container.style.width = (roleColWidth + timelineWidth) + "px";
 
         // === Header: Corner cell ===
         const corner = document.createElement("div");
