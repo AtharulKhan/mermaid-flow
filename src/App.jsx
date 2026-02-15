@@ -18,9 +18,7 @@ import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
 import { getFlow, updateFlow } from "./firebase/firestore";
-import { uploadThumbnail } from "./firebase/storage";
-import { svgToPngBlob } from "./exportUtils";
-import { ganttToNotionPages, importFromNotion, getNotionAuthUrl } from "./notionSync";
+import { ganttToNotionPages, importFromNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 
@@ -3812,13 +3810,20 @@ function App() {
   }, [code, autoRender, mermaidRenderConfig]);
 
   /* ── Load flow from Firestore ────────────────────────── */
+  const flowLoadedRef = useRef(false);
   useEffect(() => {
     if (!flowId) return;
+    flowLoadedRef.current = false;
     (async () => {
       const flow = await getFlow(flowId);
       if (flow) {
         setCode(flow.code || DEFAULT_CODE);
+        if (flow.diagramType) setDiagramType(flow.diagramType);
         setFlowMeta(flow);
+        // Delay marking loaded so the auto-save doesn't fire on initial load
+        window.setTimeout(() => { flowLoadedRef.current = true; }, 3000);
+      } else {
+        flowLoadedRef.current = true;
       }
     })();
   }, [flowId]);
@@ -3826,13 +3831,21 @@ function App() {
   /* ── Auto-save to Firestore (debounced) ────────────── */
   useEffect(() => {
     if (!flowId || isEmbed) return;
+    // Don't save until the flow has loaded (prevents overwriting with default)
+    if (!flowLoadedRef.current) return;
+    // Only save if user has edit permissions
+    const userRole = flowMeta?.sharing?.[currentUser?.uid];
+    const isOwner = flowMeta?.ownerId === currentUser?.uid;
+    if (!isOwner && userRole !== "edit") return;
     const handle = window.setTimeout(async () => {
       try {
         await updateFlow(flowId, { code, diagramType });
-      } catch {}
+      } catch (err) {
+        console.warn("Auto-save failed:", err.message);
+      }
     }, 2000);
     return () => window.clearTimeout(handle);
-  }, [code, flowId, diagramType]);
+  }, [code, flowId, diagramType, flowMeta, currentUser]);
 
   /* ── Auto-save to localStorage ─────────────────────── */
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import "svg2pdf.js";
+import { svg2pdf } from "svg2pdf.js"; // also augments jsPDF.API.svg as side effect
 import html2canvas from "html2canvas";
 
 /**
@@ -128,7 +128,13 @@ async function vectorPdf(svgString, filename) {
   document.body.appendChild(container);
 
   try {
-    await pdf.svg(svgEl, { x: pad, y: pad, width, height });
+    if (typeof pdf.svg === "function") {
+      // Use jsPDF.API.svg (augmented by svg2pdf.js side-effect import)
+      await pdf.svg(svgEl, { x: pad, y: pad, width, height });
+    } else {
+      // Fallback: use the explicit svg2pdf function
+      await svg2pdf(svgEl, pdf, { x: pad, y: pad, width, height });
+    }
     pdf.save(filename);
     return true;
   } finally {

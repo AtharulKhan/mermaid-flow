@@ -2,7 +2,6 @@ import {
   collection,
   doc,
   addDoc,
-  setDoc,
   getDoc,
   getDocs,
   updateDoc,
@@ -26,6 +25,7 @@ import { db } from "./config";
 // projects/{projectId}
 //   - name, description, ownerId, createdAt, updatedAt
 //   - members: { [uid]: "owner" | "edit" | "comment" | "read" }
+//   - memberUids: string[]  ← flat array for querying
 //   - tags: string[]
 //
 // projects/{projectId}/subprojects/{subprojectId}
@@ -37,6 +37,7 @@ import { db } from "./config";
 //   - projectId (nullable), subprojectId (nullable)
 //   - tags: string[], createdAt, updatedAt
 //   - sharing: { [uid]: "edit" | "comment" | "read" }
+//   - sharedWith: string[]  ← flat array for querying
 //   - publicAccess: null | "read" | "comment" | "edit"
 //   - thumbnailUrl (optional, stored in Firebase Storage)
 //
@@ -44,6 +45,16 @@ import { db } from "./config";
 //   - authorId, authorName, text, createdAt
 //
 // ──────────────────────────────────────────────────────
+
+// ── Helper: chunk array for batched deletes ──────────
+
+function chunkArray(arr, size) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
 
 // ── Projects ──────────────────────────────────────────
 
@@ -53,11 +64,12 @@ export async function createProject(ownerId, name, description = "") {
     description,
     ownerId,
     members: { [ownerId]: "owner" },
+    memberUids: [ownerId],
     tags: [],
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return { id: ref.id, name, description, ownerId, members: { [ownerId]: "owner" }, tags: [] };
+  return { id: ref.id, name, description, ownerId, members: { [ownerId]: "owner" }, memberUids: [ownerId], tags: [] };
 }
 
 export async function getProject(projectId) {
@@ -68,7 +80,7 @@ export async function getProject(projectId) {
 export async function getUserProjects(uid) {
   const q = query(
     collection(db, "projects"),
-    where(`members.${uid}`, "in", ["owner", "edit", "comment", "read"]),
+    where("memberUids", "array-contains", uid),
     orderBy("updatedAt", "desc")
   );
   const snap = await getDocs(q);
@@ -83,12 +95,15 @@ export async function updateProject(projectId, updates) {
 }
 
 export async function deleteProject(projectId) {
-  // Delete subprojects first
+  // Delete subprojects in batches of 499 (+ 1 for the project doc)
   const subSnap = await getDocs(collection(db, "projects", projectId, "subprojects"));
-  const batch = writeBatch(db);
-  subSnap.docs.forEach((d) => batch.delete(d.ref));
-  batch.delete(doc(db, "projects", projectId));
-  await batch.commit();
+  const allDocs = [...subSnap.docs.map((d) => d.ref), doc(db, "projects", projectId)];
+  const chunks = chunkArray(allDocs, 499);
+  for (const chunk of chunks) {
+    const batch = writeBatch(db);
+    chunk.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
 
   // Unlink flows (don't delete them)
   const flowsQ = query(collection(db, "flows"), where("projectId", "==", projectId));
@@ -101,6 +116,7 @@ export async function deleteProject(projectId) {
 export async function addProjectMember(projectId, uid, role) {
   await updateDoc(doc(db, "projects", projectId), {
     [`members.${uid}`]: role,
+    memberUids: arrayUnion(uid),
     updatedAt: serverTimestamp(),
   });
 }
@@ -112,6 +128,7 @@ export async function removeProjectMember(projectId, uid) {
   delete members[uid];
   await updateDoc(doc(db, "projects", projectId), {
     members,
+    memberUids: arrayRemove(uid),
     updatedAt: serverTimestamp(),
   });
 }
@@ -171,6 +188,7 @@ export async function createFlow(ownerId, { name, code, diagramType, projectId, 
     subprojectId: subprojectId || null,
     tags: tags || [],
     sharing: { [ownerId]: "edit" },
+    sharedWith: [ownerId],
     publicAccess: null,
     thumbnailUrl: null,
     createdAt: serverTimestamp(),
@@ -185,7 +203,6 @@ export async function getFlow(flowId) {
 }
 
 export async function getUserFlows(uid, { projectId, subprojectId, tag, limitCount } = {}) {
-  let q;
   const constraints = [orderBy("updatedAt", "desc")];
 
   if (projectId && subprojectId) {
@@ -201,11 +218,11 @@ export async function getUserFlows(uid, { projectId, subprojectId, tag, limitCou
     constraints.push(limit(limitCount));
   }
 
-  q = query(collection(db, "flows"), where("ownerId", "==", uid), ...constraints);
+  const q = query(collection(db, "flows"), where("ownerId", "==", uid), ...constraints);
   const snap = await getDocs(q);
   let results = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-  // Client-side tag filter (Firestore doesn't support array-contains + other where in all cases)
+  // Client-side tag filter (Firestore doesn't support array-contains + other inequality)
   if (tag) {
     results = results.filter((f) => f.tags?.includes(tag));
   }
@@ -216,11 +233,11 @@ export async function getUserFlows(uid, { projectId, subprojectId, tag, limitCou
 export async function getSharedFlows(uid) {
   const q = query(
     collection(db, "flows"),
-    where(`sharing.${uid}`, "in", ["edit", "comment", "read"]),
+    where("sharedWith", "array-contains", uid),
     orderBy("updatedAt", "desc")
   );
   const snap = await getDocs(q);
-  // Exclude flows owned by the user
+  // Exclude flows owned by the user (they appear in sharedWith too)
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter((f) => f.ownerId !== uid);
@@ -255,12 +272,15 @@ export async function updateFlow(flowId, updates) {
 }
 
 export async function deleteFlow(flowId) {
-  // Delete comments subcollection
+  // Delete comments subcollection in batches
   const commentsSnap = await getDocs(collection(db, "flows", flowId, "comments"));
-  const batch = writeBatch(db);
-  commentsSnap.docs.forEach((d) => batch.delete(d.ref));
-  batch.delete(doc(db, "flows", flowId));
-  await batch.commit();
+  const allDocs = [...commentsSnap.docs.map((d) => d.ref), doc(db, "flows", flowId)];
+  const chunks = chunkArray(allDocs, 499);
+  for (const chunk of chunks) {
+    const batch = writeBatch(db);
+    chunk.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
 }
 
 // ── Flow Sharing ──────────────────────────────────────
@@ -268,6 +288,7 @@ export async function deleteFlow(flowId) {
 export async function shareFlow(flowId, uid, role) {
   await updateDoc(doc(db, "flows", flowId), {
     [`sharing.${uid}`]: role,
+    sharedWith: arrayUnion(uid),
     updatedAt: serverTimestamp(),
   });
 }
@@ -279,6 +300,7 @@ export async function unshareFlow(flowId, uid) {
   delete sharing[uid];
   await updateDoc(doc(db, "flows", flowId), {
     sharing,
+    sharedWith: arrayRemove(uid),
     updatedAt: serverTimestamp(),
   });
 }

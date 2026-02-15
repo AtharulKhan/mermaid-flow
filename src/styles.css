@@ -1704,7 +1704,7 @@ input:focus {
   margin: 0 0 8px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--ink-muted);
 }
 
 .saved-item {
@@ -1737,14 +1737,14 @@ input:focus {
 
 .saved-item-date {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--ink-muted);
   white-space: nowrap;
 }
 
 .saved-item-delete {
   background: none;
   border: none;
-  color: var(--muted);
+  color: var(--ink-muted);
   cursor: pointer;
   font-size: 16px;
   padding: 0 4px;
