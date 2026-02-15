@@ -338,6 +338,15 @@ function getIframeSrcDoc() {
         z-index: 4;
         pointer-events: none;
       }
+      .mf-gantt-today-label {
+        position: absolute;
+        top: 2px;
+        left: 4px;
+        font-size: 10px;
+        color: #9ca3af;
+        white-space: nowrap;
+        pointer-events: none;
+      }
       .mf-gantt-insert-btn {
         position: absolute;
         bottom: 6px;
@@ -1520,6 +1529,14 @@ function getIframeSrcDoc() {
                 if (key === "opacity") todayLine.style.opacity = val;
               }
             }
+            // Add subtle date label at top of today line
+            const todayLabel = document.createElement("div");
+            todayLabel.className = "mf-gantt-today-label";
+            const todayDate = new Date(today + "T00:00:00");
+            const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+            todayLabel.textContent = monthNames[todayDate.getMonth()] + " " + todayDate.getDate();
+            todayLine.appendChild(todayLabel);
+
             container.appendChild(todayLine);
           }
         }
