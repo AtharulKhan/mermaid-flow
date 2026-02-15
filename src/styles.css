@@ -860,9 +860,9 @@ input:focus {
 }
 
 .status-toggle-btn.on.status-active .status-check {
-  background: #f59e0b;
-  border-color: #f59e0b;
-  color: #fff;
+  background: #fef08a;
+  border-color: #eab308;
+  color: #713f12;
 }
 
 .status-toggle-btn.on.status-crit .status-check {
@@ -881,7 +881,7 @@ input:focus {
 }
 
 .status-dot.status-done { background: #22c55e; }
-.status-dot.status-active { background: #f59e0b; }
+.status-dot.status-active { background: #eab308; }
 .status-dot.status-crit { background: #dc2626; }
 
 /* ── Status Toggle Group (Drawer) ─────────────────────── */
@@ -918,9 +918,9 @@ input:focus {
 }
 
 .status-toggle-btn.on.status-active {
-  background: #fef3c7;
-  border-color: #f59e0b;
-  color: #92400e;
+  background: #fef9c3;
+  border-color: #eab308;
+  color: #854d0e;
 }
 
 .status-toggle-btn.on.status-crit {

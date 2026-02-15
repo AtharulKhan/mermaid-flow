@@ -199,7 +199,7 @@ function getIframeSrcDoc() {
       text.taskTextOutsideRight, text.taskTextOutsideLeft { pointer-events: all; cursor: pointer; }
       /* ── Gantt Bar Styling ── */
       .done0,.done1,.done2,.done3,.done4,.done5,.done6,.done7,.done8,.done9 { fill: #22c55e !important; rx: 6; }
-      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #f59e0b !important; rx: 6; }
+      .active0,.active1,.active2,.active3,.active4,.active5,.active6,.active7,.active8,.active9 { fill: #fef08a !important; rx: 6; }
       .crit0,.crit1,.crit2,.crit3,.crit4,.crit5,.crit6,.crit7,.crit8,.crit9 { fill: #ef4444 !important; rx: 6; }
       .activeCrit0,.activeCrit1,.activeCrit2,.activeCrit3 { fill: #dc2626 !important; rx: 6; }
       .doneCrit0,.doneCrit1,.doneCrit2,.doneCrit3 { fill: #16a34a !important; rx: 6; }
@@ -314,7 +314,7 @@ function getIframeSrcDoc() {
       .mf-bar-default { background: #d1d5db; }
       .mf-bar-done    { background: #22c55e; }
       .mf-bar-crit    { background: #ef4444; }
-      .mf-bar-active  { background: #f59e0b; }
+      .mf-bar-active  { background: #fef08a; }
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
