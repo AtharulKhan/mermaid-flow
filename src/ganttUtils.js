@@ -12,6 +12,9 @@ function isDirectiveLine(trimmed) {
     trimmed.startsWith("tickInterval ") ||
     trimmed.startsWith("todayMarker ") ||
     trimmed.startsWith("excludes ") ||
+    trimmed.startsWith("weekend ") ||
+    trimmed.startsWith("weekday ") ||
+    trimmed.startsWith("displayMode ") ||
     trimmed.startsWith("%%")
   );
 }
@@ -47,6 +50,86 @@ export function shiftIsoDate(isoDate, dayDelta) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/* ── Directive parser ─────────────────────────────────── */
+
+export function parseGanttDirectives(code) {
+  const directives = {
+    title: "",
+    dateFormat: "YYYY-MM-DD",
+    axisFormat: "",
+    tickInterval: "",
+    todayMarker: "on",
+    excludes: [],
+    displayMode: "",
+    weekend: "",
+  };
+
+  const lines = code.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("title ")) directives.title = trimmed.slice(6).trim();
+    if (trimmed.startsWith("dateFormat ")) directives.dateFormat = trimmed.slice(11).trim();
+    if (trimmed.startsWith("axisFormat ")) directives.axisFormat = trimmed.slice(11).trim();
+    if (trimmed.startsWith("tickInterval ")) directives.tickInterval = trimmed.slice(13).trim();
+    if (trimmed.startsWith("todayMarker ")) directives.todayMarker = trimmed.slice(12).trim();
+    if (trimmed.startsWith("displayMode ")) directives.displayMode = trimmed.slice(12).trim();
+    if (trimmed.startsWith("weekend ")) directives.weekend = trimmed.slice(8).trim().toLowerCase();
+    if (trimmed.startsWith("weekday ")) directives.weekend = trimmed.slice(8).trim().toLowerCase();
+    if (trimmed.startsWith("excludes ")) {
+      const values = trimmed
+        .slice(9)
+        .split(",")
+        .map((v) => v.trim().toLowerCase())
+        .filter(Boolean);
+      directives.excludes.push(...values);
+    }
+  }
+
+  return directives;
+}
+
+/* ── Excludes helpers ─────────────────────────────────── */
+
+const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+export function isExcludedDate(isoDate, excludes, weekend) {
+  if (!excludes || !excludes.length) return false;
+  const d = new Date(isoDate + "T00:00:00Z");
+  const dayOfWeek = d.getUTCDay(); // 0=Sun, 6=Sat
+
+  for (const excl of excludes) {
+    if (excl === "weekends") {
+      if (weekend === "friday") {
+        if (dayOfWeek === 5 || dayOfWeek === 6) return true;
+      } else {
+        if (dayOfWeek === 0 || dayOfWeek === 6) return true;
+      }
+    } else if (DAY_NAMES.indexOf(excl) === dayOfWeek) {
+      return true;
+    } else if (excl === isoDate.toLowerCase()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function addWorkingDays(startIso, workingDays, excludes, weekend) {
+  if (!excludes || !excludes.length) {
+    return shiftIsoDate(startIso, workingDays);
+  }
+  let current = startIso;
+  let remaining = workingDays;
+  while (remaining > 0) {
+    current = shiftIsoDate(current, 1);
+    if (!isExcludedDate(current, excludes, weekend)) {
+      remaining--;
+    }
+  }
+  return current;
+}
+
+/* ── Task parser ──────────────────────────────────────── */
+
 export function parseGanttTasks(code) {
   const lines = code.split("\n");
   const tasks = [];
@@ -72,17 +155,46 @@ export function parseGanttTasks(code) {
       .filter(Boolean);
     if (!tokens.length) return;
 
-    // Identify leading status tokens (done, active, crit)
+    // Identify leading status/type tokens (done, active, crit, milestone, vert)
     const statusTokens = [];
     const statusIndices = [];
+    let isMilestone = false;
+    let isVertMarker = false;
     for (let i = 0; i < tokens.length; i++) {
       const lower = tokens[i].toLowerCase();
       if (STATUS_TOKENS.has(lower)) {
         statusTokens.push(lower);
         statusIndices.push(i);
       } else if (lower === "milestone") {
+        isMilestone = true;
+        continue;
+      } else if (lower === "vert") {
+        isVertMarker = true;
         continue;
       } else {
+        break;
+      }
+    }
+
+    // Detect "after <taskId>" token
+    let afterDeps = [];
+    let afterTokenIndex = -1;
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].toLowerCase().startsWith("after ")) {
+        afterTokenIndex = i;
+        const rest = tokens[i].slice(6).trim();
+        afterDeps = rest.split(/\s+/).filter(Boolean);
+        break;
+      }
+    }
+
+    // Detect "until <taskId>" token
+    let untilDep = "";
+    let untilTokenIndex = -1;
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].toLowerCase().startsWith("until ")) {
+        untilTokenIndex = i;
+        untilDep = tokens[i].slice(6).trim();
         break;
       }
     }
@@ -95,6 +207,18 @@ export function parseGanttTasks(code) {
         ? tokens[idIndex]
         : "";
 
+    // For tasks with "after" but no date, look for ID before the "after" token
+    const effectiveIdToken =
+      idToken ||
+      (afterTokenIndex > 0 &&
+        !ISO_DATE.test(tokens[afterTokenIndex - 1]) &&
+        !DURATION.test(tokens[afterTokenIndex - 1]) &&
+        !STATUS_TOKENS.has(tokens[afterTokenIndex - 1].toLowerCase()) &&
+        tokens[afterTokenIndex - 1].toLowerCase() !== "milestone" &&
+        tokens[afterTokenIndex - 1].toLowerCase() !== "vert"
+          ? tokens[afterTokenIndex - 1]
+          : "");
+
     // Check for end date (second ISO date after start date)
     const endDateIndex =
       dateIndex >= 0
@@ -102,12 +226,29 @@ export function parseGanttTasks(code) {
         : -1;
     const endDate = endDateIndex >= 0 ? tokens[endDateIndex] : "";
 
-    // Duration token: only valid if it's right after start date AND there's no end date at that position
+    // Duration token: look after start date, or after "after" token, or as last token
     const nextAfterDate = dateIndex >= 0 ? tokens[dateIndex + 1] || "" : "";
-    const durationIndex =
+    let durationIndex =
       dateIndex >= 0 && endDateIndex !== dateIndex + 1 && DURATION.test(nextAfterDate)
         ? dateIndex + 1
         : -1;
+
+    // If no date-based duration found, check token after "after" reference
+    if (durationIndex < 0 && afterTokenIndex >= 0) {
+      const afterNext = tokens[afterTokenIndex + 1] || "";
+      if (DURATION.test(afterNext)) {
+        durationIndex = afterTokenIndex + 1;
+      }
+    }
+
+    // Fallback: last token is a duration (for tasks with only a duration)
+    if (durationIndex < 0 && dateIndex < 0 && afterTokenIndex < 0) {
+      const lastToken = tokens[tokens.length - 1] || "";
+      if (DURATION.test(lastToken)) {
+        durationIndex = tokens.length - 1;
+      }
+    }
+
     const durationToken = durationIndex >= 0 ? tokens[durationIndex] : "";
     let durationDays = durationToken ? durationToDays(durationToken) : null;
 
@@ -138,7 +279,7 @@ export function parseGanttTasks(code) {
       indent,
       label,
       tokens,
-      idToken,
+      idToken: effectiveIdToken || idToken,
       statusTokens,
       statusIndices,
       dateIndex,
@@ -152,11 +293,128 @@ export function parseGanttTasks(code) {
       hasExplicitDate: dateIndex >= 0,
       assignee,
       notes,
+      isMilestone,
+      isVertMarker,
+      afterDeps,
+      afterTokenIndex,
+      untilDep,
+      untilTokenIndex,
     });
   });
 
   return tasks;
 }
+
+/* ── Dependency resolver ──────────────────────────────── */
+
+export function resolveDependencies(tasks) {
+  // Build lookup maps
+  const byId = new Map();
+  const byLabel = new Map();
+  for (const t of tasks) {
+    if (t.idToken) byId.set(t.idToken.toLowerCase(), t);
+    if (t.label) {
+      if (!byLabel.has(t.label.toLowerCase())) {
+        byLabel.set(t.label.toLowerCase(), t);
+      }
+    }
+  }
+
+  const getEndMs = (task) => {
+    if (task.resolvedEndDate) return Date.parse(task.resolvedEndDate + "T00:00:00Z");
+    if (task.endDate) return Date.parse(task.endDate + "T00:00:00Z");
+    const start = task.resolvedStartDate || task.startDate;
+    if (start && task.durationDays) {
+      const d = new Date(start + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() + task.durationDays);
+      return d.getTime();
+    }
+    if (start) return Date.parse(start + "T00:00:00Z");
+    return null;
+  };
+
+  const getStartMs = (task) => {
+    if (task.resolvedStartDate) return Date.parse(task.resolvedStartDate + "T00:00:00Z");
+    if (task.startDate) return Date.parse(task.startDate + "T00:00:00Z");
+    return null;
+  };
+
+  const msToIso = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+  // Iterative resolution for "after" dependencies (handles chains)
+  let changed = true;
+  let iterations = 0;
+  const maxIterations = tasks.length + 1;
+
+  while (changed && iterations < maxIterations) {
+    changed = false;
+    iterations++;
+
+    for (const task of tasks) {
+      if (task.afterDeps.length === 0) continue;
+      if (task.startDate && task.hasExplicitDate) continue;
+
+      let latestEndMs = null;
+      for (const depId of task.afterDeps) {
+        const dep = byId.get(depId.toLowerCase()) || byLabel.get(depId.toLowerCase());
+        if (!dep) continue;
+        const endMs = getEndMs(dep);
+        if (endMs === null) continue;
+        if (latestEndMs === null || endMs > latestEndMs) latestEndMs = endMs;
+      }
+
+      if (latestEndMs !== null) {
+        const resolvedStart = msToIso(latestEndMs);
+        if (task.resolvedStartDate !== resolvedStart) {
+          task.resolvedStartDate = resolvedStart;
+          if (task.durationDays) {
+            const d = new Date(latestEndMs);
+            d.setUTCDate(d.getUTCDate() + task.durationDays);
+            task.resolvedEndDate = msToIso(d.getTime());
+          }
+          changed = true;
+        }
+      }
+    }
+  }
+
+  // Resolve "until" dependencies
+  for (const task of tasks) {
+    if (!task.untilDep) continue;
+    const dep = byId.get(task.untilDep.toLowerCase()) || byLabel.get(task.untilDep.toLowerCase());
+    if (!dep) continue;
+
+    const depStartMs = getStartMs(dep);
+    if (depStartMs === null) continue;
+
+    task.resolvedEndDate = msToIso(depStartMs);
+    const taskStartMs = getStartMs(task);
+    if (taskStartMs !== null) {
+      task.durationDays = Math.round((depStartMs - taskStartMs) / (1000 * 60 * 60 * 24));
+    }
+  }
+
+  // Sequential default: tasks without dates or deps inherit end of previous task
+  let prevEndMs = null;
+  for (const task of tasks) {
+    const hasStart = task.startDate || task.resolvedStartDate;
+    if (!hasStart && task.afterDeps.length === 0 && prevEndMs !== null) {
+      task.resolvedStartDate = msToIso(prevEndMs);
+      if (task.durationDays) {
+        const d = new Date(prevEndMs);
+        d.setUTCDate(d.getUTCDate() + task.durationDays);
+        task.resolvedEndDate = msToIso(d.getTime());
+      }
+    }
+    // Update prevEndMs for sequential chaining
+    const endMs = getEndMs(task);
+    if (endMs !== null) prevEndMs = endMs;
+  }
+
+  return tasks;
+}
+
+/* ── Existing utilities ───────────────────────────────── */
 
 export function findTaskByLabel(tasks, label) {
   if (!label) return null;
