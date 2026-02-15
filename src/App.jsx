@@ -1472,9 +1472,11 @@ function getIframeSrcDoc() {
           const minStart = Math.min(...datedSpans.map((s) => s.start));
           const maxEnd = Math.max(...datedSpans.map((s) => s.end));
           const daySpan = Math.max(1, Math.floor((maxEnd - minStart) / dayMs) + 1);
-          const pixelsPerDay = showDates ? 18 : 15;
-          const preferredWidth = daySpan * pixelsPerDay + 540;
-          const minWidth = Math.max(1440, Math.min(5600, Math.round(preferredWidth)));
+          // Ported from TalentifAI's day-column sizing approach:
+          // wider day columns for readability, shrinking as range grows.
+          const pixelsPerDay = Math.max(28, Math.min(60, Math.round(2200 / daySpan)));
+          const preferredWidth = daySpan * pixelsPerDay + 620;
+          const minWidth = Math.max(1600, Math.min(9000, Math.round(preferredWidth)));
           svg.style.width = "max-content";
           svg.style.minWidth = minWidth + "px";
           svg.style.maxWidth = "none";
@@ -1526,6 +1528,33 @@ function getIframeSrcDoc() {
               // Keep the task title anchored from the start of the bar.
               const leftPad = Math.max(7, Math.min(14, rectBox.height * 0.34));
               const textColor = isDarkBar ? "#f8fafc" : "#0f172a";
+              const availableWidth = Math.max(8, rectBox.width - leftPad - 8);
+
+              const fitLabelToWidth = (label, maxWidth) => {
+                if (!label || maxWidth <= 8) return "";
+                textEl.textContent = label;
+                const measure = () => (textEl.getComputedTextLength ? textEl.getComputedTextLength() : textEl.getBBox().width);
+                if (measure() <= maxWidth) return label;
+                const ellipsis = "…";
+                let low = 0;
+                let high = label.length;
+                let best = ellipsis;
+                while (low <= high) {
+                  const mid = Math.floor((low + high) / 2);
+                  const candidate = (label.slice(0, mid).trimEnd() || "").concat(ellipsis);
+                  textEl.textContent = candidate;
+                  if (measure() <= maxWidth) {
+                    best = candidate;
+                    low = mid + 1;
+                  } else {
+                    high = mid - 1;
+                  }
+                }
+                return best;
+              };
+
+              const fittedLabel = fitLabelToWidth(t.label || textEl.textContent || "", availableWidth);
+              textEl.textContent = fittedLabel;
               textEl.setAttribute("x", String(rectBox.x + leftPad));
               textEl.setAttribute("y", String(rectBox.y + rectBox.height / 2));
               textEl.setAttribute("text-anchor", "start");
@@ -1537,7 +1566,6 @@ function getIframeSrcDoc() {
               textEl.style.strokeWidth = "0";
 
               // Keep title anchored inside the bar and clip overflow instead of spilling/outline-darkening.
-              const availableWidth = Math.max(8, rectBox.width - leftPad - 8);
               const clipId = "mf-task-clip-" + taskIndex;
               const clipPath = document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
               clipPath.setAttribute("id", clipId);
@@ -1594,7 +1622,7 @@ function getIframeSrcDoc() {
           const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
           tspan.setAttribute("class", "mf-date-tspan");
           tspan.setAttribute("fill", isDarkBar ? "rgba(255,255,255,0.76)" : "#64748b");
-          tspan.setAttribute("font-size", "0.78em");
+          tspan.setAttribute("font-size", "0.74em");
           tspan.setAttribute("font-weight", "400");
           tspan.textContent = " (" + dateStr + ")";
           textEl.appendChild(tspan);
@@ -1822,7 +1850,7 @@ function getIframeSrcDoc() {
               try {
                 const bbox = svgNode.getBBox();
                 if (bbox.width > 0) {
-                  minWidth = Math.max(1440, Math.ceil(bbox.width * 1.4));
+                  minWidth = Math.max(1600, Math.ceil(bbox.width * 1.52));
                   const padX = 12;
                   const padY = 8;
                   svgNode.setAttribute(
@@ -1964,12 +1992,12 @@ function App() {
       securityLevel,
       flowchart: { defaultRenderer: renderer },
       gantt: {
-        barHeight: 30,
-        barGap: 18,
-        topPadding: 68,
-        leftPadding: 140,
-        rightPadding: 84,
-        gridLineStartPadding: 190,
+        barHeight: 32,
+        barGap: 20,
+        topPadding: 72,
+        leftPadding: 156,
+        rightPadding: 96,
+        gridLineStartPadding: 210,
         fontSize: 14,
       },
     }),
