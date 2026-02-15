@@ -194,9 +194,33 @@ function getIframeSrcDoc() {
       const isDarkFill = (el) => {
         if (!el) return false;
         const fill = (window.getComputedStyle(el).fill || el.getAttribute("fill") || "").trim();
-        const rgbMatch = fill.match(/^rgba?\\(([^)]+)\\)$/i);
-        if (!rgbMatch) return false;
-        const parts = rgbMatch[1].split(",").map((p) => parseFloat(p.trim()));
+        if (!fill || fill === "none") return false;
+
+        const hexMatch = fill.match(/^#([0-9a-f]{3,8})$/i);
+        let parts = null;
+        if (hexMatch) {
+          const hex = hexMatch[1];
+          if (hex.length === 3 || hex.length === 4) {
+            parts = [
+              parseInt(hex[0] + hex[0], 16),
+              parseInt(hex[1] + hex[1], 16),
+              parseInt(hex[2] + hex[2], 16),
+            ];
+          } else if (hex.length === 6 || hex.length === 8) {
+            parts = [
+              parseInt(hex.slice(0, 2), 16),
+              parseInt(hex.slice(2, 4), 16),
+              parseInt(hex.slice(4, 6), 16),
+            ];
+          }
+        }
+
+        if (!parts) {
+          const rgbMatch = fill.match(/^rgba?\\(([^)]+)\\)$/i);
+          if (!rgbMatch) return false;
+          parts = rgbMatch[1].split(",").map((p) => parseFloat(p.trim()));
+        }
+
         const r = Number.isFinite(parts[0]) ? parts[0] / 255 : 1;
         const g = Number.isFinite(parts[1]) ? parts[1] / 255 : 1;
         const b = Number.isFinite(parts[2]) ? parts[2] / 255 : 1;
@@ -1414,6 +1438,7 @@ function getIframeSrcDoc() {
         svg.querySelectorAll(".mf-overdue-dot").forEach(el => el.remove());
         svg.querySelectorAll(".mf-tooltip").forEach(el => el.remove());
         svg.querySelectorAll(".mf-gantt-insert-layer").forEach(el => el.remove());
+        svg.querySelectorAll(".mf-task-clip-defs").forEach(el => el.remove());
 
         const texts = Array.from(svg.querySelectorAll(TASK_TEXT_SEL));
         const rects = Array.from(svg.querySelectorAll("rect")).filter(r => /\\btask\\b/.test(r.className?.baseVal || ""));
@@ -1421,6 +1446,45 @@ function getIframeSrcDoc() {
         const insertAnchors = [];
         const svgWidth = svg.getBoundingClientRect?.().width || 0;
         const compactMode = svgWidth > 0 && svgWidth < 860;
+        const dayMs = 24 * 60 * 60 * 1000;
+
+        const isoToMs = (iso) => {
+          if (!iso || !/^\\d{4}-\\d{2}-\\d{2}$/.test(iso)) return null;
+          const value = Date.parse(iso + "T00:00:00Z");
+          return Number.isFinite(value) ? value : null;
+        };
+
+        const datedSpans = tasks
+          .map((t) => {
+            const startIso = t.startDate || "";
+            const endIso = t.endDate || t.computedEnd || "";
+            const startMs = isoToMs(startIso);
+            const endMs = isoToMs(endIso || startIso);
+            if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+            return {
+              start: Math.min(startMs, endMs),
+              end: Math.max(startMs, endMs),
+            };
+          })
+          .filter(Boolean);
+
+        if (datedSpans.length) {
+          const minStart = Math.min(...datedSpans.map((s) => s.start));
+          const maxEnd = Math.max(...datedSpans.map((s) => s.end));
+          const daySpan = Math.max(1, Math.floor((maxEnd - minStart) / dayMs) + 1);
+          const pixelsPerDay = showDates ? 18 : 15;
+          const preferredWidth = daySpan * pixelsPerDay + 540;
+          const minWidth = Math.max(1440, Math.min(5600, Math.round(preferredWidth)));
+          svg.style.width = "max-content";
+          svg.style.minWidth = minWidth + "px";
+          svg.style.maxWidth = "none";
+          svg.style.height = "auto";
+          canvas.style.justifyContent = "flex-start";
+        }
+
+        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+        defs.setAttribute("class", "mf-task-clip-defs");
+        svg.appendChild(defs);
 
         const fmt = (iso) => {
           if (!iso) return "";
@@ -1435,7 +1499,7 @@ function getIframeSrcDoc() {
           return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10) + ", " + parts[0];
         };
 
-        tasks.forEach((t) => {
+        tasks.forEach((t, taskIndex) => {
           const endDate = t.endDate || t.computedEnd || "";
           const tokens = t.statusTokens || [];
           const isDone = tokens.includes("done");
@@ -1461,15 +1525,30 @@ function getIframeSrcDoc() {
             if (textEl) {
               // Keep the task title anchored from the start of the bar.
               const leftPad = Math.max(7, Math.min(14, rectBox.height * 0.34));
+              const textColor = isDarkBar ? "#f8fafc" : "#0f172a";
               textEl.setAttribute("x", String(rectBox.x + leftPad));
               textEl.setAttribute("y", String(rectBox.y + rectBox.height / 2));
               textEl.setAttribute("text-anchor", "start");
               textEl.setAttribute("dominant-baseline", "central");
               textEl.setAttribute("alignment-baseline", "middle");
-              textEl.setAttribute("fill", isDarkBar ? "#ffffff" : "#0f172a");
+              textEl.setAttribute("fill", textColor);
               textEl.style.paintOrder = "normal";
               textEl.style.stroke = "none";
               textEl.style.strokeWidth = "0";
+
+              // Keep title anchored inside the bar and clip overflow instead of spilling/outline-darkening.
+              const availableWidth = Math.max(8, rectBox.width - leftPad - 8);
+              const clipId = "mf-task-clip-" + taskIndex;
+              const clipPath = document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
+              clipPath.setAttribute("id", clipId);
+              const clipRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+              clipRect.setAttribute("x", String(rectBox.x + leftPad - 0.5));
+              clipRect.setAttribute("y", String(rectBox.y - 1));
+              clipRect.setAttribute("width", String(availableWidth + 1));
+              clipRect.setAttribute("height", String(rectBox.height + 2));
+              clipPath.appendChild(clipRect);
+              defs.appendChild(clipPath);
+              textEl.setAttribute("clip-path", "url(#" + clipId + ")");
             }
 
             let tip = t.label;
@@ -1514,7 +1593,7 @@ function getIframeSrcDoc() {
 
           const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
           tspan.setAttribute("class", "mf-date-tspan");
-          tspan.setAttribute("fill", isDarkBar ? "rgba(255,255,255,0.82)" : "#6b7280");
+          tspan.setAttribute("fill", isDarkBar ? "rgba(255,255,255,0.76)" : "#64748b");
           tspan.setAttribute("font-size", "0.78em");
           tspan.setAttribute("font-weight", "400");
           tspan.textContent = " (" + dateStr + ")";
@@ -1523,28 +1602,12 @@ function getIframeSrcDoc() {
           if (!rectEl) return;
 
           const rectBox = rectEl.getBBox();
-          const viewBox = svg.viewBox?.baseVal;
-          const viewRight = viewBox ? viewBox.x + viewBox.width - 8 : Number.POSITIVE_INFINITY;
-          const barRight = rectBox.x + rectBox.width - 6;
-          let textBox = textEl.getBBox();
-          const overflowsBar = textBox.x + textBox.width > barRight;
-          const clipsViewport = textBox.x + textBox.width > viewRight;
-
-          // If dates push text too far out, keep the title and drop secondary text first.
-          if ((overflowsBar || clipsViewport) && textEl.querySelector(".mf-date-tspan")) {
+          const leftPad = Math.max(7, Math.min(14, rectBox.height * 0.34));
+          const availableWidth = Math.max(8, rectBox.width - leftPad - 8);
+          const textLength = textEl.getComputedTextLength ? textEl.getComputedTextLength() : textEl.getBBox().width;
+          // Keep date metadata only when there is enough room in the bar.
+          if (textLength > availableWidth && textEl.querySelector(".mf-date-tspan")) {
             textEl.querySelectorAll(".mf-date-tspan").forEach((el) => el.remove());
-            textBox = textEl.getBBox();
-          }
-
-          const stillOverflow = textBox.x + textBox.width > barRight || textBox.x + textBox.width > viewRight;
-          if (stillOverflow) {
-            // Add an outline so text stays readable over both dark bars and dark page edges.
-            textEl.setAttribute("fill", isDarkBar ? "#f8fafc" : "#111827");
-            textEl.style.paintOrder = "stroke";
-            textEl.style.stroke = isDarkBar ? "rgba(15,23,42,0.78)" : "rgba(248,250,252,0.9)";
-            textEl.style.strokeWidth = "2.4px";
-            textEl.style.strokeLinecap = "round";
-            textEl.style.strokeLinejoin = "round";
           }
         });
 
@@ -1561,10 +1624,10 @@ function getIframeSrcDoc() {
         }, 0);
         const viewBox = svg.viewBox?.baseVal;
         const rightBound = viewBox?.width ? viewBox.x + viewBox.width - (compactMode ? 10 : 12) : maxRight + 18;
-        const iconRadius = compactMode ? 7 : 8;
-        const iconFontSize = compactMode ? 12 : 13;
-        const iconOffset = compactMode ? 12 : 16;
-        const minGapY = compactMode ? 10 : 14;
+        const iconRadius = compactMode ? 6 : 7;
+        const iconFontSize = compactMode ? 11 : 12;
+        const iconOffset = compactMode ? 10 : 14;
+        const minGapY = compactMode ? 12 : 16;
         const desiredX = maxRight + iconOffset;
         const iconX = Math.min(desiredX, rightBound);
 
@@ -1579,18 +1642,18 @@ function getIframeSrcDoc() {
           btn.setAttribute("class", "mf-gantt-insert-btn");
           btn.setAttribute("transform", "translate(" + iconX + " " + gapMid + ")");
           btn.setAttribute("cursor", "pointer");
-          btn.setAttribute("opacity", compactMode ? "0.34" : "0.42");
+          btn.setAttribute("opacity", compactMode ? "0.2" : "0.26");
 
           const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
           circle.setAttribute("r", String(iconRadius));
-          circle.setAttribute("fill", "rgba(255,255,255,0.86)");
-          circle.setAttribute("stroke", "#cbd5e1");
+          circle.setAttribute("fill", "rgba(255,255,255,0.72)");
+          circle.setAttribute("stroke", "#d5dbe8");
           circle.setAttribute("stroke-width", "1");
 
           const plus = document.createElementNS("http://www.w3.org/2000/svg", "text");
           plus.setAttribute("text-anchor", "middle");
           plus.setAttribute("dominant-baseline", "central");
-          plus.setAttribute("fill", "#94a3b8");
+          plus.setAttribute("fill", "#a3b0c4");
           plus.setAttribute("font-size", String(iconFontSize));
           plus.setAttribute("font-weight", "600");
           plus.textContent = "+";
@@ -1609,16 +1672,16 @@ function getIframeSrcDoc() {
             send("gantt:add-between", { afterLabel: anchor.label });
           });
           btn.addEventListener("mouseenter", () => {
-            btn.setAttribute("opacity", "0.9");
-            circle.setAttribute("fill", "#f8fafc");
-            circle.setAttribute("stroke", "#60a5fa");
-            plus.setAttribute("fill", "#2563eb");
+            btn.setAttribute("opacity", "0.72");
+            circle.setAttribute("fill", "#ffffff");
+            circle.setAttribute("stroke", "#93c5fd");
+            plus.setAttribute("fill", "#3b82f6");
           });
           btn.addEventListener("mouseleave", () => {
-            btn.setAttribute("opacity", compactMode ? "0.34" : "0.42");
-            circle.setAttribute("fill", "rgba(255,255,255,0.86)");
-            circle.setAttribute("stroke", "#cbd5e1");
-            plus.setAttribute("fill", "#94a3b8");
+            btn.setAttribute("opacity", compactMode ? "0.2" : "0.26");
+            circle.setAttribute("fill", "rgba(255,255,255,0.72)");
+            circle.setAttribute("stroke", "#d5dbe8");
+            plus.setAttribute("fill", "#a3b0c4");
           });
         });
       };
@@ -1755,11 +1818,11 @@ function getIframeSrcDoc() {
             // Make Gantt charts fill the container width
             const dtype = (parseResult?.diagramType || "").toLowerCase();
             if (dtype.includes("gantt")) {
-              let minWidth = 1280;
+              let minWidth = 1440;
               try {
                 const bbox = svgNode.getBBox();
                 if (bbox.width > 0) {
-                  minWidth = Math.max(1280, Math.ceil(bbox.width * 1.28));
+                  minWidth = Math.max(1440, Math.ceil(bbox.width * 1.4));
                   const padX = 12;
                   const padY = 8;
                   svgNode.setAttribute(
@@ -1901,13 +1964,13 @@ function App() {
       securityLevel,
       flowchart: { defaultRenderer: renderer },
       gantt: {
-        barHeight: 24,
-        barGap: 12,
-        topPadding: 56,
-        leftPadding: 84,
-        rightPadding: 56,
-        gridLineStartPadding: 110,
-        fontSize: 13,
+        barHeight: 30,
+        barGap: 18,
+        topPadding: 68,
+        leftPadding: 140,
+        rightPadding: 84,
+        gridLineStartPadding: 190,
+        fontSize: 14,
       },
     }),
     [theme, securityLevel, renderer]
