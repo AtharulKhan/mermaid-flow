@@ -1126,7 +1126,7 @@ function getIframeSrcDoc() {
         return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom) => {
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "flex-start";
@@ -1204,7 +1204,8 @@ function getIframeSrcDoc() {
         const paddedMax = maxDateMs + 2 * dayMs;
         const totalDays = Math.max(7, Math.ceil((paddedMax - paddedMin) / dayMs) + 1);
 
-        const pxPerDay = scale === "month" ? 12 : 22;
+        const basePxPerDay = scale === "month" ? 12 : 22;
+        const pxPerDay = Math.max(2, Math.round(basePxPerDay * (ganttZoom || 1)));
         const timelineWidth = totalDays * pxPerDay;
         const roleColWidth = 200;
         const rowHeight = 40;
@@ -3322,6 +3323,12 @@ function getIframeSrcDoc() {
       wrap.addEventListener("wheel", (e) => {
         if (!e.ctrlKey && !e.metaKey) return;
         e.preventDefault();
+        // For Gantt charts, delegate zoom to parent (adjusts time density, not CSS scale)
+        if (currentDiagramType.toLowerCase().includes("gantt")) {
+          const delta = e.deltaY > 0 ? -0.2 : 0.2;
+          send("gantt:zoom", { delta });
+          return;
+        }
         const oldZoom = zoomLevel;
         const delta = e.deltaY > 0 ? -0.1 : 0.1;
         zoomLevel = Math.min(3, Math.max(0.1, zoomLevel + delta));
@@ -3823,7 +3830,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -3933,6 +3940,7 @@ function App() {
   const [showGrid, setShowGrid] = useState(false);
   const [ganttScale, setGanttScale] = useState("week"); // "week" | "month"
   const [compactMode, setCompactMode] = useState(false);
+  const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -4131,6 +4139,7 @@ function App() {
       showDates,
       showGrid,
       compact: compactMode || directives.displayMode === "compact",
+      ganttZoom,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -4397,6 +4406,12 @@ function App() {
         }
       }
 
+      if (data.type === "gantt:zoom") {
+        const delta = data.payload?.delta || 0;
+        setGanttZoom((prev) => Math.max(0.2, Math.min(4, +(prev + delta).toFixed(1))));
+        return;
+      }
+
       if (data.type === "gantt:dragged") {
         const payload = data.payload || {};
         const task = findTaskByLabel(ganttTasks, payload.label || "");
@@ -4498,7 +4513,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -4929,19 +4944,30 @@ function App() {
           />
           <div className="zoom-controls">
             <button title="Zoom out" onClick={() => {
-              const frame = iframeRef.current;
-              if (frame?.contentWindow) {
-                frame.contentWindow.postMessage({ channel: CHANNEL, type: "zoom:set", payload: { delta: -0.1 } }, "*");
+              if (toolsetKey === "gantt") {
+                setGanttZoom((prev) => Math.max(0.2, +(prev - 0.2).toFixed(1)));
+              } else {
+                const frame = iframeRef.current;
+                if (frame?.contentWindow) {
+                  frame.contentWindow.postMessage({ channel: CHANNEL, type: "zoom:set", payload: { delta: -0.1 } }, "*");
+                }
               }
             }}>-</button>
-            <span className="zoom-pct">{Math.round(zoomLevel * 100)}%</span>
+            <span className="zoom-pct">{toolsetKey === "gantt" ? Math.round(ganttZoom * 100) + "%" : Math.round(zoomLevel * 100) + "%"}</span>
             <button title="Zoom in" onClick={() => {
-              const frame = iframeRef.current;
-              if (frame?.contentWindow) {
-                frame.contentWindow.postMessage({ channel: CHANNEL, type: "zoom:set", payload: { delta: 0.1 } }, "*");
+              if (toolsetKey === "gantt") {
+                setGanttZoom((prev) => Math.min(4, +(prev + 0.2).toFixed(1)));
+              } else {
+                const frame = iframeRef.current;
+                if (frame?.contentWindow) {
+                  frame.contentWindow.postMessage({ channel: CHANNEL, type: "zoom:set", payload: { delta: 0.1 } }, "*");
+                }
               }
             }}>+</button>
             <button title="Reset zoom" onClick={() => {
+              if (toolsetKey === "gantt") {
+                setGanttZoom(1.0);
+              }
               const frame = iframeRef.current;
               if (frame?.contentWindow) {
                 frame.contentWindow.postMessage({ channel: CHANNEL, type: "zoom:reset" }, "*");
