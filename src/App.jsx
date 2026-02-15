@@ -68,6 +68,14 @@ function getMatchingLine(code, value) {
   return index === -1 ? null : index + 1;
 }
 
+function normalizeAssigneeList(value) {
+  return String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
 function getIframeSrcDoc() {
   return `<!doctype html>
 <html lang="en">
@@ -195,7 +203,7 @@ function getIframeSrcDoc() {
       .activeCrit0,.activeCrit1,.activeCrit2,.activeCrit3 { fill: #dc2626 !important; rx: 6; }
       .doneCrit0,.doneCrit1,.doneCrit2,.doneCrit3 { fill: #16a34a !important; rx: 6; }
       /* Default (untagged) Gantt bars */
-      .task0,.task1,.task2,.task3,.task4,.task5,.task6,.task7,.task8,.task9 { rx: 6; }
+      .task0,.task1,.task2,.task3,.task4,.task5,.task6,.task7,.task8,.task9 { fill: #d1d5db !important; rx: 6; }
       /* Gantt section labels */
       .sectionTitle { font-weight: 700 !important; fill: #1e293b !important; font-size: 14px !important; }
       .sectionTitle0,.sectionTitle1,.sectionTitle2,.sectionTitle3 { font-weight: 700 !important; fill: #1e293b !important; }
@@ -303,32 +311,55 @@ function getIframeSrcDoc() {
         filter: brightness(1.06);
       }
       .mf-gantt-bar:active { cursor: grabbing; }
-      .mf-bar-default { background: #6366f1; }
+      .mf-bar-default { background: #d1d5db; }
       .mf-bar-done    { background: #22c55e; }
       .mf-bar-crit    { background: #ef4444; }
       .mf-bar-active  { background: #3b82f6; }
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
+      .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
+      .mf-gantt-bar:not(.mf-bar-default) .bar-date-suffix { color: rgba(255,255,255,0.72); }
+      .mf-gantt-bar.mf-bar-default .bar-label {
+        color: #1f2937;
+        font-weight: 700;
+      }
+      .mf-gantt-bar.mf-bar-default .bar-date-suffix {
+        color: #475569;
+      }
       .bar-label {
-        color: #ffffff;
         font-size: 11.5px;
         font-weight: 600;
         white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
         pointer-events: none;
         line-height: 1.2;
         min-width: 0;
       }
       .mf-gantt-bar.mf-bar-narrow .bar-label {
-        overflow: visible;
-        position: relative;
-        color: #374151;
+        position: absolute;
+        left: calc(100% + 8px);
+        top: 50%;
+        transform: translateY(-50%);
+        color: #1f2937;
         font-weight: 700;
         text-shadow: 0 0 3px #fff, 0 0 3px #fff;
-        margin-left: 4px;
       }
-      .mf-gantt-bar.mf-bar-narrow .bar-date-suffix { display: none; }
+      .mf-gantt-bar.mf-label-outside .bar-label {
+        position: absolute;
+        left: calc(100% + 8px);
+        top: 50%;
+        transform: translateY(-50%);
+        color: #1f2937;
+        font-weight: 700;
+        text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+      }
+      .mf-gantt-bar.mf-label-outside-left .bar-label {
+        left: auto;
+        right: calc(100% + 8px);
+        text-align: right;
+      }
+      .mf-gantt-bar.mf-bar-narrow .bar-date-suffix,
+      .mf-gantt-bar.mf-label-outside .bar-date-suffix,
+      .mf-gantt-bar.mf-label-outside-left .bar-date-suffix { display: none; }
       .bar-date-suffix {
         color: rgba(255,255,255,0.72);
         font-size: 10px;
@@ -422,6 +453,11 @@ function getIframeSrcDoc() {
         font-weight: 700;
         text-shadow: 0 0 3px #fff, 0 0 3px #fff;
         pointer-events: none;
+      }
+      .mf-gantt-milestone.mf-label-outside-left .bar-label {
+        left: auto;
+        right: calc(100% + 8px);
+        text-align: right;
       }
       .mf-gantt-milestone .bar-date-suffix { display: none; }
       .mf-gantt-milestone.mf-selected {
@@ -1343,18 +1379,22 @@ function getIframeSrcDoc() {
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
             const bar = document.createElement("div");
+            const isNarrow = width < 70;
+            let barLeft = left;
+            let barPixelWidth = width;
 
             // Milestone rendering: diamond shape
             if (task.isMilestone) {
               const diamondSize = barHeight;
               const milestoneLeft = left + Math.floor(width / 2) - Math.floor(diamondSize / 2);
+              barLeft = milestoneLeft;
+              barPixelWidth = diamondSize;
               bar.className = "mf-gantt-milestone " + barClass;
               bar.style.left = milestoneLeft + "px";
               bar.style.width = diamondSize + "px";
               bar.style.height = diamondSize + "px";
               bar.style.top = top + "px";
             } else {
-              const isNarrow = width < 70;
               bar.className = "mf-gantt-bar " + barClass + (isNarrow ? " mf-bar-narrow" : "");
               bar.style.left = left + "px";
               bar.style.width = width + "px";
@@ -1370,6 +1410,7 @@ function getIframeSrcDoc() {
             bar.appendChild(labelSpan);
 
             // Date suffix (not for milestones)
+            let dateSuffixWidth = 0;
             if (!task.isMilestone && showDates && task.startDate) {
               const dateSuffix = document.createElement("span");
               dateSuffix.className = "bar-date-suffix";
@@ -1379,6 +1420,20 @@ function getIframeSrcDoc() {
               if (task.assignee) dateStr += " · " + task.assignee;
               dateSuffix.textContent = dateStr;
               bar.appendChild(dateSuffix);
+              dateSuffixWidth = dateSuffix.offsetWidth || 0;
+            }
+
+            const labelWidth = Math.ceil(labelSpan.scrollWidth || 0);
+            if (task.isMilestone) {
+              const rightSpace = timelineWidth - (barLeft + barPixelWidth);
+              if (rightSpace < labelWidth + 14) bar.classList.add("mf-label-outside-left");
+            } else {
+              const innerLabelWidth = Math.max(0, width - 16 - (dateSuffixWidth ? dateSuffixWidth + 6 : 0));
+              if (labelWidth > innerLabelWidth) {
+                const rightSpace = timelineWidth - (left + width);
+                if (rightSpace >= labelWidth + 14) bar.classList.add("mf-label-outside");
+                else bar.classList.add("mf-label-outside-left");
+              }
             }
 
             // Tooltip
@@ -3459,9 +3514,8 @@ function getIframeSrcDoc() {
           el.style.pointerEvents = "none";
         });
 
-        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-        defs.setAttribute("class", "mf-task-clip-defs");
-        svg.appendChild(defs);
+        const viewBox = svg.viewBox?.baseVal;
+        const viewRight = viewBox ? viewBox.x + viewBox.width : Number.POSITIVE_INFINITY;
 
         const fmt = (iso) => {
           if (!iso) return "";
@@ -3476,7 +3530,7 @@ function getIframeSrcDoc() {
           return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10) + ", " + parts[0];
         };
 
-        tasks.forEach((t, taskIndex) => {
+        tasks.forEach((t) => {
           const endDate = t.endDate || t.computedEnd || "";
           const tokens = t.statusTokens || [];
           const isDone = tokens.includes("done");
@@ -3500,58 +3554,29 @@ function getIframeSrcDoc() {
             isDarkBar = isDarkFill(rectEl) || isDarkBar;
             const rectBox = rectEl.getBBox();
             if (textEl) {
-              // Keep the task title anchored from the start of the bar.
               const leftPad = Math.max(7, Math.min(14, rectBox.height * 0.34));
               const textColor = isDarkBar ? "#f8fafc" : "#0f172a";
               const availableWidth = Math.max(8, rectBox.width - leftPad - 8);
+              const fullLabel = t.label || textEl.textContent || "";
+              textEl.textContent = fullLabel;
+              const labelWidth = textEl.getComputedTextLength ? textEl.getComputedTextLength() : textEl.getBBox().width;
+              const outsidePad = 8;
+              const drawOutside = labelWidth > availableWidth;
+              const rightSpace = viewRight - (rectBox.x + rectBox.width);
+              const drawOutsideRight = drawOutside && rightSpace >= labelWidth + outsidePad;
 
-              const fitLabelToWidth = (label, maxWidth) => {
-                if (!label || maxWidth <= 8) return "";
-                textEl.textContent = label;
-                const measure = () => (textEl.getComputedTextLength ? textEl.getComputedTextLength() : textEl.getBBox().width);
-                if (measure() <= maxWidth) return label;
-                const ellipsis = "…";
-                let low = 0;
-                let high = label.length;
-                let best = ellipsis;
-                while (low <= high) {
-                  const mid = Math.floor((low + high) / 2);
-                  const candidate = (label.slice(0, mid).trimEnd() || "").concat(ellipsis);
-                  textEl.textContent = candidate;
-                  if (measure() <= maxWidth) {
-                    best = candidate;
-                    low = mid + 1;
-                  } else {
-                    high = mid - 1;
-                  }
-                }
-                return best;
-              };
-
-              const fittedLabel = fitLabelToWidth(t.label || textEl.textContent || "", availableWidth);
-              textEl.textContent = fittedLabel;
-              textEl.setAttribute("x", String(rectBox.x + leftPad));
+              textEl.setAttribute("x", String(drawOutside
+                ? (drawOutsideRight ? rectBox.x + rectBox.width + outsidePad : rectBox.x - outsidePad)
+                : rectBox.x + leftPad));
               textEl.setAttribute("y", String(rectBox.y + rectBox.height / 2));
-              textEl.setAttribute("text-anchor", "start");
+              textEl.setAttribute("text-anchor", drawOutside ? (drawOutsideRight ? "start" : "end") : "start");
               textEl.setAttribute("dominant-baseline", "central");
               textEl.setAttribute("alignment-baseline", "middle");
-              textEl.setAttribute("fill", textColor);
-              textEl.style.paintOrder = "normal";
-              textEl.style.stroke = "none";
-              textEl.style.strokeWidth = "0";
-
-              // Keep title anchored inside the bar and clip overflow instead of spilling/outline-darkening.
-              const clipId = "mf-task-clip-" + taskIndex;
-              const clipPath = document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
-              clipPath.setAttribute("id", clipId);
-              const clipRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-              clipRect.setAttribute("x", String(rectBox.x + leftPad - 0.5));
-              clipRect.setAttribute("y", String(rectBox.y - 1));
-              clipRect.setAttribute("width", String(availableWidth + 1));
-              clipRect.setAttribute("height", String(rectBox.height + 2));
-              clipPath.appendChild(clipRect);
-              defs.appendChild(clipPath);
-              textEl.setAttribute("clip-path", "url(#" + clipId + ")");
+              textEl.setAttribute("fill", drawOutside ? "#0f172a" : textColor);
+              textEl.style.paintOrder = drawOutside ? "stroke" : "normal";
+              textEl.style.stroke = drawOutside ? "rgba(248,250,252,0.95)" : "none";
+              textEl.style.strokeWidth = drawOutside ? "3" : "0";
+              textEl.removeAttribute("clip-path");
             }
 
             let tip = t.label;
@@ -3887,29 +3912,6 @@ const IconExport = () => (
     <path d="M6 10l4-4 4 4" />
     <line x1="10" y1="6" x2="10" y2="16" />
     <path d="M3 14v2a2 2 0 002 2h10a2 2 0 002-2v-2" />
-  </svg>
-);
-
-const IconTools = () => (
-  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="6" height="6" rx="1" />
-    <rect x="11" y="3" width="6" height="6" rx="1" />
-    <rect x="3" y="11" width="6" height="6" rx="1" />
-    <rect x="11" y="11" width="6" height="6" rx="1" />
-  </svg>
-);
-
-const IconSettings = () => (
-  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="10" cy="10" r="3" />
-    <path d="M10 2v2m0 12v2M2 10h2m12 0h2M4.93 4.93l1.41 1.41m7.32 7.32l1.41 1.41M15.07 4.93l-1.41 1.41m-7.32 7.32l-1.41 1.41" />
-  </svg>
-);
-
-const IconPresent = () => (
-  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="4" width="16" height="12" rx="2" />
-    <path d="M7 9l3 2 3-2" />
   </svg>
 );
 
@@ -4878,7 +4880,7 @@ function App() {
     const assigneeTasks = parseGanttTasks(updated);
     const assigneeTask = findTaskByLabel(assigneeTasks, nextLabel);
     if (assigneeTask) {
-      updated = updateGanttAssignee(updated, assigneeTask, ganttDraft.assignee.trim());
+      updated = updateGanttAssignee(updated, assigneeTask, normalizeAssigneeList(ganttDraft.assignee));
     }
 
     // Apply notes
@@ -5053,6 +5055,7 @@ function App() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [cloudSaving, setCloudSaving] = useState(false);
+  const [manualSaving, setManualSaving] = useState(false);
 
   const handleSaveDiagram = () => {
     if (!saveName.trim()) return;
@@ -5101,6 +5104,48 @@ function App() {
     }
   };
 
+  const handleManualSave = async () => {
+    if (manualSaving || cloudSaving) return;
+
+    if (flowId) {
+      if (!canEditCurrentFlow) {
+        setRenderMessage("You do not have edit access for this flow");
+        return;
+      }
+      setManualSaving(true);
+      try {
+        await updateFlow(flowId, {
+          code,
+          diagramType,
+          name: flowMeta?.name || "Untitled",
+        });
+        setRenderMessage("Saved to Firebase");
+      } catch (err) {
+        logAppFirestoreError("manualSave/updateFlow", err, {
+          flowId,
+          diagramType,
+          userUid: currentUser?.uid || null,
+        });
+        setRenderMessage(`Save failed: ${formatFirestoreError(err)}`);
+      } finally {
+        setManualSaving(false);
+      }
+      return;
+    }
+
+    if (currentUser) {
+      await handleSaveToCloud();
+      return;
+    }
+
+    const baseName = (flowMeta?.name || "Untitled").trim() || "Untitled";
+    const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const localName = `${baseName} ${stamp}`;
+    saveDiagramToStorage(localName, code);
+    setSavedDiagrams(loadSavedDiagrams());
+    setRenderMessage(`Saved locally as "${localName}"`);
+  };
+
   /* ── Render ──────────────────────────────────────────── */
 
   /* ── Embed mode: minimal UI with just the preview ───── */
@@ -5141,13 +5186,16 @@ function App() {
     <main className="app-shell">
       {/* ── Header ──────────────────────────────────────── */}
       <header className="top-strip">
-        <div className="brand">
+        <button
+          className="brand brand-home-btn"
+          title="Go to home"
+          onClick={() => navigate(currentUser ? "/dashboard" : "/")}
+        >
           <div className="brand-mark">MF</div>
           <h1>Mermaid Flow</h1>
-        </div>
+        </button>
 
         <div className="toolbar">
-          {/* Editor toggle */}
           <button
             className="icon-btn"
             title={editorCollapsed ? "Show editor" : "Hide editor"}
@@ -5156,16 +5204,20 @@ function App() {
             <IconSidebar />
           </button>
 
-          <div className="toolbar-sep" />
-
-          {/* Render (only when auto-render is off) */}
           {!autoRender && (
             <button className="soft-btn primary" onClick={postRender}>
               Render
             </button>
           )}
 
-          {/* Export dropdown */}
+          <button
+            className="soft-btn primary"
+            onClick={handleManualSave}
+            disabled={manualSaving || cloudSaving}
+          >
+            {manualSaving || cloudSaving ? "Saving..." : "Save"}
+          </button>
+
           <div className="dropdown-wrap" ref={exportMenuRef}>
             <button
               className="soft-btn"
@@ -5207,17 +5259,6 @@ function App() {
             </div>
           </div>
 
-          {!flowId && currentUser && (
-            <button
-              className="soft-btn small"
-              onClick={handleSaveToCloud}
-              disabled={cloudSaving}
-            >
-              {cloudSaving ? "Saving..." : "Save to Cloud"}
-            </button>
-          )}
-
-          {/* Share & Comment buttons (only when editing a cloud flow) */}
           {flowId && currentUser && canEditCurrentFlow && (
             <button
               className="soft-btn small"
@@ -5235,7 +5276,6 @@ function App() {
             </button>
           )}
 
-          {/* Notion Sync (only for Gantt diagrams) */}
           {ENABLE_NOTION_INTEGRATION && toolsetKey === "gantt" && (
             <button
               className="soft-btn small"
@@ -5244,53 +5284,6 @@ function App() {
               Notion
             </button>
           )}
-
-          <div className="toolbar-sep" />
-
-          {/* Back to dashboard */}
-          {currentUser && (
-            <button
-              className="icon-btn"
-              title="Dashboard"
-              onClick={() => navigate("/dashboard")}
-            >
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="6" height="6" rx="1" />
-                <rect x="11" y="3" width="6" height="6" rx="1" />
-                <rect x="3" y="11" width="6" height="6" rx="1" />
-                <rect x="11" y="11" width="6" height="6" rx="1" />
-              </svg>
-            </button>
-          )}
-
-          <div className="toolbar-sep" />
-
-          {/* Quick Tools drawer */}
-          <button
-            className="icon-btn"
-            title="Quick tools"
-            onClick={() => setDrawerOpen(!drawerOpen)}
-          >
-            <IconTools />
-          </button>
-
-          {/* Settings */}
-          <button
-            className="icon-btn"
-            title="Settings"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <IconSettings />
-          </button>
-
-          {/* Present mode */}
-          <button
-            className="icon-btn"
-            title="Present mode"
-            onClick={() => setPresentMode(true)}
-          >
-            <IconPresent />
-          </button>
         </div>
       </header>
 
@@ -5496,7 +5489,7 @@ function App() {
                   <input
                     value={ganttDraft.assignee}
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
-                    placeholder="e.g. Mohammed"
+                    placeholder="e.g. Mohammed, John"
                   />
                 </label>
                 <label>Status</label>
@@ -5643,7 +5636,7 @@ function App() {
                   <input
                     value={ganttDraft.assignee}
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
-                    placeholder="e.g. Mohammed"
+                    placeholder="e.g. Mohammed, John"
                   />
                 </label>
 

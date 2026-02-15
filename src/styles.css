@@ -83,6 +83,23 @@ body {
   gap: 10px;
 }
 
+.brand-home-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.brand-home-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-xs);
+}
+
+.brand-home-btn:hover h1 {
+  color: var(--accent);
+}
+
 .brand-mark {
   width: 32px;
   height: 32px;
@@ -843,8 +860,8 @@ input:focus {
 }
 
 .status-toggle-btn.on.status-active .status-check {
-  background: #f59e0b;
-  border-color: #f59e0b;
+  background: #3b82f6;
+  border-color: #3b82f6;
   color: #fff;
 }
 
@@ -864,7 +881,7 @@ input:focus {
 }
 
 .status-dot.status-done { background: #22c55e; }
-.status-dot.status-active { background: #f59e0b; }
+.status-dot.status-active { background: #3b82f6; }
 .status-dot.status-crit { background: #dc2626; }
 
 /* ── Status Toggle Group (Drawer) ─────────────────────── */
@@ -901,9 +918,9 @@ input:focus {
 }
 
 .status-toggle-btn.on.status-active {
-  background: #fef3c7;
-  border-color: #f59e0b;
-  color: #92400e;
+  background: #dbeafe;
+  border-color: #3b82f6;
+  color: #1e40af;
 }
 
 .status-toggle-btn.on.status-crit {
