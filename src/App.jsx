@@ -12,7 +12,7 @@ import {
   deleteGanttTask,
   insertGanttTaskAfter,
 } from "./ganttUtils";
-import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments } from "./flowchartUtils";
+import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 
 const CHANNEL = "mermaid-flow";
@@ -429,6 +429,11 @@ function getIframeSrcDoc() {
       }
       .mf-shape-diamond .mf-node-label { pointer-events: none; }
       .mf-shape-circle { border-radius: 50%; padding: 16px; }
+      .mf-shape-double-circle {
+        border-radius: 50%;
+        padding: 16px;
+        box-shadow: 0 0 0 4px #ffffff, 0 0 0 5.5px var(--node-stroke, #94a3b8), 0 2px 8px rgba(0,0,0,0.08);
+      }
       .mf-shape-hexagon {
         clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
         border: none;
@@ -462,6 +467,163 @@ function getIframeSrcDoc() {
         border: none;
         padding: 10px 28px 10px 16px;
       }
+      /* ── v11.3.0+ New Shapes ────────────────────────── */
+      .mf-shape-document {
+        clip-path: polygon(0% 0%, 100% 0%, 100% 85%, 85% 92%, 65% 98%, 50% 100%, 35% 98%, 15% 92%, 0% 85%);
+        border: none; padding: 10px 16px 22px 16px;
+      }
+      .mf-shape-documents {
+        clip-path: polygon(0% 0%, 95% 0%, 95% 4%, 100% 4%, 100% 89%, 85% 95%, 65% 100%, 50% 100%, 35% 100%, 15% 95%, 0% 89%);
+        border: none; padding: 10px 16px 22px 16px;
+      }
+      .mf-shape-notched-rect {
+        clip-path: polygon(0% 8%, 8% 0%, 100% 0%, 100% 100%, 0% 100%);
+        border: none; padding: 10px 16px;
+      }
+      .mf-shape-cloud {
+        clip-path: polygon(25% 10%, 35% 2%, 50% 0%, 65% 2%, 75% 10%, 88% 12%, 97% 22%, 100% 38%, 97% 55%, 90% 68%, 80% 78%, 68% 85%, 50% 90%, 32% 85%, 20% 78%, 10% 68%, 3% 55%, 0% 38%, 3% 22%, 12% 12%);
+        border: none; padding: 24px 28px;
+      }
+      .mf-shape-bang {
+        clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+        border: none; padding: 20px 16px;
+      }
+      .mf-shape-bolt {
+        clip-path: polygon(35% 0%, 70% 0%, 50% 38%, 78% 38%, 30% 100%, 42% 55%, 15% 55%);
+        border: none; padding: 16px;
+      }
+      .mf-shape-brace-l {
+        border: none; background: transparent; box-shadow: none;
+        border-left: 2px solid #94a3b8;
+        border-radius: 0 0 0 8px;
+        padding: 8px 12px 8px 16px;
+      }
+      .mf-shape-brace-r {
+        border: none; background: transparent; box-shadow: none;
+        border-right: 2px solid #94a3b8;
+        border-radius: 0 8px 0 0;
+        padding: 8px 16px 8px 12px;
+      }
+      .mf-shape-braces {
+        border: none; background: transparent; box-shadow: none;
+        border-left: 2px solid #94a3b8; border-right: 2px solid #94a3b8;
+        border-radius: 8px;
+        padding: 8px 16px;
+      }
+      .mf-shape-triangle {
+        clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+        border: none; padding: 24px 20px 10px 20px;
+      }
+      .mf-shape-flag {
+        clip-path: polygon(0% 0%, 80% 0%, 100% 50%, 80% 100%, 0% 100%);
+        border: none; padding: 10px 28px 10px 16px;
+      }
+      .mf-shape-hourglass {
+        clip-path: polygon(0% 0%, 100% 0%, 50% 50%, 100% 100%, 0% 100%, 50% 50%);
+        border: none; padding: 16px;
+      }
+      .mf-shape-lined-rect {
+        border-radius: 4px;
+        border-left: 4px solid var(--node-stroke, #64748b);
+        padding: 10px 16px;
+      }
+      .mf-shape-small-circle {
+        border-radius: 50%;
+        padding: 4px;
+        min-width: 16px; min-height: 16px;
+        background: #475569;
+      }
+      .mf-shape-framed-circle {
+        border-radius: 50%;
+        padding: 16px;
+        box-shadow: inset 0 0 0 3px #ffffff, inset 0 0 0 4.5px var(--node-stroke, #94a3b8), 0 2px 8px rgba(0,0,0,0.08);
+      }
+      .mf-shape-filled-circle {
+        border-radius: 50%;
+        padding: 4px;
+        min-width: 16px; min-height: 16px;
+        background: #1e293b;
+        border-color: #1e293b;
+      }
+      .mf-shape-fork {
+        border-radius: 2px;
+        padding: 2px 40px;
+        min-height: 6px;
+        background: #475569;
+        border-color: #475569;
+      }
+      .mf-shape-text-block {
+        border: none; background: transparent;
+        box-shadow: none; padding: 8px 12px;
+      }
+      .mf-shape-delay {
+        border-radius: 0 9999px 9999px 0;
+        padding: 10px 24px 10px 16px;
+      }
+      .mf-shape-h-cylinder {
+        border-radius: 12% / 50%;
+        padding: 16px 20px;
+      }
+      .mf-shape-lined-cylinder {
+        border-radius: 50% / 12%;
+        padding: 16px 16px;
+        box-shadow: inset 0 5px 0 0 #94a3b8, 0 2px 8px rgba(0,0,0,0.08);
+      }
+      .mf-shape-curved-trapezoid {
+        clip-path: polygon(5% 0%, 95% 0%, 100% 25%, 100% 100%, 0% 100%, 0% 25%);
+        border: none; padding: 12px 16px;
+      }
+      .mf-shape-divided-rect {
+        border-radius: 4px;
+        padding: 10px 16px;
+        box-shadow: inset 0 -1px 0 0 #94a3b8, 0 2px 8px rgba(0,0,0,0.08);
+      }
+      .mf-shape-flipped-triangle {
+        clip-path: polygon(0% 0%, 100% 0%, 50% 100%);
+        border: none; padding: 10px 20px 24px 20px;
+      }
+      .mf-shape-sloped-rect {
+        clip-path: polygon(0% 15%, 100% 0%, 100% 100%, 0% 100%);
+        border: none; padding: 14px 16px 10px 16px;
+      }
+      .mf-shape-window-pane {
+        border-radius: 4px;
+        padding: 10px 16px;
+        box-shadow: inset 1px 0 0 0 #94a3b8, inset 0 1px 0 0 #94a3b8, 0 2px 8px rgba(0,0,0,0.08);
+      }
+      .mf-shape-crossed-circle {
+        border-radius: 50%;
+        padding: 16px;
+        background: linear-gradient(45deg, transparent 47%, #94a3b8 47%, #94a3b8 53%, transparent 53%),
+                    linear-gradient(-45deg, transparent 47%, #94a3b8 47%, #94a3b8 53%, transparent 53%),
+                    #ffffff;
+      }
+      .mf-shape-lined-document {
+        clip-path: polygon(0% 0%, 100% 0%, 100% 85%, 85% 92%, 65% 98%, 50% 100%, 35% 98%, 15% 92%, 0% 85%);
+        border: none; padding: 10px 16px 22px 16px;
+      }
+      .mf-shape-notched-pentagon {
+        clip-path: polygon(0% 15%, 50% 0%, 100% 15%, 100% 100%, 0% 100%);
+        border: none; padding: 14px 16px 10px 16px;
+      }
+      .mf-shape-tag-document {
+        clip-path: polygon(0% 0%, 100% 0%, 100% 85%, 85% 92%, 65% 98%, 50% 100%, 35% 98%, 15% 92%, 0% 85%);
+        border: none; padding: 10px 16px 22px 16px;
+      }
+      .mf-shape-tag-rect {
+        clip-path: polygon(0% 0%, 92% 0%, 100% 50%, 92% 100%, 0% 100%);
+        border: none; padding: 10px 24px 10px 16px;
+      }
+      .mf-shape-bow-rect {
+        clip-path: polygon(8% 0%, 92% 0%, 100% 50%, 92% 100%, 8% 100%, 0% 50%);
+        border: none; padding: 10px 20px;
+      }
+      .mf-shape-stacked-rect {
+        border-radius: 4px;
+        padding: 10px 16px;
+        box-shadow: 3px 3px 0 0 #94a3b8, 6px 6px 0 0 #cbd5e1, 0 2px 8px rgba(0,0,0,0.08);
+      }
+
       /* Clip-path shapes need a background border layer */
       .mf-flow-node[data-clip-shape] {
         border: none;
@@ -1193,8 +1355,14 @@ function getIframeSrcDoc() {
           let w = el.offsetWidth + 2;
           let h = el.offsetHeight + 2;
           if (node.shape === "diamond") { const d = Math.ceil(Math.sqrt(w * w + h * h)) + 16; w = d; h = d; }
-          if (node.shape === "circle") { const d = Math.max(w, h) + 8; w = d; h = d; }
+          if (node.shape === "circle" || node.shape === "double-circle") { const d = Math.max(w, h) + (node.shape === "double-circle" ? 16 : 8); w = d; h = d; }
           if (node.shape === "hexagon") { w = Math.max(w * 1.35, w + 32); }
+          if (node.shape === "triangle" || node.shape === "flipped-triangle") { w = Math.max(w * 1.4, w + 24); h = Math.max(h * 1.3, h + 20); }
+          if (node.shape === "cloud") { w = Math.max(w * 1.4, w + 32); h = Math.max(h * 1.3, h + 24); }
+          if (node.shape === "small-circle" || node.shape === "filled-circle") { const d = Math.max(20, Math.min(w, h)); w = d; h = d; }
+          if (node.shape === "fork") { w = Math.max(w, 80); h = Math.max(h, 8); }
+          if (node.shape === "hourglass" || node.shape === "bang") { const d = Math.max(w, h) + 12; w = d; h = d; }
+          if (node.shape === "bow-rect") { w = Math.max(w * 1.2, w + 20); }
           dims[node.id] = { width: Math.max(w, 50), height: Math.max(h, 36) };
           measurer.removeChild(el);
         }
@@ -1222,7 +1390,7 @@ function getIframeSrcDoc() {
         }
         for (const e of edges) {
           if (g.hasNode(e.source) && g.hasNode(e.target)) {
-            g.setEdge(e.source, e.target, { label: e.label || "", arrowType: e.arrowType || "-->" });
+            g.setEdge(e.source, e.target, { label: e.label || "", arrowType: e.arrowType || "-->", minlen: e.minlen || 1 });
           }
         }
         dagre.layout(g);
@@ -1233,7 +1401,7 @@ function getIframeSrcDoc() {
         const dx = tx - cx;
         const dy = ty - cy;
         const angle = Math.atan2(dy, dx);
-        if (shape === "circle") {
+        if (shape === "circle" || shape === "double-circle") {
           const r = Math.max(hw, hh);
           return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
         }
@@ -1309,7 +1477,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomFlowchart = (flowData, classDefs, classAssignments, styleOvr) => {
+      const renderCustomFlowchart = (flowData, classDefs, classAssignments, styleOvr, styleDirectives) => {
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "center";
@@ -1374,8 +1542,41 @@ function getIframeSrcDoc() {
           p.setAttribute("points", "0 0, 10 3.5, 0 7"); p.setAttribute("fill", color);
           m.appendChild(p); return m;
         };
+        const mkArrowRev = (id, color) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "10"); m.setAttribute("markerHeight", "7");
+          m.setAttribute("refX", "1"); m.setAttribute("refY", "3.5"); m.setAttribute("orient", "auto");
+          const p = document.createElementNS(ns, "polygon");
+          p.setAttribute("points", "10 0, 0 3.5, 10 7"); p.setAttribute("fill", color);
+          m.appendChild(p); return m;
+        };
+        const mkCircleMarker = (id, color) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "10"); m.setAttribute("markerHeight", "10");
+          m.setAttribute("refX", "5"); m.setAttribute("refY", "5"); m.setAttribute("orient", "auto");
+          const c = document.createElementNS(ns, "circle");
+          c.setAttribute("cx", "5"); c.setAttribute("cy", "5"); c.setAttribute("r", "4");
+          c.setAttribute("fill", "none"); c.setAttribute("stroke", color); c.setAttribute("stroke-width", "1.5");
+          m.appendChild(c); return m;
+        };
+        const mkCrossMarker = (id, color) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "10"); m.setAttribute("markerHeight", "10");
+          m.setAttribute("refX", "5"); m.setAttribute("refY", "5"); m.setAttribute("orient", "auto");
+          const l1 = document.createElementNS(ns, "line");
+          l1.setAttribute("x1", "1"); l1.setAttribute("y1", "1"); l1.setAttribute("x2", "9"); l1.setAttribute("y2", "9");
+          l1.setAttribute("stroke", color); l1.setAttribute("stroke-width", "1.5");
+          const l2 = document.createElementNS(ns, "line");
+          l2.setAttribute("x1", "9"); l2.setAttribute("y1", "1"); l2.setAttribute("x2", "1"); l2.setAttribute("y2", "9");
+          l2.setAttribute("stroke", color); l2.setAttribute("stroke-width", "1.5");
+          m.appendChild(l1); m.appendChild(l2); return m;
+        };
         defs.appendChild(mkArrow("mf-arrow", "#94a3b8"));
         defs.appendChild(mkArrow("mf-arrow-thick", "#64748b"));
+        defs.appendChild(mkArrowRev("mf-arrow-rev", "#94a3b8"));
+        defs.appendChild(mkArrowRev("mf-arrow-thick-rev", "#64748b"));
+        defs.appendChild(mkCircleMarker("mf-circle", "#94a3b8"));
+        defs.appendChild(mkCrossMarker("mf-cross", "#94a3b8"));
         edgeSvg.appendChild(defs);
 
         // Render edges
@@ -1386,8 +1587,13 @@ function getIframeSrcDoc() {
           const d = buildEdgeSvgPath(de.points);
           const at = edge.arrowType || "-->";
           const hasArrow = at === "-->" || at === "--->" || at === "==>" || at === "-.->";
-          const isThick = at === "==>" || at === "===";
-          const isDashed = at === "-.->" || at === "-.-";
+          const isThick = at === "==>" || at === "===" || at === "<==>";
+          const isDashed = at === "-.->" || at === "-.-" || at === "<-.->";
+          const hasCircleEnd = at === "--o";
+          const hasCrossEnd = at === "--x";
+          const isBiArrow = at === "<-->" || at === "<-.->" || at === "<==>";
+          const isBiCircle = at === "o--o";
+          const isBiCross = at === "x--x";
 
           // Invisible hit area
           const hit = document.createElementNS(ns, "path");
@@ -1401,6 +1607,18 @@ function getIframeSrcDoc() {
           path.setAttribute("stroke-width", isThick ? "2.5" : "1.5");
           if (isDashed) path.setAttribute("stroke-dasharray", "6,3");
           if (hasArrow) path.setAttribute("marker-end", isThick ? "url(#mf-arrow-thick)" : "url(#mf-arrow)");
+          else if (hasCircleEnd) path.setAttribute("marker-end", "url(#mf-circle)");
+          else if (hasCrossEnd) path.setAttribute("marker-end", "url(#mf-cross)");
+          if (isBiArrow) {
+            path.setAttribute("marker-end", isThick ? "url(#mf-arrow-thick)" : "url(#mf-arrow)");
+            path.setAttribute("marker-start", isThick ? "url(#mf-arrow-thick-rev)" : "url(#mf-arrow-rev)");
+          } else if (isBiCircle) {
+            path.setAttribute("marker-end", "url(#mf-circle)");
+            path.setAttribute("marker-start", "url(#mf-circle)");
+          } else if (isBiCross) {
+            path.setAttribute("marker-end", "url(#mf-cross)");
+            path.setAttribute("marker-start", "url(#mf-cross)");
+          }
           path.setAttribute("class", "mf-edge");
           path.setAttribute("data-source", edge.source); path.setAttribute("data-target", edge.target);
           edgeGroup.appendChild(path);
@@ -1460,6 +1678,15 @@ function getIframeSrcDoc() {
             if (cd.color) el.style.color = cd.color;
             if (cd.strokeWidth) el.style.borderWidth = cd.strokeWidth;
           }
+          // Per-node style directives (e.g. "style id1 fill:#f9f,stroke:#333")
+          const sd = (styleDirectives || {})[node.id];
+          if (sd) {
+            if (sd.fill) el.style.background = sd.fill;
+            if (sd.stroke) { el.style.borderColor = sd.stroke; el.style.setProperty("--node-stroke", sd.stroke); }
+            if (sd.color) el.style.color = sd.color;
+            if (sd.strokeWidth) el.style.borderWidth = sd.strokeWidth;
+            if (sd.strokeDasharray) el.style.borderStyle = "dashed";
+          }
           // Runtime style overrides
           const so = (styleOvr || {})[node.id];
           if (so) {
@@ -1470,12 +1697,15 @@ function getIframeSrcDoc() {
           }
 
           // For clip-path shapes, create background border layer
-          const clipShapes = ["diamond", "hexagon", "trapezoid", "trapezoid-alt", "asymmetric"];
+          const clipShapes = ["diamond", "hexagon", "trapezoid", "trapezoid-alt", "asymmetric",
+            "document", "documents", "notched-rect", "cloud", "bang", "bolt", "triangle", "flag",
+            "hourglass", "curved-trapezoid", "flipped-triangle", "sloped-rect",
+            "notched-pentagon", "tag-document", "tag-rect", "bow-rect", "lined-document"];
           if (clipShapes.includes(shape)) {
             el.setAttribute("data-clip-shape", shape);
             const borderLayer = document.createElement("div");
             borderLayer.className = "mf-flow-border-layer mf-shape-" + shape;
-            borderLayer.style.background = cd?.stroke || so?.stroke || "#94a3b8";
+            borderLayer.style.background = sd?.stroke || cd?.stroke || so?.stroke || "#94a3b8";
             el.appendChild(borderLayer);
           }
 
@@ -3352,7 +3582,7 @@ function getIframeSrcDoc() {
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
             const fd = data.payload?.flowchartData || {};
-            renderCustomFlowchart(fd.parsed || {}, fd.classDefs || [], fd.classAssignments || {}, fd.styleOverrides || {});
+            renderCustomFlowchart(fd.parsed || {}, fd.classDefs || [], fd.classAssignments || {}, fd.styleOverrides || {}, fd.styleDirectives || {});
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomFlowchart: true });
           } else {
             // Standard Mermaid SVG rendering
@@ -3648,6 +3878,7 @@ function App() {
       parsed: parseFlowchart(code),
       classDefs: parseClassDefs(code),
       classAssignments: parseClassAssignments(code),
+      styleDirectives: parseStyleDirectives(code),
       styleOverrides,
     };
 
@@ -5381,10 +5612,24 @@ function App() {
                 { shape: "stadium", label: "Stadium", icon: "([ ])" },
                 { shape: "diamond", label: "Diamond", icon: "{ }" },
                 { shape: "circle", label: "Circle", icon: "(( ))" },
+                { shape: "double-circle", label: "Double Circle", icon: "((( )))" },
                 { shape: "hexagon", label: "Hexagon", icon: "{{ }}" },
                 { shape: "subroutine", label: "Subroutine", icon: "[[ ]]" },
                 { shape: "cylinder", label: "Cylinder", icon: "[( )]" },
-                { shape: "parallelogram", label: "Parallelogram", icon: "[/ /]" },
+                { shape: "parallelogram", label: "Lean Right", icon: "[/ /]" },
+                { shape: "parallelogram-alt", label: "Lean Left", icon: "[\\ \\]" },
+                { shape: "trapezoid", label: "Trapezoid", icon: "[/ \\]" },
+                { shape: "trapezoid-alt", label: "Trapezoid Alt", icon: "[\\ /]" },
+                { shape: "asymmetric", label: "Asymmetric", icon: "> ]" },
+                { shape: "document", label: "Document", icon: "doc" },
+                { shape: "cloud", label: "Cloud", icon: "cloud" },
+                { shape: "triangle", label: "Triangle", icon: "tri" },
+                { shape: "flag", label: "Flag", icon: "flag" },
+                { shape: "delay", label: "Delay", icon: "delay" },
+                { shape: "lined-rect", label: "Lined Rect", icon: "lin" },
+                { shape: "stacked-rect", label: "Multi-Process", icon: "procs" },
+                { shape: "documents", label: "Multi-Doc", icon: "docs" },
+                { shape: "text-block", label: "Text Block", icon: "text" },
               ].map(({ shape, label, icon }) => (
                 <button
                   key={shape}
