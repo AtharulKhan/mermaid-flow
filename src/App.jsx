@@ -200,6 +200,161 @@ function getIframeSrcDoc() {
       .taskTextOutsideRight, .taskTextOutsideLeft { fill: #374151 !important; font-weight: 500 !important; font-size: 12px !important; }
       /* Milestone marker */
       .milestone { rx: 3; }
+      /* ── Custom HTML Gantt ── */
+      .mf-gantt-container {
+        font-family: "Manrope", system-ui, sans-serif;
+        font-size: 13px;
+        line-height: 1;
+        user-select: none;
+        display: grid;
+        position: relative;
+      }
+      .mf-gantt-corner {
+        position: sticky;
+        left: 0;
+        top: 0;
+        z-index: 5;
+        background: #eef2ff;
+        border: 1px solid #d9dee8;
+        border-bottom: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 12px;
+        color: #334155;
+        box-sizing: border-box;
+      }
+      .mf-gantt-timeline-header {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+      }
+      .mf-gantt-role-cell {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        background: rgba(255, 255, 255, 0.97);
+        border-right: 2px solid #d9dee8;
+        border-bottom: 1px solid #e8ecf2;
+        display: flex;
+        align-items: flex-start;
+        padding: 10px 12px;
+        font-weight: 700;
+        font-size: 12px;
+        color: #1f2937;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        box-sizing: border-box;
+      }
+      .mf-gantt-track {
+        border-bottom: 1px solid #e8ecf2;
+        background: #ffffff;
+        position: relative;
+        box-sizing: border-box;
+      }
+      .mf-gantt-track:nth-child(4n+1) {
+        background: #fafbfd;
+      }
+      .mf-gantt-track.mf-show-grid-lines {
+        background-image: repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent calc(var(--px-per-day) - 1px),
+          #f1f5f9 calc(var(--px-per-day) - 1px),
+          #f1f5f9 var(--px-per-day)
+        );
+      }
+      .mf-gantt-bar {
+        position: absolute;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        cursor: grab;
+        transition: box-shadow 0.12s ease, filter 0.12s ease;
+        overflow: hidden;
+        box-sizing: border-box;
+        min-width: 4px;
+      }
+      .mf-gantt-bar:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        filter: brightness(1.06);
+      }
+      .mf-gantt-bar:active { cursor: grabbing; }
+      .mf-bar-default { background: #6366f1; }
+      .mf-bar-done    { background: #22c55e; }
+      .mf-bar-crit    { background: #ef4444; }
+      .mf-bar-active  { background: #3b82f6; }
+      .mf-bar-activeCrit { background: #dc2626; }
+      .mf-bar-doneCrit   { background: #16a34a; }
+      .bar-label {
+        color: #ffffff;
+        font-size: 11.5px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        pointer-events: none;
+        line-height: 1.2;
+      }
+      .bar-date-suffix {
+        color: rgba(255,255,255,0.72);
+        font-size: 10px;
+        font-weight: 400;
+        margin-left: 4px;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .mf-gantt-today-line {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #ef4444;
+        z-index: 4;
+        pointer-events: none;
+      }
+      .mf-gantt-insert-btn {
+        position: absolute;
+        right: -22px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.85);
+        border: 1px solid #d5dbe8;
+        color: #a3b0c4;
+        font-size: 12px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.15s;
+        z-index: 1;
+      }
+      .mf-gantt-track:hover .mf-gantt-insert-btn { opacity: 0.5; }
+      .mf-gantt-insert-btn:hover {
+        opacity: 1 !important;
+        border-color: #93c5fd;
+        color: #3b82f6;
+        background: #ffffff;
+      }
+      .mf-gantt-bar.mf-selected {
+        outline: 2.5px solid #2563eb;
+        outline-offset: 1px;
+        box-shadow: 0 0 8px rgba(37, 99, 235, 0.35);
+      }
+      .mf-gantt-overdue-dot {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #dc2626;
+        pointer-events: none;
+      }
       /* ── General Diagram Styling ── */
       .node rect, .node circle, .node ellipse, .node polygon { rx: 8; ry: 8; }
       .node rect { stroke-width: 1.5px !important; }
@@ -479,6 +634,346 @@ function getIframeSrcDoc() {
         queueGanttOverlaySync();
       };
 
+      /* ── Custom HTML Gantt Renderer ─────────────────────── */
+      const buildTimelineHeaderRow = (type, minDateMs, totalDays, pxPerDay) => {
+        const dayMs = 86400000;
+        const row = document.createElement("div");
+        row.className = "mf-gh-row " + type;
+
+        const groups = [];
+        let currentKey = "";
+        let groupStart = 0;
+
+        for (let i = 0; i < totalDays; i++) {
+          const ms = minDateMs + i * dayMs;
+          const d = new Date(ms);
+          let key;
+          if (type === "month") {
+            key = d.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+          } else {
+            key = weekLabelUtc(ms);
+          }
+          if (key !== currentKey) {
+            if (currentKey) groups.push({ label: currentKey, days: i - groupStart });
+            currentKey = key;
+            groupStart = i;
+          }
+        }
+        if (currentKey) groups.push({ label: currentKey, days: totalDays - groupStart });
+
+        for (const g of groups) {
+          const cell = document.createElement("div");
+          cell.className = "mf-gh-cell";
+          cell.style.width = Math.round(g.days * pxPerDay) + "px";
+          cell.textContent = g.label;
+          row.appendChild(cell);
+        }
+        return row;
+      };
+
+      const fmtShort = (iso) => {
+        if (!iso) return "";
+        const parts = iso.split("-");
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
+      };
+
+      const renderCustomGantt = (tasks, scale, showDates, showGrid) => {
+        clearGanttOverlay();
+        canvas.innerHTML = "";
+        canvas.style.justifyContent = "flex-start";
+
+        if (!tasks || !tasks.length) {
+          const msg = document.createElement("div");
+          msg.style.cssText = "padding:32px;color:#64748b;font-size:14px;";
+          msg.textContent = "No tasks found in gantt definition.";
+          canvas.appendChild(msg);
+          return;
+        }
+
+        const dayMs = 86400000;
+        const isoToMs = (iso) => {
+          if (!iso || !/^\\d{4}-\\d{2}-\\d{2}$/.test(iso)) return null;
+          const val = Date.parse(iso + "T00:00:00Z");
+          return Number.isFinite(val) ? val : null;
+        };
+
+        // Enrich tasks with resolved end dates
+        const enriched = tasks.map((t) => {
+          let resolvedEnd = t.endDate || t.computedEnd || "";
+          if (!resolvedEnd && t.startDate && t.durationDays) {
+            const d = new Date(t.startDate + "T00:00:00Z");
+            d.setUTCDate(d.getUTCDate() + t.durationDays);
+            resolvedEnd = d.toISOString().slice(0, 10);
+          }
+          return { ...t, resolvedEnd };
+        });
+
+        // Date range
+        const allStartMs = enriched.map((t) => isoToMs(t.startDate)).filter(Number.isFinite);
+        const allEndMs = enriched.map((t) => isoToMs(t.resolvedEnd) || isoToMs(t.startDate)).filter(Number.isFinite);
+        if (!allStartMs.length) {
+          canvas.textContent = "No dated tasks found.";
+          return;
+        }
+
+        const minDateMs = Math.min(...allStartMs);
+        const maxDateMs = Math.max(...allEndMs);
+        // Pad 2 days on each side so bars don't start at the very edge
+        const paddedMin = minDateMs - 2 * dayMs;
+        const paddedMax = maxDateMs + 2 * dayMs;
+        const totalDays = Math.max(7, Math.ceil((paddedMax - paddedMin) / dayMs) + 1);
+
+        const pxPerDay = scale === "month" ? 12 : 22;
+        const timelineWidth = totalDays * pxPerDay;
+        const roleColWidth = 200;
+        const rowHeight = 40;
+        const barHeight = 28;
+        const barGap = Math.floor((rowHeight - barHeight) / 2);
+        const today = new Date().toISOString().slice(0, 10);
+
+        // Group tasks by section
+        const sectionMap = new Map();
+        for (const t of enriched) {
+          const key = (t.section || "Tasks").trim() || "Tasks";
+          if (!sectionMap.has(key)) sectionMap.set(key, []);
+          sectionMap.get(key).push(t);
+        }
+
+        // Build container
+        const container = document.createElement("div");
+        container.className = "mf-gantt-container";
+        container.style.gridTemplateColumns = roleColWidth + "px " + timelineWidth + "px";
+        container.style.width = (roleColWidth + timelineWidth + 40) + "px";
+
+        // === Header: Corner cell ===
+        const corner = document.createElement("div");
+        corner.className = "mf-gantt-corner";
+        corner.textContent = "Role";
+        const headerHeight = scale === "month" ? 24 : 48;
+        corner.style.height = headerHeight + "px";
+        container.appendChild(corner);
+
+        // === Header: Timeline ===
+        const timelineHeader = document.createElement("div");
+        timelineHeader.className = "mf-gantt-timeline-header";
+        timelineHeader.appendChild(buildTimelineHeaderRow("month", paddedMin, totalDays, pxPerDay));
+        if (scale === "week") {
+          timelineHeader.appendChild(buildTimelineHeaderRow("week", paddedMin, totalDays, pxPerDay));
+        }
+        container.appendChild(timelineHeader);
+
+        // === Body: Section rows ===
+        for (const [section, sectionTasks] of sectionMap.entries()) {
+          const trackHeight = sectionTasks.length * rowHeight;
+
+          // Role cell
+          const roleCell = document.createElement("div");
+          roleCell.className = "mf-gantt-role-cell";
+          roleCell.textContent = section;
+          roleCell.style.height = trackHeight + "px";
+          container.appendChild(roleCell);
+
+          // Track
+          const track = document.createElement("div");
+          track.className = "mf-gantt-track";
+          track.style.height = trackHeight + "px";
+          track.style.setProperty("--px-per-day", pxPerDay + "px");
+          if (showGrid) track.classList.add("mf-show-grid-lines");
+
+          sectionTasks.forEach((task, idx) => {
+            const startMs = isoToMs(task.startDate);
+            const endMs = isoToMs(task.resolvedEnd) || startMs;
+            if (!Number.isFinite(startMs)) return;
+
+            const left = Math.round(((startMs - paddedMin) / dayMs) * pxPerDay);
+            const width = Math.max(Math.round(pxPerDay), Math.round(((Math.max(endMs, startMs + dayMs) - startMs) / dayMs) * pxPerDay));
+            const top = idx * rowHeight + barGap;
+
+            // Status-based color
+            const statuses = task.statusTokens || [];
+            let barClass = "mf-bar-default";
+            if (statuses.includes("done") && statuses.includes("crit")) barClass = "mf-bar-doneCrit";
+            else if (statuses.includes("active") && statuses.includes("crit")) barClass = "mf-bar-activeCrit";
+            else if (statuses.includes("done")) barClass = "mf-bar-done";
+            else if (statuses.includes("crit")) barClass = "mf-bar-crit";
+            else if (statuses.includes("active")) barClass = "mf-bar-active";
+
+            const bar = document.createElement("div");
+            bar.className = "mf-gantt-bar " + barClass;
+            bar.style.left = left + "px";
+            bar.style.width = width + "px";
+            bar.style.top = top + "px";
+            bar.style.height = barHeight + "px";
+            bar.setAttribute("data-label", task.label || "");
+
+            // Bar label
+            const labelSpan = document.createElement("span");
+            labelSpan.className = "bar-label";
+            labelSpan.textContent = task.label || "";
+            bar.appendChild(labelSpan);
+
+            // Date suffix
+            if (showDates && task.startDate) {
+              const dateSuffix = document.createElement("span");
+              dateSuffix.className = "bar-date-suffix";
+              const startStr = fmtShort(task.startDate);
+              const endStr = task.resolvedEnd ? fmtShort(task.resolvedEnd) : "";
+              let dateStr = endStr ? startStr + " – " + endStr : startStr;
+              if (task.assignee) dateStr += " · " + task.assignee;
+              dateSuffix.textContent = dateStr;
+              bar.appendChild(dateSuffix);
+            }
+
+            // Tooltip
+            const isDone = statuses.includes("done");
+            const isOverdue = task.resolvedEnd && !isDone && task.resolvedEnd < today;
+            let tip = task.label || "";
+            if (statuses.length) {
+              const sMap = { done: "Done", active: "Active", crit: "Critical" };
+              tip += "\\nStatus: " + statuses.map((s) => sMap[s] || s).join(", ");
+            }
+            if (task.startDate) tip += "\\nStart: " + fmtShort(task.startDate);
+            if (task.resolvedEnd) tip += "\\nEnd: " + fmtShort(task.resolvedEnd);
+            if (isOverdue) tip += "\\nOVERDUE";
+            if (task.assignee) tip += "\\nAssignee: " + task.assignee;
+            if (task.notes) tip += "\\nNotes: " + task.notes;
+            bar.setAttribute("data-mf-tip", tip);
+
+            // Overdue dot
+            if (isOverdue) {
+              const dot = document.createElement("div");
+              dot.className = "mf-gantt-overdue-dot";
+              dot.style.left = (left - 12) + "px";
+              dot.style.top = (top + barHeight / 2 - 4) + "px";
+              track.appendChild(dot);
+            }
+
+            // Click handler: select task
+            bar.addEventListener("click", (e) => {
+              e.stopPropagation();
+              // Clear previous selection
+              canvas.querySelectorAll(".mf-gantt-bar.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              bar.classList.add("mf-selected");
+              send("element:selected", { label: task.label, id: "", elementType: "node" });
+            });
+
+            // Context menu
+            bar.addEventListener("contextmenu", (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              canvas.querySelectorAll(".mf-gantt-bar.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              bar.classList.add("mf-selected");
+              send("element:context", {
+                label: task.label,
+                id: "",
+                elementType: "node",
+                pointerX: e.clientX,
+                pointerY: e.clientY,
+              });
+            });
+
+            // Drag handler
+            let dragInfo = null;
+            bar.addEventListener("pointerdown", (e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              const rect = bar.getBoundingClientRect();
+              const relX = e.clientX - rect.left;
+              const edgeZone = Math.max(rect.width * 0.15, 8);
+              let mode = "shift";
+              if (relX > rect.width - edgeZone) mode = "resize-end";
+              else if (relX < edgeZone) mode = "resize-start";
+
+              dragInfo = {
+                startX: e.clientX,
+                origLeft: parseFloat(bar.style.left),
+                origWidth: parseFloat(bar.style.width),
+                mode,
+                moved: false,
+              };
+              bar.style.cursor = mode.startsWith("resize") ? "ew-resize" : "grabbing";
+              bar.setPointerCapture(e.pointerId);
+            });
+
+            bar.addEventListener("pointermove", (e) => {
+              if (!dragInfo) return;
+              const dx = e.clientX - dragInfo.startX;
+              if (Math.abs(dx) > 2) dragInfo.moved = true;
+              if (!dragInfo.moved) return;
+
+              if (dragInfo.mode === "resize-end") {
+                bar.style.width = Math.max(4, dragInfo.origWidth + dx) + "px";
+              } else if (dragInfo.mode === "resize-start") {
+                bar.style.left = (dragInfo.origLeft + dx) + "px";
+                bar.style.width = Math.max(4, dragInfo.origWidth - dx) + "px";
+              } else {
+                bar.style.left = (dragInfo.origLeft + dx) + "px";
+              }
+            });
+
+            bar.addEventListener("pointerup", (e) => {
+              if (!dragInfo) return;
+              const dx = e.clientX - dragInfo.startX;
+              bar.releasePointerCapture(e.pointerId);
+
+              if (dragInfo.moved && Math.abs(dx) > 4) {
+                send("gantt:dragged", {
+                  label: task.label,
+                  deltaX: dx,
+                  barWidth: dragInfo.origWidth,
+                  dragMode: dragInfo.mode,
+                });
+              }
+
+              // Reset bar (re-render will come from code update)
+              bar.style.left = dragInfo.origLeft + "px";
+              bar.style.width = dragInfo.origWidth + "px";
+              bar.style.cursor = "";
+              dragInfo = null;
+            });
+
+            track.appendChild(bar);
+          });
+
+          // Insert (+) buttons
+          sectionTasks.forEach((task, idx) => {
+            const btnTop = (idx + 1) * rowHeight - 8;
+            const insertBtn = document.createElement("div");
+            insertBtn.className = "mf-gantt-insert-btn";
+            insertBtn.textContent = "+";
+            insertBtn.style.top = btnTop + "px";
+            insertBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              send("gantt:add-between", { afterLabel: task.label });
+            });
+            track.appendChild(insertBtn);
+          });
+
+          container.appendChild(track);
+        }
+
+        // Today line
+        const todayMs = isoToMs(today);
+        if (todayMs !== null && todayMs >= paddedMin && todayMs <= paddedMax) {
+          const todayLeft = roleColWidth + Math.round(((todayMs - paddedMin) / dayMs) * pxPerDay);
+          const todayLine = document.createElement("div");
+          todayLine.className = "mf-gantt-today-line";
+          todayLine.style.left = todayLeft + "px";
+          container.appendChild(todayLine);
+        }
+
+        // Click on empty area deselects
+        container.addEventListener("click", (e) => {
+          if (e.target === container || e.target.classList.contains("mf-gantt-track")) {
+            canvas.querySelectorAll(".mf-gantt-bar.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+            send("element:selected", null);
+          }
+        });
+
+        canvas.appendChild(container);
+      };
+
       const isDarkFill = (el) => {
         if (!el) return false;
         const fill = (window.getComputedStyle(el).fill || el.getAttribute("fill") || "").trim();
@@ -533,14 +1028,9 @@ function getIframeSrcDoc() {
       };
 
       canvas.addEventListener("mouseover", (e) => {
-        let tip = "";
-        const tag = e.target.nodeName;
-        if (tag === "rect" || tag === "text") {
-          tip = e.target.getAttribute("data-mf-tip") || "";
-        } else if (tag === "tspan") {
-          const textEl = e.target.closest("text") || e.target.parentElement;
-          if (textEl) tip = textEl.getAttribute("data-mf-tip") || "";
-        }
+        // Support both SVG elements (rect/text) and HTML elements (div with data-mf-tip)
+        const tipEl = e.target.closest("[data-mf-tip]");
+        const tip = tipEl ? tipEl.getAttribute("data-mf-tip") : "";
         if (!tip) return;
         tooltipEl.textContent = tip;
         tooltipEl.style.display = "block";
@@ -554,8 +1044,7 @@ function getIframeSrcDoc() {
         }
       });
       canvas.addEventListener("mouseout", (e) => {
-        const tag = e.target.nodeName;
-        if (tag === "rect" || tag === "text" || tag === "tspan") {
+        if (e.target.closest("[data-mf-tip]") || e.target.nodeName === "rect" || e.target.nodeName === "text" || e.target.nodeName === "tspan") {
           tooltipEl.style.display = "none";
         }
       });
@@ -2134,6 +2623,16 @@ function getIframeSrcDoc() {
           return;
         }
 
+        if (data.type === "gantt:select") {
+          const label = data.payload?.label || "";
+          canvas.querySelectorAll(".mf-gantt-bar.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+          if (label) {
+            const bar = canvas.querySelector('.mf-gantt-bar[data-label="' + CSS.escape(label) + '"]');
+            if (bar) bar.classList.add("mf-selected");
+          }
+          return;
+        }
+
         if (data.type !== "render") return;
 
         const { code, config } = data.payload || {};
@@ -2145,46 +2644,31 @@ function getIframeSrcDoc() {
           mermaid.initialize({ ...config, startOnLoad: false });
           const parseResult = await mermaid.parse(code);
           currentDiagramType = parseResult?.diagramType || "";
-          const token = "diagram_" + Date.now();
-          const { svg } = await mermaid.render(token, code);
-          canvas.innerHTML = svg;
+          const isGantt = (currentDiagramType || "").toLowerCase().includes("gantt");
 
-          const svgNode = canvas.querySelector("svg");
-          if (svgNode) {
-            // Make Gantt charts fill the container width
-            const dtype = (parseResult?.diagramType || "").toLowerCase();
-            if (dtype.includes("gantt")) {
-              let minWidth = 1440;
-              try {
-                const bbox = svgNode.getBBox();
-                if (bbox.width > 0) {
-                  minWidth = Math.max(1600, Math.ceil(bbox.width * 1.52));
-                  const padX = 12;
-                  const padY = 8;
-                  svgNode.setAttribute(
-                    "viewBox",
-                    (bbox.x - padX) + " " + (bbox.y - padY) + " " + (bbox.width + padX * 2) + " " + (bbox.height + padY * 2)
-                  );
-                }
-              } catch (_) {}
-              svgNode.removeAttribute("width");
-              svgNode.style.width = "max-content";
-              svgNode.style.minWidth = String(minWidth) + "px";
-              svgNode.style.maxWidth = "none";
-              svgNode.style.height = "auto";
-              svgNode.setAttribute("preserveAspectRatio", "xMinYMin meet");
-              canvas.style.justifyContent = "flex-start";
-            } else {
+          if (isGantt) {
+            // Custom HTML Gantt renderer — bypass Mermaid SVG
+            const gd = data.payload?.ganttData || {};
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false);
+            send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
+          } else {
+            // Standard Mermaid SVG rendering
+            const token = "diagram_" + Date.now();
+            const { svg } = await mermaid.render(token, code);
+            canvas.innerHTML = svg;
+
+            const svgNode = canvas.querySelector("svg");
+            if (svgNode) {
               clearGanttOverlay();
               svgNode.style.width = "";
               svgNode.style.minWidth = "";
               svgNode.style.maxWidth = "";
               svgNode.style.height = "";
               canvas.style.justifyContent = "center";
+              wireSelection(svgNode);
             }
-            wireSelection(svgNode);
+            send("render:success", { diagramType: parseResult?.diagramType || "", svg });
           }
-          send("render:success", { diagramType: parseResult?.diagramType || "", svg });
         } catch (err) {
           const message = (err && err.message) ? err.message : String(err);
           error.textContent = message;
@@ -2428,6 +2912,34 @@ function App() {
     if (!frame?.contentWindow) return;
 
     setRenderStatus("rendering");
+
+    // Pre-compute gantt data so the iframe can render custom HTML gantt
+    const tasks = parseGanttTasks(code);
+    const ganttData = {
+      tasks: tasks.map((t) => {
+        let computedEnd = t.endDate || "";
+        if (!computedEnd && t.startDate && t.durationDays) {
+          const d = new Date(t.startDate + "T00:00:00Z");
+          d.setUTCDate(d.getUTCDate() + t.durationDays);
+          computedEnd = d.toISOString().slice(0, 10);
+        }
+        return {
+          label: t.label,
+          startDate: t.startDate,
+          endDate: t.endDate,
+          durationDays: t.durationDays,
+          computedEnd,
+          assignee: t.assignee || "",
+          statusTokens: t.statusTokens || [],
+          notes: t.notes || "",
+          section: t.section || "",
+        };
+      }),
+      scale: ganttScale,
+      showDates,
+      showGrid,
+    };
+
     frame.contentWindow.postMessage(
       {
         channel: CHANNEL,
@@ -2435,6 +2947,7 @@ function App() {
         payload: {
           code,
           config: mermaidRenderConfig,
+          ganttData,
         },
       },
       "*"
@@ -2483,36 +2996,11 @@ function App() {
         setDiagramType(payload.diagramType || "unknown");
         setRenderSvg(payload.svg || "");
 
-        // Send date annotations for Gantt charts
-        if ((payload.diagramType || "").toLowerCase().includes("gantt")) {
-          const tasks = parseGanttTasks(code);
-          const annotationData = tasks.map((t) => {
-            let computedEnd = t.endDate || "";
-            if (!computedEnd && t.startDate && t.durationDays) {
-              const d = new Date(t.startDate + "T00:00:00Z");
-              d.setUTCDate(d.getUTCDate() + t.durationDays);
-              computedEnd = d.toISOString().slice(0, 10);
-            }
-            return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [], notes: t.notes || "", section: t.section || "" };
-          });
-          const frame = iframeRef.current;
-          if (frame?.contentWindow) {
-            frame.contentWindow.postMessage(
-              { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates, scale: ganttScale } },
-              "*"
-            );
-            // Apply grid lines state
-            if (showGrid) {
-              frame.contentWindow.postMessage(
-                { channel: CHANNEL, type: "gantt:grid", payload: { show: true } },
-                "*"
-              );
-            }
-          }
-        }
+        // Custom Gantt was already rendered by the iframe; skip annotation and SVG post-processing.
+        const isCustomGantt = payload.isCustomGantt || false;
 
-        // Apply position overrides after re-render (non-Gantt)
-        if (Object.keys(positionOverrides).length > 0) {
+        // Apply position overrides after re-render (non-Gantt only)
+        if (!isCustomGantt && Object.keys(positionOverrides).length > 0) {
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
             frame.contentWindow.postMessage(
@@ -2799,37 +3287,13 @@ function App() {
     return () => window.removeEventListener("message", listener);
   }, [code, ganttTasks, toolsetKey, showDates, ganttScale, positionOverrides, flowchartData]);
 
-  /* ── Re-annotate on showDates toggle ─────────────────── */
+  /* ── Re-render gantt when display toggles change ────── */
   useEffect(() => {
     if (toolsetKey !== "gantt") return;
-    const frame = iframeRef.current;
-    if (!frame?.contentWindow) return;
-    const tasks = parseGanttTasks(code);
-    const annotationData = tasks.map((t) => {
-      let computedEnd = t.endDate || "";
-      if (!computedEnd && t.startDate && t.durationDays) {
-        const d = new Date(t.startDate + "T00:00:00Z");
-        d.setUTCDate(d.getUTCDate() + t.durationDays);
-        computedEnd = d.toISOString().slice(0, 10);
-      }
-      return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [], section: t.section || "" };
-    });
-    frame.contentWindow.postMessage(
-      { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates, scale: ganttScale } },
-      "*"
-    );
-  }, [showDates, ganttScale, toolsetKey]);
-
-  /* ── Re-apply grid toggle on change ─────────────────── */
-  useEffect(() => {
-    if (toolsetKey !== "gantt") return;
-    const frame = iframeRef.current;
-    if (!frame?.contentWindow) return;
-    frame.contentWindow.postMessage(
-      { channel: CHANNEL, type: "gantt:grid", payload: { show: showGrid } },
-      "*"
-    );
-  }, [showGrid, toolsetKey]);
+    if (!autoRender) return;
+    const handle = window.setTimeout(postRender, 100);
+    return () => window.clearTimeout(handle);
+  }, [showDates, ganttScale, showGrid, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
