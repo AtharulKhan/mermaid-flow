@@ -10,11 +10,7 @@ service cloud.firestore {
     }
 
     function canReadProjectData(data) {
-      return signedIn() &&
-        (
-          data.members[request.auth.uid] in ["owner", "edit", "comment", "read"] ||
-          data.memberUids.hasAny([request.auth.uid])
-        );
+      return signedIn() && request.auth.uid in data.memberUids;
     }
 
     function canEditProjectData(data) {
@@ -42,8 +38,7 @@ service cloud.firestore {
           signedIn() &&
           (
             data.ownerId == request.auth.uid ||
-            data.sharing[request.auth.uid] in ["read", "comment", "edit"] ||
-            data.sharedWith.hasAny([request.auth.uid])
+            request.auth.uid in data.sharedWith
           )
         ) ||
         data.publicAccess in ["read", "comment", "edit"];
@@ -94,7 +89,7 @@ service cloud.firestore {
       allow create: if signedIn() &&
         request.resource.data.ownerId == request.auth.uid &&
         request.resource.data.members[request.auth.uid] == "owner" &&
-        request.resource.data.memberUids.hasAny([request.auth.uid]);
+        request.auth.uid in request.resource.data.memberUids;
 
       allow read: if canReadProjectData(resource.data);
 
@@ -113,7 +108,7 @@ service cloud.firestore {
       allow create: if signedIn() &&
         request.resource.data.ownerId == request.auth.uid &&
         request.resource.data.sharing[request.auth.uid] == "edit" &&
-        request.resource.data.sharedWith.hasAny([request.auth.uid]);
+        request.auth.uid in request.resource.data.sharedWith;
 
       allow read: if canReadFlowData(resource.data);
 
