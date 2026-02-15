@@ -246,7 +246,7 @@ function getIframeSrcDoc() {
         border-bottom: 1px solid #e8ecf2;
         display: flex;
         align-items: flex-start;
-        padding: 10px 12px;
+        padding: 10px 12px 28px 12px;
         font-weight: 700;
         font-size: 12px;
         color: #1f2937;
@@ -337,29 +337,31 @@ function getIframeSrcDoc() {
       }
       .mf-gantt-insert-btn {
         position: absolute;
-        right: -22px;
-        width: 16px;
-        height: 16px;
+        bottom: 6px;
+        right: 6px;
+        width: 18px;
+        height: 18px;
         border-radius: 50%;
-        background: rgba(255,255,255,0.85);
+        background: rgba(255,255,255,0.9);
         border: 1px solid #d5dbe8;
         color: #a3b0c4;
-        font-size: 12px;
-        font-weight: 600;
+        font-size: 13px;
+        font-weight: 700;
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
         opacity: 0;
-        transition: opacity 0.15s;
-        z-index: 1;
+        transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+        z-index: 5;
       }
-      .mf-gantt-track:hover .mf-gantt-insert-btn { opacity: 0.5; }
+      .mf-gantt-role-cell:hover .mf-gantt-insert-btn { opacity: 0.6; }
       .mf-gantt-insert-btn:hover {
         opacity: 1 !important;
         border-color: #93c5fd;
         color: #3b82f6;
         background: #ffffff;
+        box-shadow: 0 1px 4px rgba(59,130,246,0.2);
       }
       .mf-gantt-bar.mf-selected {
         outline: 2.5px solid #2563eb;
@@ -389,8 +391,8 @@ function getIframeSrcDoc() {
         align-items: center;
         justify-content: center;
         text-align: center;
-        background: #ffffff;
-        border: 1.5px solid #94a3b8;
+        background: #f8fafc;
+        border: 1.5px solid #cbd5e1;
         color: #1e293b;
         font-size: 13px;
         font-weight: 500;
@@ -398,7 +400,7 @@ function getIframeSrcDoc() {
         padding: 10px 16px;
         cursor: grab;
         transition: box-shadow 0.12s ease, filter 0.12s ease;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         box-sizing: border-box;
         z-index: 2;
         word-break: break-word;
@@ -408,6 +410,16 @@ function getIframeSrcDoc() {
         box-shadow: 0 4px 16px rgba(0,0,0,0.12);
         filter: brightness(1.02);
       }
+      /* Shape-specific default colors for visual richness */
+      .mf-shape-rect { background: #ffffff; border-color: #6366f1; }
+      .mf-shape-rounded { background: #f0f9ff; border-color: #3b82f6; }
+      .mf-shape-stadium { background: #f0fdf4; border-color: #22c55e; }
+      .mf-shape-diamond { background: #fef3c7; }
+      .mf-shape-circle { background: #faf5ff; border-color: #8b5cf6; }
+      .mf-shape-hexagon { background: #fce7f3; }
+      .mf-shape-subroutine { background: #f1f5f9; border-color: #64748b; }
+      .mf-shape-cylinder { background: #ecfeff; border-color: #06b6d4; }
+      .mf-shape-asymmetric { background: #fff7ed; }
       .mf-flow-node:active { cursor: grabbing; }
       .mf-flow-node.mf-selected {
         outline: 2.5px solid #2563eb;
@@ -436,7 +448,7 @@ function getIframeSrcDoc() {
       }
       .mf-shape-subroutine {
         border-radius: 4px;
-        box-shadow: inset 5px 0 0 0 #94a3b8, inset -5px 0 0 0 #94a3b8, 0 2px 8px rgba(0,0,0,0.08);
+        box-shadow: inset 5px 0 0 0 #64748b, inset -5px 0 0 0 #64748b, 0 2px 8px rgba(0,0,0,0.06);
         padding: 10px 22px;
       }
       .mf-shape-cylinder {
@@ -481,20 +493,20 @@ function getIframeSrcDoc() {
       }
       .mf-flow-subgraph {
         position: absolute;
-        border: 1.5px dashed #94a3b8;
+        border: 1.5px dashed #a5b4fc;
         border-radius: 10px;
-        background: rgba(241, 245, 249, 0.45);
+        background: rgba(238, 242, 255, 0.4);
         z-index: 0;
       }
       .mf-flow-subgraph-label {
         position: absolute;
         top: -11px;
         left: 12px;
-        background: #f1f5f9;
+        background: #eef2ff;
         padding: 2px 8px;
         font-size: 11px;
         font-weight: 700;
-        color: #475569;
+        color: #4338ca;
         border-radius: 4px;
         white-space: nowrap;
       }
@@ -963,8 +975,23 @@ function getIframeSrcDoc() {
           // Role cell
           const roleCell = document.createElement("div");
           roleCell.className = "mf-gantt-role-cell";
-          roleCell.textContent = section;
           roleCell.style.height = trackHeight + "px";
+          roleCell.style.position = "sticky";
+          const roleLabel = document.createElement("span");
+          roleLabel.textContent = section;
+          roleCell.appendChild(roleLabel);
+          // Insert (+) button per section
+          const lastTask = sectionTasks[sectionTasks.length - 1];
+          if (lastTask) {
+            const insertBtn = document.createElement("div");
+            insertBtn.className = "mf-gantt-insert-btn";
+            insertBtn.textContent = "+";
+            insertBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              send("gantt:add-between", { afterLabel: lastTask.label, section: section });
+            });
+            roleCell.appendChild(insertBtn);
+          }
           container.appendChild(roleCell);
 
           // Track
@@ -1130,19 +1157,7 @@ function getIframeSrcDoc() {
             track.appendChild(bar);
           });
 
-          // Insert (+) buttons
-          sectionTasks.forEach((task, idx) => {
-            const btnTop = (idx + 1) * rowHeight - 8;
-            const insertBtn = document.createElement("div");
-            insertBtn.className = "mf-gantt-insert-btn";
-            insertBtn.textContent = "+";
-            insertBtn.style.top = btnTop + "px";
-            insertBtn.addEventListener("click", (e) => {
-              e.stopPropagation();
-              send("gantt:add-between", { afterLabel: task.label });
-            });
-            track.appendChild(insertBtn);
-          });
+          // (Insert buttons moved to role cell)
 
           container.appendChild(track);
         }
@@ -1374,8 +1389,8 @@ function getIframeSrcDoc() {
           p.setAttribute("points", "0 0, 10 3.5, 0 7"); p.setAttribute("fill", color);
           m.appendChild(p); return m;
         };
-        defs.appendChild(mkArrow("mf-arrow", "#94a3b8"));
-        defs.appendChild(mkArrow("mf-arrow-thick", "#64748b"));
+        defs.appendChild(mkArrow("mf-arrow", "#8b9dc3"));
+        defs.appendChild(mkArrow("mf-arrow-thick", "#6366f1"));
         edgeSvg.appendChild(defs);
 
         // Render edges
@@ -1397,7 +1412,7 @@ function getIframeSrcDoc() {
 
           const path = document.createElementNS(ns, "path");
           path.setAttribute("d", d); path.setAttribute("fill", "none");
-          path.setAttribute("stroke", isThick ? "#64748b" : "#94a3b8");
+          path.setAttribute("stroke", isThick ? "#6366f1" : "#8b9dc3");
           path.setAttribute("stroke-width", isThick ? "2.5" : "1.5");
           if (isDashed) path.setAttribute("stroke-dasharray", "6,3");
           if (hasArrow) path.setAttribute("marker-end", isThick ? "url(#mf-arrow-thick)" : "url(#mf-arrow)");
@@ -1475,7 +1490,7 @@ function getIframeSrcDoc() {
             el.setAttribute("data-clip-shape", shape);
             const borderLayer = document.createElement("div");
             borderLayer.className = "mf-flow-border-layer mf-shape-" + shape;
-            borderLayer.style.background = cd?.stroke || so?.stroke || "#94a3b8";
+            borderLayer.style.background = cd?.stroke || so?.stroke || "#cbd5e1";
             el.appendChild(borderLayer);
           }
 
@@ -1895,6 +1910,30 @@ function getIframeSrcDoc() {
       let styleOverrides = {};  // nodeId → { fill, stroke, strokeStyle, textColor }
 
       const applyStyleOverrides = () => {
+        // Custom flowchart: apply to HTML nodes
+        const flowContainer = canvas.querySelector(".mf-flow-container");
+        if (flowContainer) {
+          for (const [nodeId, style] of Object.entries(styleOverrides)) {
+            const el = flowContainer.querySelector('[data-node-id="' + CSS.escape(nodeId) + '"]');
+            if (!el) continue;
+            if (style.fill) el.style.background = style.fill;
+            if (style.stroke) {
+              el.style.borderColor = style.stroke;
+              el.style.setProperty("--node-stroke", style.stroke);
+              const borderLayer = el.querySelector(".mf-flow-border-layer");
+              if (borderLayer) borderLayer.style.background = style.stroke;
+            }
+            if (style.textColor) {
+              el.style.color = style.textColor;
+              el.querySelectorAll(".mf-label-line").forEach(s => { s.style.color = style.textColor; });
+            }
+            if (style.strokeStyle === "dashed") el.style.borderStyle = "dashed";
+            else if (style.strokeStyle === "solid") el.style.borderStyle = "solid";
+            else if (style.strokeStyle === "none") el.style.borderColor = "transparent";
+          }
+          return;
+        }
+        // SVG diagrams: apply to SVG elements
         const svg = canvas.querySelector("svg");
         if (!svg) return;
         for (const [nodeId, style] of Object.entries(styleOverrides)) {
