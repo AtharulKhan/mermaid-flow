@@ -1424,8 +1424,10 @@ function getIframeSrcDoc() {
 
         tasks.forEach((t) => {
           const endDate = t.endDate || t.computedEnd || "";
-          const isDone = (t.statusTokens || []).includes("done");
+          const tokens = t.statusTokens || [];
+          const isDone = tokens.includes("done");
           const isOverdue = endDate && !isDone && endDate < today;
+          const isDarkBar = tokens.some((s) => s === "done" || s === "crit" || s === "active" || s === "activeCrit" || s === "doneCrit");
 
           const textEl = texts.find(el => el.textContent?.trim() === t.label);
           let rectEl = null;
@@ -1441,6 +1443,21 @@ function getIframeSrcDoc() {
           }
 
           if (rectEl) {
+            const rectBox = rectEl.getBBox();
+            if (textEl) {
+              // Keep the task title anchored from the start of the bar.
+              const leftPad = Math.max(6, Math.min(12, rectBox.height * 0.35));
+              textEl.setAttribute("x", String(rectBox.x + leftPad));
+              textEl.setAttribute("y", String(rectBox.y + rectBox.height / 2));
+              textEl.setAttribute("text-anchor", "start");
+              textEl.setAttribute("dominant-baseline", "central");
+              textEl.setAttribute("alignment-baseline", "middle");
+              textEl.setAttribute("fill", isDarkBar ? "#ffffff" : "#0f172a");
+              textEl.style.paintOrder = "normal";
+              textEl.style.stroke = "none";
+              textEl.style.strokeWidth = "0";
+            }
+
             let tip = t.label;
             if (t.statusTokens?.length) {
               const sMap = { done: "Done", active: "Active", crit: "Critical" };
@@ -1459,17 +1476,11 @@ function getIframeSrcDoc() {
             // Also set on text element so tooltip works when hovering labels
             if (textEl) textEl.setAttribute("data-mf-tip", tip);
 
-            // White text on dark status bars (done=green, crit=maroon)
-            if (textEl && (t.statusTokens || []).some(s => s === "done" || s === "crit")) {
-              textEl.setAttribute("fill", "#ffffff");
-            }
-
             if (isOverdue) {
-              const bbox = rectEl.getBBox();
               const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
               dot.setAttribute("class", "mf-overdue-dot");
-              dot.setAttribute("cx", String(bbox.x - 8));
-              dot.setAttribute("cy", String(bbox.y + bbox.height / 2));
+              dot.setAttribute("cx", String(rectBox.x - 8));
+              dot.setAttribute("cy", String(rectBox.y + rectBox.height / 2));
               dot.setAttribute("r", "4");
               dot.setAttribute("fill", "#dc2626");
               rectEl.parentElement.appendChild(dot);
@@ -1489,12 +1500,38 @@ function getIframeSrcDoc() {
 
           const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
           tspan.setAttribute("class", "mf-date-tspan");
-          const isDarkBar = (t.statusTokens || []).some(s => s === "done" || s === "crit");
-          tspan.setAttribute("fill", isDarkBar ? "rgba(255,255,255,0.65)" : "#9ca3af");
+          tspan.setAttribute("fill", isDarkBar ? "rgba(255,255,255,0.82)" : "#6b7280");
           tspan.setAttribute("font-size", "0.78em");
           tspan.setAttribute("font-weight", "400");
           tspan.textContent = " (" + dateStr + ")";
           textEl.appendChild(tspan);
+
+          if (!rectEl) return;
+
+          const rectBox = rectEl.getBBox();
+          const viewBox = svg.viewBox?.baseVal;
+          const viewRight = viewBox ? viewBox.x + viewBox.width - 8 : Number.POSITIVE_INFINITY;
+          const barRight = rectBox.x + rectBox.width - 6;
+          let textBox = textEl.getBBox();
+          const overflowsBar = textBox.x + textBox.width > barRight;
+          const clipsViewport = textBox.x + textBox.width > viewRight;
+
+          // If dates push text too far out, keep the title and drop secondary text first.
+          if ((overflowsBar || clipsViewport) && textEl.querySelector(".mf-date-tspan")) {
+            textEl.querySelectorAll(".mf-date-tspan").forEach((el) => el.remove());
+            textBox = textEl.getBBox();
+          }
+
+          const stillOverflow = textBox.x + textBox.width > barRight || textBox.x + textBox.width > viewRight;
+          if (stillOverflow) {
+            // Add an outline so text stays readable over both dark bars and dark page edges.
+            textEl.setAttribute("fill", isDarkBar ? "#f8fafc" : "#111827");
+            textEl.style.paintOrder = "stroke";
+            textEl.style.stroke = isDarkBar ? "rgba(15,23,42,0.78)" : "rgba(248,250,252,0.9)";
+            textEl.style.strokeWidth = "2.4px";
+            textEl.style.strokeLinecap = "round";
+            textEl.style.strokeLinejoin = "round";
+          }
         });
 
         if (!insertAnchors.length) return;
