@@ -4090,7 +4090,8 @@ function App() {
   const currentFlowRole = currentUser && flowMeta
     ? (flowMeta.ownerId === currentUser.uid ? "owner" : flowMeta.sharing?.[currentUser.uid] || null)
     : null;
-  const canEditCurrentFlow = currentFlowRole === "owner" || currentFlowRole === "edit";
+  const hasPublicEditAccess = flowMeta?.publicAccess === "edit";
+  const canEditCurrentFlow = currentFlowRole === "owner" || currentFlowRole === "edit" || hasPublicEditAccess;
   const hasPublicCommentAccess = ["comment", "edit"].includes(flowMeta?.publicAccess || "");
   const canCommentCurrentFlow = canEditCurrentFlow || currentFlowRole === "comment" || hasPublicCommentAccess;
 
@@ -4318,7 +4319,8 @@ function App() {
     // Only save if user has edit permissions
     const userRole = flowMeta?.sharing?.[currentUser?.uid];
     const isOwner = flowMeta?.ownerId === currentUser?.uid;
-    if (!isOwner && userRole !== "edit") return;
+    const canPubliclyEdit = flowMeta?.publicAccess === "edit";
+    if (!isOwner && userRole !== "edit" && !canPubliclyEdit) return;
     const handle = window.setTimeout(async () => {
       try {
         await updateFlow(flowId, { code, diagramType });

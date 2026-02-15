@@ -48,7 +48,7 @@ service cloud.firestore {
     function canEditFlow(flowId) {
       return isFlowOwner(flowId) ||
         (signedIn() && flowRole(flowId) == "edit") ||
-        (signedIn() && flowDoc(flowId).data.publicAccess == "edit");
+        flowDoc(flowId).data.publicAccess == "edit";
     }
 
     match /users/{uid} {
