@@ -374,6 +374,178 @@ function getIframeSrcDoc() {
         background: #dc2626;
         pointer-events: none;
       }
+      /* ── Custom HTML Flowchart ── */
+      .mf-flow-container {
+        font-family: "Manrope", system-ui, sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        user-select: none;
+        position: relative;
+      }
+      .mf-flow-node {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: #ffffff;
+        border: 1.5px solid #94a3b8;
+        color: #1e293b;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+        padding: 10px 16px;
+        cursor: grab;
+        transition: box-shadow 0.12s ease, filter 0.12s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        box-sizing: border-box;
+        z-index: 2;
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      .mf-flow-node:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        filter: brightness(1.02);
+      }
+      .mf-flow-node:active { cursor: grabbing; }
+      .mf-flow-node.mf-selected {
+        outline: 2.5px solid #2563eb;
+        outline-offset: 2px;
+        box-shadow: 0 0 10px rgba(37, 99, 235, 0.3);
+      }
+      .mf-flow-node.mf-connect-source {
+        outline: 3px solid #16a34a;
+        outline-offset: 2px;
+        box-shadow: 0 0 10px rgba(22, 163, 74, 0.4);
+      }
+      .mf-shape-rect { border-radius: 4px; }
+      .mf-shape-rounded { border-radius: 12px; }
+      .mf-shape-stadium { border-radius: 9999px; padding: 10px 24px; }
+      .mf-shape-diamond {
+        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+        border: none;
+        padding: 20px 24px;
+      }
+      .mf-shape-diamond .mf-node-label { pointer-events: none; }
+      .mf-shape-circle { border-radius: 50%; padding: 16px; }
+      .mf-shape-hexagon {
+        clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+        border: none;
+        padding: 12px 32px;
+      }
+      .mf-shape-subroutine {
+        border-radius: 4px;
+        box-shadow: inset 5px 0 0 0 #94a3b8, inset -5px 0 0 0 #94a3b8, 0 2px 8px rgba(0,0,0,0.08);
+        padding: 10px 22px;
+      }
+      .mf-shape-cylinder {
+        border-radius: 50% / 12%;
+        padding: 16px 16px;
+      }
+      .mf-shape-parallelogram { transform: skewX(-10deg); border-radius: 4px; }
+      .mf-shape-parallelogram .mf-node-label { transform: skewX(10deg); }
+      .mf-shape-parallelogram-alt { transform: skewX(10deg); border-radius: 4px; }
+      .mf-shape-parallelogram-alt .mf-node-label { transform: skewX(-10deg); }
+      .mf-shape-trapezoid {
+        clip-path: polygon(10% 0%, 90% 0%, 100% 100%, 0% 100%);
+        border: none;
+        padding: 12px 24px;
+      }
+      .mf-shape-trapezoid-alt {
+        clip-path: polygon(0% 0%, 100% 0%, 90% 100%, 10% 100%);
+        border: none;
+        padding: 12px 24px;
+      }
+      .mf-shape-asymmetric {
+        clip-path: polygon(0% 0%, 85% 0%, 100% 50%, 85% 100%, 0% 100%);
+        border: none;
+        padding: 10px 28px 10px 16px;
+      }
+      /* Clip-path shapes need a background border layer */
+      .mf-flow-node[data-clip-shape] {
+        border: none;
+      }
+      .mf-flow-border-layer {
+        position: absolute;
+        inset: -2px;
+        z-index: -1;
+        pointer-events: none;
+      }
+      .mf-node-label {
+        pointer-events: none;
+        max-width: 200px;
+      }
+      .mf-node-label .mf-label-line {
+        display: block;
+      }
+      .mf-flow-subgraph {
+        position: absolute;
+        border: 1.5px dashed #94a3b8;
+        border-radius: 10px;
+        background: rgba(241, 245, 249, 0.45);
+        z-index: 0;
+      }
+      .mf-flow-subgraph-label {
+        position: absolute;
+        top: -11px;
+        left: 12px;
+        background: #f1f5f9;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #475569;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+      .mf-flow-edges {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 1;
+        overflow: visible;
+      }
+      .mf-flow-edges .mf-edge {
+        pointer-events: stroke;
+        cursor: pointer;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .mf-flow-edges .mf-edge-hit {
+        pointer-events: stroke;
+        cursor: pointer;
+        stroke: transparent;
+        stroke-width: 14;
+        fill: none;
+      }
+      .mf-flow-edges .mf-edge:hover { stroke: #6366f1; }
+      .mf-flow-edges .mf-edge-label-bg {
+        pointer-events: all;
+        cursor: pointer;
+      }
+      .mf-flow-edges .mf-edge-label {
+        pointer-events: none;
+      }
+      .mf-flow-port {
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #2563eb;
+        border: 2px solid #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 10;
+        opacity: 0;
+        transition: opacity 0.15s;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+      }
+      .mf-flow-port:hover { opacity: 1 !important; transform: scale(1.1); }
       /* ── General Diagram Styling ── */
       .node rect, .node circle, .node ellipse, .node polygon { rx: 8; ry: 8; }
       .node rect { stroke-width: 1.5px !important; }
@@ -419,6 +591,7 @@ function getIframeSrcDoc() {
     <div id="mf-tooltip"></div>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      import dagre from "https://esm.sh/@dagrejs/dagre@1.1.4";
 
       let selected = null;
       let dragState = null;
@@ -990,6 +1163,506 @@ function getIframeSrcDoc() {
             send("element:selected", null);
           }
         });
+
+        canvas.appendChild(container);
+      };
+
+      /* ── Custom HTML Flowchart Renderer ─────────────────── */
+
+      const escapeHtml = (str) => String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+      const measureNodeDimensions = (nodes, classDefMap, classAssignments) => {
+        const measurer = document.createElement("div");
+        measurer.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;top:-9999px;left:-9999px;font-family:Manrope,system-ui,sans-serif;font-size:13px;line-height:1.4;";
+        document.body.appendChild(measurer);
+        const dims = {};
+        for (const node of nodes) {
+          const el = document.createElement("div");
+          el.className = "mf-flow-node mf-shape-" + (node.shape || "rect");
+          el.style.position = "static";
+          el.style.maxWidth = "220px";
+          const raw = node.label || node.id || "";
+          const lines = raw.replace(/<br\s*\/?>/gi, "\n").split("\n");
+          el.innerHTML = '<div class="mf-node-label">' + lines.map(l => '<span class="mf-label-line">' + escapeHtml(l) + '</span>').join("") + '</div>';
+          const cn = classAssignments[node.id];
+          const cd = cn ? classDefMap[cn] : null;
+          if (cd?.fill) el.style.background = cd.fill;
+          measurer.appendChild(el);
+          let w = el.offsetWidth + 2;
+          let h = el.offsetHeight + 2;
+          if (node.shape === "diamond") { const d = Math.ceil(Math.sqrt(w * w + h * h)) + 16; w = d; h = d; }
+          if (node.shape === "circle") { const d = Math.max(w, h) + 8; w = d; h = d; }
+          if (node.shape === "hexagon") { w = Math.max(w * 1.35, w + 32); }
+          dims[node.id] = { width: Math.max(w, 50), height: Math.max(h, 36) };
+          measurer.removeChild(el);
+        }
+        document.body.removeChild(measurer);
+        return dims;
+      };
+
+      const layoutFlowchart = (parsed, nodeDims) => {
+        const { direction, nodes, edges, subgraphs } = parsed;
+        const rdMap = { TD: "TB", TB: "TB", LR: "LR", RL: "RL", BT: "BT" };
+        const g = new dagre.graphlib.Graph({ compound: true });
+        g.setGraph({ rankdir: rdMap[direction] || "TB", nodesep: 50, ranksep: 60, edgesep: 20, marginx: 40, marginy: 40 });
+        g.setDefaultEdgeLabel(() => ({}));
+        for (const n of nodes) {
+          const d = nodeDims[n.id] || { width: 100, height: 40 };
+          g.setNode(n.id, { width: d.width, height: d.height, label: n.label || n.id, shape: n.shape || "rect" });
+        }
+        for (const sg of subgraphs) {
+          if (!g.hasNode(sg.id)) g.setNode(sg.id, { label: sg.label || sg.id, clusterLabelPos: "top", width: 0, height: 0 });
+          for (const n of nodes) {
+            if (n.lineIndex > sg.lineIndex && (sg.endLineIndex < 0 || n.lineIndex < sg.endLineIndex)) {
+              g.setParent(n.id, sg.id);
+            }
+          }
+        }
+        for (const e of edges) {
+          if (g.hasNode(e.source) && g.hasNode(e.target)) {
+            g.setEdge(e.source, e.target, { label: e.label || "", arrowType: e.arrowType || "-->" });
+          }
+        }
+        dagre.layout(g);
+        return g;
+      };
+
+      const getConnectionPt = (cx, cy, hw, hh, tx, ty, shape) => {
+        const dx = tx - cx;
+        const dy = ty - cy;
+        const angle = Math.atan2(dy, dx);
+        if (shape === "circle") {
+          const r = Math.max(hw, hh);
+          return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+        }
+        if (shape === "diamond") {
+          const absC = Math.abs(Math.cos(angle));
+          const absS = Math.abs(Math.sin(angle));
+          const t = 1 / ((absC / hw) + (absS / hh));
+          return { x: cx + t * Math.cos(angle), y: cy + t * Math.sin(angle) };
+        }
+        // Rectangle / default
+        const ar = hh / (hw || 1);
+        const tanA = Math.abs(dy / (dx || 0.001));
+        if (tanA > ar) {
+          const iy = cy + (dy > 0 ? hh : -hh);
+          return { x: cx + (dy !== 0 ? hh * (dx / Math.abs(dy)) : 0), y: iy };
+        }
+        const ix = cx + (dx > 0 ? hw : -hw);
+        return { x: ix, y: cy + (dx !== 0 ? hw * (dy / Math.abs(dx)) : 0) };
+      };
+
+      const buildEdgeSvgPath = (points) => {
+        if (!points || points.length < 2) return "";
+        let d = "M " + points[0].x.toFixed(1) + " " + points[0].y.toFixed(1);
+        if (points.length === 2) {
+          d += " L " + points[1].x.toFixed(1) + " " + points[1].y.toFixed(1);
+        } else {
+          for (let i = 1; i < points.length; i++) {
+            d += " L " + points[i].x.toFixed(1) + " " + points[i].y.toFixed(1);
+          }
+        }
+        return d;
+      };
+
+      const updateFlowEdgesForNode = (edgeSvg, edges, nodeId, nodeEls, nodeDims) => {
+        for (const e of edges) {
+          if (e.source !== nodeId && e.target !== nodeId) continue;
+          const pathEl = edgeSvg.querySelector('.mf-edge[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
+          const hitEl = edgeSvg.querySelector('.mf-edge-hit[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
+          if (!pathEl) continue;
+          const srcEl = nodeEls[e.source];
+          const tgtEl = nodeEls[e.target];
+          if (!srcEl || !tgtEl) continue;
+          const sDim = nodeDims[e.source] || { width: 100, height: 40 };
+          const tDim = nodeDims[e.target] || { width: 100, height: 40 };
+          const sx = parseFloat(srcEl.style.left) + sDim.width / 2;
+          const sy = parseFloat(srcEl.style.top) + sDim.height / 2;
+          const tx = parseFloat(tgtEl.style.left) + tDim.width / 2;
+          const ty = parseFloat(tgtEl.style.top) + tDim.height / 2;
+          const sShape = srcEl.getAttribute("data-shape") || "rect";
+          const tShape = tgtEl.getAttribute("data-shape") || "rect";
+          const sp = getConnectionPt(sx, sy, sDim.width / 2, sDim.height / 2, tx, ty, sShape);
+          const tp = getConnectionPt(tx, ty, tDim.width / 2, tDim.height / 2, sx, sy, tShape);
+          const dist = Math.hypot(tp.x - sp.x, tp.y - sp.y);
+          const off = Math.max(dist * 0.35, 25);
+          const ddx = tp.x - sp.x;
+          const ddy = tp.y - sp.y;
+          let c1x, c1y, c2x, c2y;
+          if (Math.abs(ddx) > Math.abs(ddy)) {
+            c1x = sp.x + (ddx > 0 ? off : -off); c1y = sp.y;
+            c2x = tp.x - (ddx > 0 ? off : -off); c2y = tp.y;
+          } else {
+            c1x = sp.x; c1y = sp.y + (ddy > 0 ? off : -off);
+            c2x = tp.x; c2y = tp.y - (ddy > 0 ? off : -off);
+          }
+          const nd = "M " + sp.x.toFixed(1) + " " + sp.y.toFixed(1) + " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + tp.x.toFixed(1) + " " + tp.y.toFixed(1);
+          pathEl.setAttribute("d", nd);
+          if (hitEl) hitEl.setAttribute("d", nd);
+          // Update label position
+          const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
+          const lbl = edgeSvg.querySelector('.mf-edge-label[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
+          if (lbl) { lbl.setAttribute("x", ((sp.x + tp.x) / 2).toFixed(1)); lbl.setAttribute("y", ((sp.y + tp.y) / 2).toFixed(1)); }
+          if (bg && lbl) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(e) {} }
+        }
+      };
+
+      const renderCustomFlowchart = (flowData, classDefs, classAssignments, styleOvr) => {
+        clearGanttOverlay();
+        canvas.innerHTML = "";
+        canvas.style.justifyContent = "center";
+
+        if (!flowData || !flowData.nodes || !flowData.nodes.length) {
+          const msg = document.createElement("div");
+          msg.style.cssText = "padding:32px;color:#64748b;font-size:14px;text-align:center;";
+          msg.textContent = "No nodes found in flowchart.";
+          canvas.appendChild(msg);
+          return;
+        }
+
+        // Build classDefMap
+        const classDefMap = {};
+        for (const cd of (classDefs || [])) classDefMap[cd.name] = cd;
+
+        // Measure and layout
+        const nodeDims = measureNodeDimensions(flowData.nodes, classDefMap, classAssignments || {});
+        const g = layoutFlowchart(flowData, nodeDims);
+        const graphInfo = g.graph();
+        const gw = (graphInfo.width || 600) + 80;
+        const gh = (graphInfo.height || 400) + 80;
+
+        const container = document.createElement("div");
+        container.className = "mf-flow-container";
+        container.style.width = gw + "px";
+        container.style.height = gh + "px";
+
+        // Subgraphs
+        for (const sg of (flowData.subgraphs || [])) {
+          const sgNode = g.node(sg.id);
+          if (!sgNode || !sgNode.width) continue;
+          const div = document.createElement("div");
+          div.className = "mf-flow-subgraph";
+          div.style.left = (sgNode.x - sgNode.width / 2) + "px";
+          div.style.top = (sgNode.y - sgNode.height / 2) + "px";
+          div.style.width = sgNode.width + "px";
+          div.style.height = sgNode.height + "px";
+          const lbl = document.createElement("div");
+          lbl.className = "mf-flow-subgraph-label";
+          lbl.textContent = sg.label || sg.id;
+          div.appendChild(lbl);
+          container.appendChild(div);
+        }
+
+        // SVG edge overlay
+        const ns = "http://www.w3.org/2000/svg";
+        const edgeSvg = document.createElementNS(ns, "svg");
+        edgeSvg.setAttribute("class", "mf-flow-edges");
+        edgeSvg.setAttribute("width", gw);
+        edgeSvg.setAttribute("height", gh);
+        edgeSvg.style.width = gw + "px";
+        edgeSvg.style.height = gh + "px";
+
+        // Arrow marker
+        const defs = document.createElementNS(ns, "defs");
+        const mkArrow = (id, color) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "10"); m.setAttribute("markerHeight", "7");
+          m.setAttribute("refX", "9"); m.setAttribute("refY", "3.5"); m.setAttribute("orient", "auto");
+          const p = document.createElementNS(ns, "polygon");
+          p.setAttribute("points", "0 0, 10 3.5, 0 7"); p.setAttribute("fill", color);
+          m.appendChild(p); return m;
+        };
+        defs.appendChild(mkArrow("mf-arrow", "#94a3b8"));
+        defs.appendChild(mkArrow("mf-arrow-thick", "#64748b"));
+        edgeSvg.appendChild(defs);
+
+        // Render edges
+        const edgeGroup = document.createElementNS(ns, "g");
+        for (const edge of (flowData.edges || [])) {
+          const de = g.edge(edge.source, edge.target);
+          if (!de || !de.points) continue;
+          const d = buildEdgeSvgPath(de.points);
+          const at = edge.arrowType || "-->";
+          const hasArrow = at === "-->" || at === "--->" || at === "==>" || at === "-.->";
+          const isThick = at === "==>" || at === "===";
+          const isDashed = at === "-.->" || at === "-.-";
+
+          // Invisible hit area
+          const hit = document.createElementNS(ns, "path");
+          hit.setAttribute("d", d); hit.setAttribute("class", "mf-edge-hit");
+          hit.setAttribute("data-source", edge.source); hit.setAttribute("data-target", edge.target);
+          edgeGroup.appendChild(hit);
+
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", d); path.setAttribute("fill", "none");
+          path.setAttribute("stroke", isThick ? "#64748b" : "#94a3b8");
+          path.setAttribute("stroke-width", isThick ? "2.5" : "1.5");
+          if (isDashed) path.setAttribute("stroke-dasharray", "6,3");
+          if (hasArrow) path.setAttribute("marker-end", isThick ? "url(#mf-arrow-thick)" : "url(#mf-arrow)");
+          path.setAttribute("class", "mf-edge");
+          path.setAttribute("data-source", edge.source); path.setAttribute("data-target", edge.target);
+          edgeGroup.appendChild(path);
+
+          if (edge.label) {
+            const pts = de.points;
+            const mid = pts[Math.floor(pts.length / 2)];
+            const bg = document.createElementNS(ns, "rect");
+            bg.setAttribute("class", "mf-edge-label-bg");
+            bg.setAttribute("data-source", edge.source); bg.setAttribute("data-target", edge.target);
+            bg.setAttribute("rx", "4"); bg.setAttribute("fill", "#f8f9fb"); bg.setAttribute("stroke", "#e2e8f0"); bg.setAttribute("stroke-width", "0.5");
+            edgeGroup.appendChild(bg);
+            const txt = document.createElementNS(ns, "text");
+            txt.setAttribute("x", mid.x); txt.setAttribute("y", mid.y);
+            txt.setAttribute("text-anchor", "middle"); txt.setAttribute("dominant-baseline", "central");
+            txt.setAttribute("font-size", "11"); txt.setAttribute("font-family", "Manrope,system-ui,sans-serif");
+            txt.setAttribute("fill", "#475569"); txt.setAttribute("font-weight", "500");
+            txt.setAttribute("class", "mf-edge-label");
+            txt.setAttribute("data-source", edge.source); txt.setAttribute("data-target", edge.target);
+            txt.textContent = edge.label;
+            edgeGroup.appendChild(txt);
+          }
+        }
+        edgeSvg.appendChild(edgeGroup);
+        container.appendChild(edgeSvg);
+
+        // Render nodes
+        const nodeEls = {};
+        let connectMode = null;
+
+        for (const node of flowData.nodes) {
+          const pos = g.node(node.id);
+          if (!pos) continue;
+          const dim = nodeDims[node.id] || { width: 100, height: 40 };
+          const shape = node.shape || "rect";
+
+          const el = document.createElement("div");
+          el.className = "mf-flow-node mf-shape-" + shape;
+          el.setAttribute("data-node-id", node.id);
+          el.setAttribute("data-shape", shape);
+
+          // Apply position (with overrides)
+          const ovr = positionOverrides[node.id] || { dx: 0, dy: 0 };
+          const baseX = pos.x - dim.width / 2;
+          const baseY = pos.y - dim.height / 2;
+          el.style.left = (baseX + (ovr.dx || 0)) + "px";
+          el.style.top = (baseY + (ovr.dy || 0)) + "px";
+          el.style.width = dim.width + "px";
+          el.style.height = dim.height + "px";
+
+          // classDef styling
+          const assignedClass = (classAssignments || {})[node.id];
+          const cd = assignedClass ? classDefMap[assignedClass] : null;
+          if (cd) {
+            if (cd.fill) el.style.background = cd.fill;
+            if (cd.stroke) { el.style.borderColor = cd.stroke; el.style.setProperty("--node-stroke", cd.stroke); }
+            if (cd.color) el.style.color = cd.color;
+            if (cd.strokeWidth) el.style.borderWidth = cd.strokeWidth;
+          }
+          // Runtime style overrides
+          const so = (styleOvr || {})[node.id];
+          if (so) {
+            if (so.fill) el.style.background = so.fill;
+            if (so.stroke) el.style.borderColor = so.stroke;
+            if (so.textColor) el.style.color = so.textColor;
+            if (so.strokeStyle === "dashed") el.style.borderStyle = "dashed";
+          }
+
+          // For clip-path shapes, create background border layer
+          const clipShapes = ["diamond", "hexagon", "trapezoid", "trapezoid-alt", "asymmetric"];
+          if (clipShapes.includes(shape)) {
+            el.setAttribute("data-clip-shape", shape);
+            const borderLayer = document.createElement("div");
+            borderLayer.className = "mf-flow-border-layer mf-shape-" + shape;
+            borderLayer.style.background = cd?.stroke || so?.stroke || "#94a3b8";
+            el.appendChild(borderLayer);
+          }
+
+          // Label
+          const labelDiv = document.createElement("div");
+          labelDiv.className = "mf-node-label";
+          const raw = node.label || node.id || "";
+          const labelLines = raw.replace(/<br\s*\/?>/gi, "\n").split("\n");
+          labelDiv.innerHTML = labelLines.map(l => '<span class="mf-label-line">' + escapeHtml(l) + '</span>').join("");
+          el.appendChild(labelDiv);
+
+          // Tooltip
+          el.setAttribute("data-mf-tip", (node.label || node.id) + " [" + node.id + "]");
+
+          // Click
+          el.addEventListener("click", (ev) => {
+            if (suppressClick) return;
+            ev.stopPropagation();
+            container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            el.classList.add("mf-selected");
+            const rect = el.getBoundingClientRect();
+            send("element:selected", {
+              label: node.label || node.id, id: node.id, nodeId: node.id, elementType: "node",
+              screenBox: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+            });
+          });
+
+          // Context menu
+          el.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault(); ev.stopPropagation();
+            container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            el.classList.add("mf-selected");
+            send("element:context", {
+              label: node.label || node.id, id: node.id, nodeId: node.id, elementType: "node",
+              pointerX: ev.clientX, pointerY: ev.clientY,
+            });
+          });
+
+          // Drag
+          let dragInfo = null;
+          el.addEventListener("pointerdown", (ev) => {
+            if (ev.button !== 0) return;
+            if (connectMode) {
+              if (node.id !== connectMode.sourceId) {
+                send("connect:complete", { sourceId: connectMode.sourceId, targetId: node.id });
+              }
+              ev.preventDefault();
+              return;
+            }
+            ev.preventDefault();
+            suppressClick = false;
+            dragInfo = { startX: ev.clientX, startY: ev.clientY, origLeft: parseFloat(el.style.left), origTop: parseFloat(el.style.top), moved: false };
+            el.style.cursor = "grabbing"; el.style.zIndex = "100";
+            el.setPointerCapture(ev.pointerId);
+          });
+          el.addEventListener("pointermove", (ev) => {
+            if (!dragInfo) return;
+            const dx = ev.clientX - dragInfo.startX;
+            const dy = ev.clientY - dragInfo.startY;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragInfo.moved = true;
+            if (!dragInfo.moved) return;
+            el.style.left = (dragInfo.origLeft + dx) + "px";
+            el.style.top = (dragInfo.origTop + dy) + "px";
+            updateFlowEdgesForNode(edgeSvg, flowData.edges, node.id, nodeEls, nodeDims);
+          });
+          el.addEventListener("pointerup", (ev) => {
+            if (!dragInfo) return;
+            const dx = ev.clientX - dragInfo.startX;
+            const dy = ev.clientY - dragInfo.startY;
+            el.releasePointerCapture(ev.pointerId);
+            el.style.cursor = ""; el.style.zIndex = "";
+            if (dragInfo.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+              suppressClick = true;
+              setTimeout(() => { suppressClick = false; }, 200);
+              positionOverrides[node.id] = positionOverrides[node.id] || { dx: 0, dy: 0 };
+              positionOverrides[node.id].dx += dx;
+              positionOverrides[node.id].dy += dy;
+              send("element:dragged", { label: node.label || node.id, nodeId: node.id, deltaX: dx, deltaY: dy, isGanttTask: false });
+            }
+            dragInfo = null;
+          });
+
+          // Hover port indicators
+          el.addEventListener("mouseenter", () => {
+            if (connectMode) return;
+            container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
+            const left = parseFloat(el.style.left);
+            const top = parseFloat(el.style.top);
+            const w = dim.width; const h = dim.height;
+            const cx = left + w / 2; const cy = top + h / 2;
+            const portPositions = [
+              { name: "top", x: cx - 9, y: top - 22 },
+              { name: "bottom", x: cx - 9, y: top + h + 4 },
+              { name: "left", x: left - 22, y: cy - 9 },
+              { name: "right", x: left + w + 4, y: cy - 9 },
+            ];
+            for (const pp of portPositions) {
+              const port = document.createElement("div");
+              port.className = "mf-flow-port";
+              port.style.left = pp.x + "px"; port.style.top = pp.y + "px"; port.style.opacity = "1";
+              port.textContent = "+";
+              port.addEventListener("click", (pe) => {
+                pe.stopPropagation();
+                send("port:clicked", { nodeId: node.id, port: pp.name });
+                container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
+              });
+              container.appendChild(port);
+            }
+          });
+          el.addEventListener("mouseleave", () => {
+            setTimeout(() => {
+              if (!container.querySelector(".mf-flow-port:hover")) {
+                container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
+              }
+            }, 200);
+          });
+
+          container.appendChild(el);
+          nodeEls[node.id] = el;
+        }
+
+        // Edge click/context handlers
+        edgeSvg.addEventListener("click", (ev) => {
+          const t = ev.target;
+          if (t.classList.contains("mf-edge-hit") || t.classList.contains("mf-edge") || t.classList.contains("mf-edge-label-bg")) {
+            ev.stopPropagation();
+            const src = t.getAttribute("data-source") || "";
+            const tgt = t.getAttribute("data-target") || "";
+            send("element:selected", { label: "", id: "", nodeId: "", elementType: "edge", edgeSource: src, edgeTarget: tgt });
+          }
+        });
+        edgeSvg.addEventListener("contextmenu", (ev) => {
+          const t = ev.target;
+          if (t.classList.contains("mf-edge-hit") || t.classList.contains("mf-edge") || t.classList.contains("mf-edge-label-bg") || t.classList.contains("mf-edge-label")) {
+            ev.preventDefault(); ev.stopPropagation();
+            const src = t.getAttribute("data-source") || "";
+            const tgt = t.getAttribute("data-target") || "";
+            send("element:context", { label: "", id: "", nodeId: "", elementType: "edge", edgeSource: src, edgeTarget: tgt, pointerX: ev.clientX, pointerY: ev.clientY });
+          }
+        });
+
+        // Empty area handlers
+        container.addEventListener("click", (ev) => {
+          if (ev.target === container) {
+            container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            send("element:selected", null);
+          }
+        });
+        container.addEventListener("contextmenu", (ev) => {
+          if (ev.target === container) {
+            ev.preventDefault();
+            send("element:context", { label: "", id: "", nodeId: "", elementType: "canvas", pointerX: ev.clientX, pointerY: ev.clientY });
+          }
+        });
+
+        // Size edge label backgrounds after DOM paint
+        requestAnimationFrame(() => {
+          edgeSvg.querySelectorAll(".mf-edge-label").forEach(txt => {
+            const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + txt.getAttribute("data-source") + '"][data-target="' + txt.getAttribute("data-target") + '"]');
+            if (!bg) return;
+            try { const bb = txt.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(e) {}
+          });
+        });
+
+        // Connect mode listener
+        const handleConnectMsg = (ev) => {
+          const d = ev.data;
+          if (!d || d.channel !== "${CHANNEL}") return;
+          if (d.type === "mode:connect") {
+            connectMode = { sourceId: d.payload?.sourceId || "" };
+            container.style.cursor = "crosshair";
+            const src = container.querySelector('[data-node-id="' + CSS.escape(connectMode.sourceId) + '"]');
+            if (src) src.classList.add("mf-connect-source");
+          }
+          if (d.type === "mode:normal") {
+            connectMode = null;
+            container.style.cursor = "";
+            container.querySelectorAll(".mf-connect-source").forEach(n => n.classList.remove("mf-connect-source"));
+          }
+          if (d.type === "flowchart:select") {
+            const nid = d.payload?.nodeId || "";
+            container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            if (nid) {
+              const nd = container.querySelector('[data-node-id="' + CSS.escape(nid) + '"]');
+              if (nd) nd.classList.add("mf-selected");
+            }
+          }
+        };
+        window.addEventListener("message", handleConnectMsg);
 
         canvas.appendChild(container);
       };
@@ -2664,13 +3337,20 @@ function getIframeSrcDoc() {
           mermaid.initialize({ ...config, startOnLoad: false });
           const parseResult = await mermaid.parse(code);
           currentDiagramType = parseResult?.diagramType || "";
-          const isGantt = (currentDiagramType || "").toLowerCase().includes("gantt");
+          const dtLower = (currentDiagramType || "").toLowerCase();
+          const isGantt = dtLower.includes("gantt");
+          const isFlowchart = dtLower.includes("flow") || dtLower === "graph";
 
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
             renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
+          } else if (isFlowchart) {
+            // Custom HTML Flowchart renderer — bypass Mermaid SVG
+            const fd = data.payload?.flowchartData || {};
+            renderCustomFlowchart(fd.parsed || {}, fd.classDefs || [], fd.classAssignments || {}, fd.styleOverrides || {});
+            send("render:success", { diagramType: currentDiagramType, svg: "", isCustomFlowchart: true });
           } else {
             // Standard Mermaid SVG rendering
             const token = "diagram_" + Date.now();
@@ -2960,6 +3640,14 @@ function App() {
       showGrid,
     };
 
+    // Pre-compute flowchart data so the iframe can render custom HTML flowchart
+    const flowchartPayload = {
+      parsed: parseFlowchart(code),
+      classDefs: parseClassDefs(code),
+      classAssignments: parseClassAssignments(code),
+      styleOverrides,
+    };
+
     frame.contentWindow.postMessage(
       {
         channel: CHANNEL,
@@ -2968,6 +3656,7 @@ function App() {
           code,
           config: mermaidRenderConfig,
           ganttData,
+          flowchartData: flowchartPayload,
         },
       },
       "*"
@@ -3016,11 +3705,13 @@ function App() {
         setDiagramType(payload.diagramType || "unknown");
         setRenderSvg(payload.svg || "");
 
-        // Custom Gantt was already rendered by the iframe; skip annotation and SVG post-processing.
+        // Custom renderers already handled everything inside the iframe; skip SVG post-processing.
         const isCustomGantt = payload.isCustomGantt || false;
+        const isCustomFlowchart = payload.isCustomFlowchart || false;
+        const isCustomRenderer = isCustomGantt || isCustomFlowchart;
 
-        // Apply position overrides after re-render (non-Gantt only)
-        if (!isCustomGantt && Object.keys(positionOverrides).length > 0) {
+        // Apply position overrides after re-render (SVG diagrams only)
+        if (!isCustomRenderer && Object.keys(positionOverrides).length > 0) {
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
             frame.contentWindow.postMessage(
@@ -3030,10 +3721,10 @@ function App() {
           }
         }
 
-        // Send parsed edge data for custom edge rendering
+        // Send parsed edge data for custom edge rendering (SVG diagrams only)
         const tk = classifyDiagramType(payload.diagramType || "");
         const edgeTypes = ["flowchart", "erDiagram", "stateDiagram", "classDiagram"];
-        if (edgeTypes.includes(tk)) {
+        if (!isCustomRenderer && edgeTypes.includes(tk)) {
           let edges = [];
           if (tk === "flowchart") {
             const fd = parseFlowchart(code);
@@ -3060,8 +3751,8 @@ function App() {
           }
         }
 
-        // Apply style overrides after render (with delay for edges to draw first)
-        if (Object.keys(styleOverrides).length > 0) {
+        // Apply style overrides after render (SVG diagrams only; custom renderers handle styles internally)
+        if (!isCustomRenderer && Object.keys(styleOverrides).length > 0) {
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
             setTimeout(() => {
