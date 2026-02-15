@@ -323,6 +323,13 @@ input:focus {
   color: var(--ink);
 }
 
+.date-toggle-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .editor-wrap {
   display: grid;
   grid-template-columns: 44px 1fr;

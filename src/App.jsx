@@ -257,7 +257,7 @@ function getIframeSrcDoc() {
       const ganttHeaderEl = document.getElementById("mf-gantt-grid-header");
       const ganttRoleColEl = document.getElementById("mf-gantt-role-column");
       const TASK_TEXT_SEL = "text.taskText, text.taskTextOutsideRight, text.taskTextOutsideLeft";
-      let lastGanttAnnotation = { tasks: [], showDates: true };
+      let lastGanttAnnotation = { tasks: [], showDates: true, scale: "week" };
       const supportsHover = window.matchMedia && window.matchMedia("(hover: hover)").matches;
       let ganttInsertLayerVisible = !supportsHover;
 
@@ -312,7 +312,7 @@ function getIframeSrcDoc() {
 
       const syncGanttOverlay = () => {
         if (!ganttOverlayState || !ganttHeaderEl || !ganttRoleColEl) return;
-        const { rowGroups, samples, minStartMs, maxEndMs, leftColWidth, headerHeight } = ganttOverlayState;
+        const { rowGroups, samples, minStartMs, maxEndMs, scale } = ganttOverlayState;
         if (!samples.length || !rowGroups.length) return clearGanttOverlay();
 
         const wrapRect = wrap.getBoundingClientRect();
@@ -328,7 +328,10 @@ function getIframeSrcDoc() {
             return w > 0 ? w / spanDays : 0;
           })
           .filter((v) => v > 0);
-        const pxPerDay = Math.max(22, median(pxPerDayValues) || 32);
+        const pxPerDay = Math.max(
+          scale === "month" ? 8 : 14,
+          Math.min(scale === "month" ? 18 : 30, median(pxPerDayValues) || (scale === "month" ? 12 : 20))
+        );
 
         const xAnchors = samples
           .map((sample) => {
@@ -342,13 +345,18 @@ function getIframeSrcDoc() {
         const totalDays = Math.max(1, Math.floor((maxEndMs - minStartMs) / 86400000) + 1);
         const timelineWidth = totalDays * pxPerDay;
 
+        const wrapInnerLeft = wrap.scrollLeft + 16;
+        const leftColWidth = Math.max(180, Math.min(280, Math.round(xStart - wrapInnerLeft - 8)));
+        const headerRowHeight = 24;
+        const headerHeight = scale === "month" ? headerRowHeight : headerRowHeight * 2;
+
         // Position sticky-like containers.
         ganttHeaderEl.style.display = "block";
         ganttRoleColEl.style.display = "block";
-        ganttHeaderEl.style.left = Math.round(wrap.scrollLeft + 16 + leftColWidth) + "px";
+        ganttHeaderEl.style.left = Math.round(xStart) + "px";
         ganttHeaderEl.style.top = Math.round(wrap.scrollTop + 16) + "px";
         ganttHeaderEl.style.width = Math.round(timelineWidth) + "px";
-        ganttRoleColEl.style.left = Math.round(wrap.scrollLeft + 16) + "px";
+        ganttRoleColEl.style.left = Math.round(wrapInnerLeft) + "px";
         ganttRoleColEl.style.top = Math.round(wrap.scrollTop + 16 + headerHeight) + "px";
         ganttRoleColEl.style.width = leftColWidth + "px";
 
@@ -356,13 +364,7 @@ function getIframeSrcDoc() {
         const dayItems = [];
         for (let i = 0; i < totalDays; i++) {
           const ms = minStartMs + i * 86400000;
-          const d = new Date(ms);
-          dayItems.push({
-            ms,
-            label: String(d.getUTCDate()),
-            sub: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()],
-            x: i * pxPerDay,
-          });
+          dayItems.push({ ms, x: i * pxPerDay });
         }
 
         const weekGroups = [];
@@ -406,8 +408,9 @@ function getIframeSrcDoc() {
 
         ganttHeaderEl.innerHTML = "";
         ganttHeaderEl.appendChild(buildRow("month", monthGroups, (g) => g.label));
-        ganttHeaderEl.appendChild(buildRow("week", weekGroups, (g) => g.label));
-        ganttHeaderEl.appendChild(buildRow("day", dayItems.map((d, idx) => ({ ...d, start: idx, end: idx })), (g) => g.label + " " + g.sub));
+        if (scale === "week") {
+          ganttHeaderEl.appendChild(buildRow("week", weekGroups, (g) => g.label));
+        }
 
         // Sync role rows to section bounds.
         for (const rowGroup of rowGroups) {
@@ -425,18 +428,13 @@ function getIframeSrcDoc() {
           rowGroup.el.style.top = Math.round(top - headerHeight) + "px";
           rowGroup.el.style.height = Math.max(34, Math.round(bottom - top)) + "px";
         }
-
-        // Keep header aligned with the current timeline X start.
-        ganttHeaderEl.style.transform = "translateX(" + Math.round(xStart - (wrap.scrollLeft + 16 + leftColWidth)) + "px)";
       };
 
-      const buildGanttOverlay = (taskVisuals) => {
+      const buildGanttOverlay = (taskVisuals, scale) => {
         if (!ganttHeaderEl || !ganttRoleColEl || !taskVisuals.length) {
           clearGanttOverlay();
           return;
         }
-        const leftColWidth = 224;
-        const headerHeight = 66;
 
         const grouped = new Map();
         for (const visual of taskVisuals) {
@@ -476,8 +474,7 @@ function getIframeSrcDoc() {
           samples,
           minStartMs,
           maxEndMs,
-          leftColWidth,
-          headerHeight,
+          scale: scale === "month" ? "month" : "week",
         };
         queueGanttOverlaySync();
       };
@@ -1723,7 +1720,7 @@ function getIframeSrcDoc() {
         });
       }
 
-      const annotateGanttBars = (tasks, showDates) => {
+      const annotateGanttBars = (tasks, showDates, scale = "week") => {
         const svg = canvas.querySelector("svg");
         if (!svg) return;
         svg.querySelectorAll(".mf-date-tspan").forEach(el => el.remove());
@@ -1765,17 +1762,26 @@ function getIframeSrcDoc() {
           const minStart = Math.min(...datedSpans.map((s) => s.start));
           const maxEnd = Math.max(...datedSpans.map((s) => s.end));
           const daySpan = Math.max(1, Math.floor((maxEnd - minStart) / dayMs) + 1);
-          // Ported from TalentifAI's day-column sizing approach:
-          // wider day columns for readability, shrinking as range grows.
-          const pixelsPerDay = Math.max(28, Math.min(60, Math.round(2200 / daySpan)));
-          const preferredWidth = daySpan * pixelsPerDay + 620;
-          const minWidth = Math.max(1600, Math.min(9000, Math.round(preferredWidth)));
+          // Weekly mode is default and denser; monthly is the densest.
+          const target = scale === "month" ? 1200 : 1800;
+          const minPerDay = scale === "month" ? 8 : 12;
+          const maxPerDay = scale === "month" ? 16 : 28;
+          const pixelsPerDay = Math.max(minPerDay, Math.min(maxPerDay, Math.round(target / daySpan)));
+          const preferredWidth = daySpan * pixelsPerDay + 540;
+          const minFloor = scale === "month" ? 1200 : 1400;
+          const minWidth = Math.max(minFloor, Math.min(9000, Math.round(preferredWidth)));
           svg.style.width = "max-content";
           svg.style.minWidth = minWidth + "px";
           svg.style.maxWidth = "none";
           svg.style.height = "auto";
           canvas.style.justifyContent = "flex-start";
         }
+
+        // With fixed left role column, hide Mermaid section labels/backdrops to avoid duplication.
+        svg.querySelectorAll("text.sectionTitle, .sectionTitle, rect.section0, rect.section1, rect.section2, rect.section3").forEach((el) => {
+          el.style.opacity = "0";
+          el.style.pointerEvents = "none";
+        });
 
         const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
         defs.setAttribute("class", "mf-task-clip-defs");
@@ -1938,7 +1944,7 @@ function getIframeSrcDoc() {
           }
         });
 
-        buildGanttOverlay(taskVisuals);
+        buildGanttOverlay(taskVisuals, scale);
 
         if (!insertAnchors.length) return;
         const controlsLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -2020,7 +2026,7 @@ function getIframeSrcDoc() {
         if (!lastGanttAnnotation.tasks.length) return;
         if (ganttResizeRaf) cancelAnimationFrame(ganttResizeRaf);
         ganttResizeRaf = requestAnimationFrame(() => {
-          annotateGanttBars(lastGanttAnnotation.tasks, lastGanttAnnotation.showDates);
+          annotateGanttBars(lastGanttAnnotation.tasks, lastGanttAnnotation.showDates, lastGanttAnnotation.scale);
           ganttResizeRaf = 0;
         });
       });
@@ -2033,8 +2039,9 @@ function getIframeSrcDoc() {
           lastGanttAnnotation = {
             tasks: data.payload?.tasks || [],
             showDates: data.payload?.showDates !== false,
+            scale: data.payload?.scale === "month" ? "month" : "week",
           };
-          annotateGanttBars(lastGanttAnnotation.tasks, lastGanttAnnotation.showDates);
+          annotateGanttBars(lastGanttAnnotation.tasks, lastGanttAnnotation.showDates, lastGanttAnnotation.scale);
           return;
         }
 
@@ -2261,6 +2268,7 @@ function App() {
   const [editorWidth, setEditorWidth] = useState(30);
   const [showDates, setShowDates] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
+  const [ganttScale, setGanttScale] = useState("week"); // "week" | "month"
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -2490,7 +2498,7 @@ function App() {
           const frame = iframeRef.current;
           if (frame?.contentWindow) {
             frame.contentWindow.postMessage(
-              { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates } },
+              { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates, scale: ganttScale } },
               "*"
             );
             // Apply grid lines state
@@ -2789,7 +2797,7 @@ function App() {
 
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [code, ganttTasks, toolsetKey, showDates, positionOverrides, flowchartData]);
+  }, [code, ganttTasks, toolsetKey, showDates, ganttScale, positionOverrides, flowchartData]);
 
   /* ── Re-annotate on showDates toggle ─────────────────── */
   useEffect(() => {
@@ -2807,10 +2815,10 @@ function App() {
       return { label: t.label, startDate: t.startDate, endDate: t.endDate, durationDays: t.durationDays, computedEnd, assignee: t.assignee || "", statusTokens: t.statusTokens || [], section: t.section || "" };
     });
     frame.contentWindow.postMessage(
-      { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates } },
+      { channel: CHANNEL, type: "gantt:annotate", payload: { tasks: annotationData, showDates, scale: ganttScale } },
       "*"
     );
-  }, [showDates, toolsetKey]);
+  }, [showDates, ganttScale, toolsetKey]);
 
   /* ── Re-apply grid toggle on change ─────────────────── */
   useEffect(() => {
@@ -3219,6 +3227,18 @@ function App() {
                     onClick={() => setShowDates((prev) => !prev)}
                   >
                     {showDates ? "Hide dates" : "Show dates"}
+                  </button>
+                  <button
+                    className={`date-toggle-btn${ganttScale === "week" ? " active" : ""}`}
+                    onClick={() => setGanttScale("week")}
+                  >
+                    Week view
+                  </button>
+                  <button
+                    className={`date-toggle-btn${ganttScale === "month" ? " active" : ""}`}
+                    onClick={() => setGanttScale("month")}
+                  >
+                    Month view
                   </button>
                 </>
               )}
