@@ -259,9 +259,10 @@ export function parseGanttTasks(code) {
       durationDays = Math.round((e - s) / (1000 * 60 * 60 * 24));
     }
 
-    // Check subsequent lines for metadata comments (assignee, notes)
+    // Check subsequent lines for metadata comments (assignee, notes, link)
     let assignee = "";
     let notes = "";
+    let link = "";
     let metaIdx = lineIndex + 1;
     while (metaIdx < lines.length) {
       const metaLine = lines[metaIdx].trim();
@@ -270,6 +271,8 @@ export function parseGanttTasks(code) {
       if (aMatch) assignee = aMatch[1].trim();
       const nMatch = metaLine.match(/^%%\s*notes:\s*(.+)$/i);
       if (nMatch) notes = nMatch[1].trim();
+      const lMatch = metaLine.match(/^%%\s*link:\s*(.+)$/i);
+      if (lMatch) link = lMatch[1].trim();
       metaIdx++;
     }
 
@@ -293,6 +296,7 @@ export function parseGanttTasks(code) {
       hasExplicitDate: dateIndex >= 0,
       assignee,
       notes,
+      link,
       isMilestone,
       isVertMarker,
       afterDeps,
@@ -499,6 +503,8 @@ export function insertGanttTaskAfter(code, task, draft = {}) {
   if (assignee) newLines.push(`${indent}%% assignee: ${assignee}`);
   const notes = (draft.notes || "").trim();
   if (notes) newLines.push(`${indent}%% notes: ${notes}`);
+  const link = (draft.link || "").trim();
+  if (link) newLines.push(`${indent}%% link: ${link}`);
 
   lines.splice(insertAt, 0, ...newLines);
   return lines.join("\n");
@@ -534,55 +540,50 @@ export function clearGanttStatus(code, task) {
   return lines.join("\n");
 }
 
-export function updateGanttAssignee(code, task, assignee) {
+function updateGanttMetadataComment(code, task, key, value) {
   if (!task) return code;
   const lines = code.split("\n");
-  const nextLine = (lines[task.lineIndex + 1] || "").trim();
-  const hasComment = /^%%\s*assignee:/i.test(nextLine);
+  const matcher = new RegExp(`^%%\\s*${key}:`, "i");
 
-  if (assignee) {
-    const commentLine = `${task.indent}%% assignee: ${assignee}`;
-    if (hasComment) {
-      lines[task.lineIndex + 1] = commentLine;
-    } else {
-      lines.splice(task.lineIndex + 1, 0, commentLine);
-    }
-  } else if (hasComment) {
-    lines.splice(task.lineIndex + 1, 1);
-  }
-
-  return lines.join("\n");
-}
-
-export function updateGanttNotes(code, task, notes) {
-  if (!task) return code;
-  const lines = code.split("\n");
-
-  // Find existing notes comment line among metadata lines after task
-  let notesLineIdx = -1;
+  // Find existing metadata line for this key among metadata comments after the task.
+  let keyLineIdx = -1;
   let searchIdx = task.lineIndex + 1;
   while (searchIdx < lines.length && lines[searchIdx].trim().startsWith("%%")) {
-    if (/^%%\s*notes:/i.test(lines[searchIdx].trim())) {
-      notesLineIdx = searchIdx;
+    if (matcher.test(lines[searchIdx].trim())) {
+      keyLineIdx = searchIdx;
+      break;
     }
     searchIdx++;
   }
 
-  if (notes) {
-    const commentLine = `${task.indent}%% notes: ${notes}`;
-    if (notesLineIdx >= 0) {
-      lines[notesLineIdx] = commentLine;
+  const cleanValue = String(value || "").trim();
+  if (cleanValue) {
+    const commentLine = `${task.indent}%% ${key}: ${cleanValue}`;
+    if (keyLineIdx >= 0) {
+      lines[keyLineIdx] = commentLine;
     } else {
-      // Insert after last metadata comment (or after task line)
+      // Insert after last metadata comment (or directly after task line).
       let insertIdx = task.lineIndex + 1;
       while (insertIdx < lines.length && lines[insertIdx].trim().startsWith("%%")) {
         insertIdx++;
       }
       lines.splice(insertIdx, 0, commentLine);
     }
-  } else if (notesLineIdx >= 0) {
-    lines.splice(notesLineIdx, 1);
+  } else if (keyLineIdx >= 0) {
+    lines.splice(keyLineIdx, 1);
   }
 
   return lines.join("\n");
+}
+
+export function updateGanttAssignee(code, task, assignee) {
+  return updateGanttMetadataComment(code, task, "assignee", assignee);
+}
+
+export function updateGanttNotes(code, task, notes) {
+  return updateGanttMetadataComment(code, task, "notes", notes);
+}
+
+export function updateGanttLink(code, task, link) {
+  return updateGanttMetadataComment(code, task, "link", link);
 }

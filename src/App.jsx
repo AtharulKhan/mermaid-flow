@@ -13,6 +13,7 @@ import {
   clearGanttStatus,
   updateGanttAssignee,
   updateGanttNotes,
+  updateGanttLink,
   deleteGanttTask,
   insertGanttTaskAfter,
 } from "./ganttUtils";
@@ -351,7 +352,7 @@ function getIframeSrcDoc() {
         overflow: hidden;
         text-overflow: ellipsis;
         display: block;
-        max-width: calc(100% - var(--date-suffix-width, 0px) - 16px);
+        max-width: calc(100% - var(--date-suffix-width, 0px) - var(--link-icon-width, 0px) - 16px);
         pointer-events: none;
         line-height: 1.2;
         min-width: 0;
@@ -396,11 +397,60 @@ function getIframeSrcDoc() {
         font-size: 10px;
         font-weight: 400;
         position: absolute;
-        right: 8px;
+        right: calc(8px + var(--link-icon-width, 0px));
         top: 50%;
         transform: translateY(-50%);
         white-space: nowrap;
         pointer-events: none;
+      }
+      .bar-link-icon {
+        position: absolute;
+        right: 5px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 15px;
+        height: 15px;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.45);
+        background: rgba(255, 255, 255, 0.9);
+        color: #334155;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease, border-color 0.12s ease;
+      }
+      .bar-link-icon svg {
+        width: 9px;
+        height: 9px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+      }
+      .bar-link-icon:hover {
+        transform: translateY(-50%) scale(1.06);
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.24);
+      }
+      .bar-link-icon:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 1px;
+      }
+      .mf-gantt-bar:not(.mf-bar-default):not(.mf-bar-active) .bar-link-icon {
+        color: rgba(255, 255, 255, 0.92);
+        border-color: rgba(255, 255, 255, 0.42);
+        background: rgba(15, 23, 42, 0.16);
+      }
+      .mf-gantt-milestone .bar-link-icon {
+        right: auto;
+        left: calc(100% + 6px);
+        color: #334155;
+        border-color: rgba(148, 163, 184, 0.55);
+        background: rgba(255, 255, 255, 0.96);
+      }
+      .mf-gantt-milestone.mf-label-outside-left .bar-link-icon {
+        left: auto;
+        right: calc(100% + 6px);
       }
       .mf-gantt-today-line {
         position: absolute;
@@ -1229,6 +1279,19 @@ function getIframeSrcDoc() {
         return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
       };
 
+      const buildOpenableTaskUrl = (raw) => {
+        const value = String(raw || "").trim();
+        if (!value) return "";
+        const hasProtocol = /^[a-z][a-z0-9+.-]*:/i.test(value);
+        const candidate = hasProtocol ? value : "https://" + value;
+        try {
+          const parsed = new URL(candidate);
+          return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
+        } catch {
+          return "";
+        }
+      };
+
       const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories) => {
         setGanttMode(true);
         clearGanttOverlay();
@@ -1475,6 +1538,10 @@ function getIframeSrcDoc() {
               bar.style.height = barHeight + "px";
             }
             bar.setAttribute("data-label", task.label || "");
+            const rawTaskLink = String(task.link || "").trim();
+            const openableTaskLink = buildOpenableTaskUrl(rawTaskLink);
+            const hasTaskLink = Boolean(rawTaskLink);
+            bar.style.setProperty("--link-icon-width", hasTaskLink ? "20px" : "0px");
 
             // Bar label
             const labelSpan = document.createElement("span");
@@ -1499,12 +1566,48 @@ function getIframeSrcDoc() {
               bar.style.setProperty("--date-suffix-width", "0px");
             }
 
+            if (hasTaskLink) {
+              const linkBtn = document.createElement("button");
+              linkBtn.type = "button";
+              linkBtn.className = "bar-link-icon";
+              linkBtn.setAttribute("title", rawTaskLink);
+              linkBtn.setAttribute("aria-label", "Open task link");
+
+              const linkIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+              linkIcon.setAttribute("viewBox", "0 0 24 24");
+              linkIcon.setAttribute("aria-hidden", "true");
+              const linkPathA = document.createElementNS("http://www.w3.org/2000/svg", "path");
+              linkPathA.setAttribute("d", "M10.8 13.2a3 3 0 0 1 0-4.2l3-3a3 3 0 1 1 4.2 4.2l-1.2 1.2");
+              const linkPathB = document.createElementNS("http://www.w3.org/2000/svg", "path");
+              linkPathB.setAttribute("d", "M13.2 10.8a3 3 0 0 1 0 4.2l-3 3a3 3 0 1 1-4.2-4.2l1.2-1.2");
+              linkIcon.append(linkPathA, linkPathB);
+              linkBtn.appendChild(linkIcon);
+
+              linkBtn.addEventListener("pointerdown", (event) => {
+                event.stopPropagation();
+              });
+              linkBtn.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!openableTaskLink) return;
+                window.open(openableTaskLink, "_blank", "noopener,noreferrer");
+              });
+
+              bar.appendChild(linkBtn);
+            }
+
             const labelWidth = measureLabelWidth(task.label || "");
             if (task.isMilestone) {
               const rightSpace = timelineWidth - (barLeft + barPixelWidth);
               if (rightSpace < labelWidth + 14) bar.classList.add("mf-label-outside-left");
             } else {
-              const innerLabelWidth = Math.max(0, width - 16 - (dateSuffixWidth ? dateSuffixWidth + 6 : 0));
+              const innerLabelWidth = Math.max(
+                0,
+                width -
+                  16 -
+                  (dateSuffixWidth ? dateSuffixWidth + 6 : 0) -
+                  (hasTaskLink ? 20 : 0)
+              );
               if (labelWidth > innerLabelWidth) {
                 const rightSpace = timelineWidth - (left + width);
                 if (rightSpace >= labelWidth + 14) bar.classList.add("mf-label-outside");
@@ -1526,6 +1629,7 @@ function getIframeSrcDoc() {
             if (isOverdue) tip += "\\nOVERDUE";
             if (task.assignee) tip += "\\nAssignee: " + task.assignee;
             if (task.notes) tip += "\\nNotes: " + task.notes;
+            if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
             bar.setAttribute("data-mf-tip", tip);
 
             // Overdue dot
@@ -3676,6 +3780,7 @@ function getIframeSrcDoc() {
             if (isOverdue) tip += "\\nOVERDUE";
             if (t.assignee) tip += "\\nAssignee: " + t.assignee;
             if (t.notes) tip += "\\nNotes: " + t.notes;
+            if (t.link) tip += "\\nLink: " + t.link;
             rectEl.setAttribute("data-mf-tip", tip);
             // Store task metadata for live drag tooltip
             if (t.startDate) rectEl.setAttribute("data-mf-start", t.startDate);
@@ -4115,7 +4220,15 @@ function App() {
   const [highlightLine, setHighlightLine] = useState(null);
   const [templateId, setTemplateId] = useState("flowchart");
   const [dragFeedback, setDragFeedback] = useState("");
-  const [ganttDraft, setGanttDraft] = useState({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "" });
+  const [ganttDraft, setGanttDraft] = useState({
+    label: "",
+    startDate: "",
+    endDate: "",
+    status: [],
+    assignee: "",
+    notes: "",
+    link: "",
+  });
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(false);
@@ -4331,6 +4444,7 @@ function App() {
           assignee: t.assignee || "",
           statusTokens: t.statusTokens || [],
           notes: t.notes || "",
+          link: t.link || "",
           section: t.section || "",
           isMilestone: t.isMilestone || false,
           isVertMarker: t.isVertMarker || false,
@@ -4490,7 +4604,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "" });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -4506,6 +4620,7 @@ function App() {
       status: selectedGanttTask.statusTokens || [],
       assignee: selectedGanttTask.assignee || "",
       notes: selectedGanttTask.notes || "",
+      link: selectedGanttTask.link || "",
     });
   }, [selectedGanttTask]);
 
@@ -4980,6 +5095,13 @@ function App() {
     const notesTask = findTaskByLabel(notesTasks, nextLabel);
     if (notesTask) {
       updated = updateGanttNotes(updated, notesTask, ganttDraft.notes.trim());
+    }
+
+    // Apply link
+    const linkTasks = parseGanttTasks(updated);
+    const linkTask = findTaskByLabel(linkTasks, nextLabel);
+    if (linkTask) {
+      updated = updateGanttLink(updated, linkTask, ganttDraft.link.trim());
     }
 
     setCode(updated);
@@ -5598,6 +5720,15 @@ function App() {
                     placeholder="e.g. Mohammed, John"
                   />
                 </label>
+                <label>
+                  Link
+                  <input
+                    type="url"
+                    value={ganttDraft.link}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, link: e.target.value }))}
+                    placeholder="https://example.com/task"
+                  />
+                </label>
                 <label>Status</label>
                 <div className="status-toggle-group">
                   {["done", "active", "crit"].map((flag) => {
@@ -5743,6 +5874,16 @@ function App() {
                     value={ganttDraft.assignee}
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
                     placeholder="e.g. Mohammed, John"
+                  />
+                </label>
+
+                <label>
+                  Link
+                  <input
+                    type="url"
+                    value={ganttDraft.link}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, link: e.target.value }))}
+                    placeholder="https://example.com/task"
                   />
                 </label>
 
