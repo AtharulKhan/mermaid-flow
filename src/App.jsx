@@ -1187,8 +1187,8 @@ function getIframeSrcDoc() {
         outline: 2px solid #f87171;
         outline-offset: 1px;
       }
-      [data-theme="dark"] .mf-dep-lines-svg path { stroke: #6b7280; }
-      [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #6b7280; }
+      [data-theme="dark"] .mf-dep-lines-svg path { stroke: #d1d5db; }
+      [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #d1d5db; }
       [data-theme="dark"] .mf-gantt-excluded-day {
         background: rgba(255,255,255,0.03);
       }
@@ -1841,16 +1841,10 @@ function getIframeSrcDoc() {
             else if (statuses.includes("crit")) barClass = "mf-bar-crit";
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
-            // Critical path highlighting
-            // Only dim tasks that are part of the dependency graph but NOT critical.
-            // Disconnected tasks (no deps) stay at normal opacity.
+            // Critical path highlighting — dim ALL non-critical tasks
             let cpClass = "";
             if (showCriticalPath) {
-              if (task.isCriticalPath) {
-                cpClass = " mf-bar-critical-path";
-              } else if (task.isConnected) {
-                cpClass = " mf-bar-dimmed";
-              }
+              cpClass = task.isCriticalPath ? " mf-bar-critical-path" : " mf-bar-dimmed";
             }
 
             const bar = document.createElement("div");
@@ -2238,7 +2232,7 @@ function getIframeSrcDoc() {
             m.appendChild(p);
             return m;
           };
-          defs.appendChild(makeMarker("dep-arrow", "#94a3b8"));
+          defs.appendChild(makeMarker("dep-arrow", "#374151"));
           defs.appendChild(makeMarker("dep-arrow-cp", "#ef4444"));
           svg.appendChild(defs);
 
@@ -2248,6 +2242,17 @@ function getIframeSrcDoc() {
             for (const t of enriched) {
               if (t.isCriticalPath) cpSet.add((t.idToken || t.label || "").toLowerCase());
             }
+          }
+
+          // Collect all bar rects for collision avoidance
+          const allBarRects = [];
+          for (const [, pos] of barPositions) {
+            allBarRects.push({
+              left: pos.left,
+              right: pos.right,
+              top: pos.centerY - barHeight / 2,
+              bottom: pos.centerY + barHeight / 2,
+            });
           }
 
           const allRegularTasks = enriched;
@@ -2262,34 +2267,52 @@ function getIframeSrcDoc() {
               const fromPos = barPositions.get(fromKey);
               if (!fromPos) continue;
 
-              // Arrow: predecessor right edge → dependent left edge
               const x1 = fromPos.right + 2;
               const y1 = fromPos.centerY;
               const x2 = toPos.left - 2;
               const y2 = toPos.centerY;
               const isCpEdge = showCriticalPath && cpSet.has(fromKey) && cpSet.has(toKey);
+              const step = 10;
 
               const path = document.createElementNS(svgNS, "path");
               if (Math.abs(y1 - y2) < 2) {
+                // Same row: straight horizontal line
                 path.setAttribute("d", "M " + x1 + " " + y1 + " L " + x2 + " " + y2);
               } else {
-                // Step-curve: go right, then down/up, then right to target
-                const gapX = x2 - x1;
-                if (gapX > 20) {
-                  // Normal: gentle S-curve
-                  const cx1 = x1 + gapX * 0.4;
-                  const cx2 = x2 - gapX * 0.4;
-                  path.setAttribute("d", "M " + x1 + " " + y1 + " C " + cx1 + " " + y1 + " " + cx2 + " " + y2 + " " + x2 + " " + y2);
-                } else {
-                  // Overlapping: route below/above with elbow
-                  const detour = 16;
-                  const midY = y1 < y2 ? Math.max(y1, y2) + detour : Math.min(y1, y2) - detour;
-                  path.setAttribute("d", "M " + x1 + " " + y1 + " C " + (x1 + detour) + " " + y1 + " " + (x1 + detour) + " " + midY + " " + ((x1 + x2) / 2) + " " + midY + " S " + (x2 - detour) + " " + y2 + " " + x2 + " " + y2);
-                }
+                // Right-angle connector that routes around bars:
+                // 1. Go right from source bar
+                // 2. Go down/up to below/above the bar rows
+                // 3. Go horizontally to target column
+                // 4. Go up/down to target bar
+                const goingDown = y2 > y1;
+                const fromBottom = fromPos.centerY + barHeight / 2;
+                const fromTop = fromPos.centerY - barHeight / 2;
+                const toBottom = toPos.centerY + barHeight / 2;
+                const toTop = toPos.centerY - barHeight / 2;
+
+                // Route below if going down, above if going up
+                const routeY = goingDown
+                  ? Math.max(fromBottom, toBottom) + step
+                  : Math.min(fromTop, toTop) - step;
+
+                // midX: go right from source, then drop, or use midpoint
+                const midX = x2 > x1 + step * 2
+                  ? x1 + step  // Normal: step right from source then drop
+                  : x1 + step; // Overlapping: still step right first
+
+                path.setAttribute("d",
+                  "M " + x1 + " " + y1 +
+                  " L " + midX + " " + y1 +
+                  " L " + midX + " " + routeY +
+                  " L " + (x2 - step) + " " + routeY +
+                  " L " + (x2 - step) + " " + y2 +
+                  " L " + x2 + " " + y2
+                );
               }
-              path.setAttribute("stroke", isCpEdge ? "#ef4444" : "#94a3b8");
+              path.setAttribute("stroke", isCpEdge ? "#ef4444" : "#374151");
               path.setAttribute("stroke-width", isCpEdge ? "2" : "1.5");
               path.setAttribute("fill", "none");
+              path.setAttribute("stroke-linejoin", "round");
               path.setAttribute("marker-end", isCpEdge ? "url(#dep-arrow-cp)" : "url(#dep-arrow)");
               svg.appendChild(path);
             }
