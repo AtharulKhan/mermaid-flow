@@ -11,6 +11,7 @@ import {
   updateGanttTask,
   toggleGanttStatus,
   clearGanttStatus,
+  toggleGanttMilestone,
   updateGanttAssignee,
   updateGanttNotes,
   updateGanttLink,
@@ -20,6 +21,9 @@ import {
   getGanttSections,
   moveGanttTaskToSection,
   renameGanttSection,
+  computeRiskFlags,
+  computeCriticalPath,
+  updateGanttDependency,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
@@ -82,6 +86,92 @@ function normalizeAssigneeList(value) {
     .map((part) => part.trim())
     .filter(Boolean)
     .join(", ");
+}
+
+function AssigneeTagInput({ value, onChange, suggestions }) {
+  const tags = String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const [inputVal, setInputVal] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const inputRef = useRef(null);
+
+  const filtered = suggestions.filter(
+    (s) => !tags.some((t) => t.toLowerCase() === s.toLowerCase()) &&
+      s.toLowerCase().includes(inputVal.toLowerCase())
+  );
+
+  const commit = (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (tags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) return;
+    const next = [...tags, trimmed].join(", ");
+    onChange(next);
+    setInputVal("");
+    setActiveIdx(-1);
+  };
+
+  const remove = (idx) => {
+    const next = tags.filter((_, i) => i !== idx).join(", ");
+    onChange(next);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      if (activeIdx >= 0 && activeIdx < filtered.length) {
+        commit(filtered[activeIdx]);
+      } else if (inputVal.trim()) {
+        commit(inputVal);
+      }
+    } else if (e.key === "Backspace" && !inputVal && tags.length) {
+      remove(tags.length - 1);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((prev) => Math.min(prev + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((prev) => Math.max(prev - 1, -1));
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+    }
+  };
+
+  return (
+    <div className="assignee-tag-wrap" onClick={() => inputRef.current?.focus()}>
+      {tags.map((tag, i) => (
+        <span key={tag + i} className="assignee-tag">
+          {tag}
+          <button type="button" className="assignee-tag-remove" onClick={(e) => { e.stopPropagation(); remove(i); }}>&times;</button>
+        </span>
+      ))}
+      <div style={{ position: "relative", flex: 1, minWidth: 80 }}>
+        <input
+          ref={inputRef}
+          className="assignee-tag-input"
+          value={inputVal}
+          onChange={(e) => { setInputVal(e.target.value); setActiveIdx(-1); setShowSuggestions(true); }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => { setTimeout(() => setShowSuggestions(false), 150); if (inputVal.trim()) commit(inputVal); }}
+          onKeyDown={onKeyDown}
+          placeholder={tags.length ? "" : "Add assignee..."}
+        />
+        {showSuggestions && inputVal && filtered.length > 0 && (
+          <div className="assignee-suggestions">
+            {filtered.map((s, i) => (
+              <button
+                key={s}
+                type="button"
+                className={`assignee-suggestion${i === activeIdx ? " active" : ""}`}
+                onMouseDown={(e) => { e.preventDefault(); commit(s); }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function isMobileViewport() {
@@ -364,7 +454,6 @@ function getIframeSrcDoc() {
         background: #ffffff;
         position: relative;
         box-sizing: border-box;
-        overflow: hidden;
       }
       .mf-gantt-track:nth-child(4n+1) {
         background: #fafbfd;
@@ -389,6 +478,7 @@ function getIframeSrcDoc() {
         overflow: visible;
         box-sizing: border-box;
         min-width: 18px;
+        z-index: 3;
         --outside-label-width: 0px;
       }
       .mf-gantt-bar:hover {
@@ -402,6 +492,16 @@ function getIframeSrcDoc() {
       .mf-bar-active  { background: #fef08a; }
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
+      .mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
+        z-index: 2;
+        outline: 2px solid #ef4444;
+        outline-offset: 1px;
+      }
+      .mf-gantt-milestone.mf-bar-critical-path::before {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
+      }
+      .mf-bar-dimmed { opacity: 0.3; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
       .mf-gantt-bar.mf-bar-active .bar-label {
         color: #1f2937;
@@ -484,6 +584,39 @@ function getIframeSrcDoc() {
       }
       .mf-bar-resize-handle.start { left: 0; }
       .mf-bar-resize-handle.end { right: 0; }
+      .mf-dep-connector {
+        position: absolute;
+        right: -6px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #94a3b8;
+        border: 2px solid #fff;
+        cursor: crosshair;
+        z-index: 5;
+        opacity: 0;
+        transition: opacity 0.15s;
+        pointer-events: auto;
+      }
+      .mf-gantt-bar:hover .mf-dep-connector,
+      .mf-gantt-milestone:hover .mf-dep-connector { opacity: 1; }
+      .mf-dep-connector:hover { background: #3b82f6; transform: translateY(-50%) scale(1.2); }
+      [data-theme="dark"] .mf-dep-connector { background: #6b7280; border-color: #1c1f2b; }
+      [data-theme="dark"] .mf-dep-connector:hover { background: #60a5fa; }
+      .mf-gantt-bar.mf-dep-drop-target,
+      .mf-gantt-milestone.mf-dep-drop-target {
+        outline: 2px solid #3b82f6;
+        outline-offset: 2px;
+      }
+      .mf-dep-drag-line {
+        pointer-events: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 10;
+      }
       .bar-link-icon {
         position: absolute;
         right: 11px;
@@ -610,82 +743,20 @@ function getIframeSrcDoc() {
         background: #dc2626;
         pointer-events: none;
       }
-      /* ── Dependency features ── */
-      .mf-gantt-dep-overlay { --dep-arrow-color: #94a3b8; }
-      .mf-dep-line {
-        transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
-      }
-      .mf-dep-line.mf-dep-upstream { stroke: #8b5cf6 !important; stroke-width: 2.5; }
-      .mf-dep-line.mf-dep-downstream { stroke: #f97316 !important; stroke-width: 2.5; }
-      .mf-dep-line.mf-dep-dimmed { opacity: 0.1; }
-      .mf-gantt-bar.mf-dep-dimmed,
-      .mf-gantt-milestone.mf-dep-dimmed {
-        opacity: 0.2;
-        filter: grayscale(0.6);
-        transition: opacity 0.2s ease, filter 0.2s ease;
-      }
-      .mf-gantt-bar.mf-dep-upstream-bar { outline: 2px solid #8b5cf6; outline-offset: 1px; }
-      .mf-gantt-bar.mf-dep-downstream-bar { outline: 2px solid #f97316; outline-offset: 1px; }
-      .mf-gantt-milestone.mf-dep-upstream-bar { filter: drop-shadow(0 0 4px #8b5cf6); }
-      .mf-gantt-milestone.mf-dep-downstream-bar { filter: drop-shadow(0 0 4px #f97316); }
-      .mf-gantt-conflict-badge {
+      .mf-gantt-risk-badge {
         position: absolute;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: #f59e0b;
-        color: #fff;
-        font-size: 10px;
-        font-weight: 800;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 7;
-        pointer-events: auto;
-        cursor: help;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-      }
-      .mf-gantt-slack {
-        position: absolute;
-        background: repeating-linear-gradient(90deg, rgba(59,130,246,0.25), rgba(59,130,246,0.25) 3px, transparent 3px, transparent 6px);
-        border-radius: 2px;
-        pointer-events: auto;
-        cursor: help;
-        z-index: 1;
-      }
-      .mf-bar-critical-path {
-        box-shadow: 0 0 0 2px #ef4444, 0 0 6px rgba(239,68,68,0.25) !important;
-      }
-      .mf-gantt-ghost-bar {
-        position: absolute;
-        border-radius: 8px;
-        background: rgba(59,130,246,0.12);
-        border: 1.5px dashed #3b82f6;
+        font-size: 11px;
+        line-height: 14px;
         pointer-events: none;
         z-index: 2;
+        color: #d97706;
       }
-      .mf-gantt-ripple-summary {
-        position: fixed;
-        background: #1e293b;
-        color: #fff;
-        font-size: 11px;
-        padding: 5px 10px;
-        border-radius: 6px;
-        z-index: 9999;
-        pointer-events: none;
-        white-space: nowrap;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      .mf-bar-at-risk {
+        box-shadow: 0 0 0 2px #f59e0b, 0 0 8px rgba(245, 158, 11, 0.35);
+        border-radius: 8px;
       }
-      .mf-gantt-cycle-warning {
-        grid-column: 1 / -1;
-        background: #fef3c7;
-        border: 1px solid #f59e0b;
-        border-radius: 6px;
-        padding: 7px 14px;
-        font-size: 12px;
-        font-weight: 600;
-        color: #92400e;
-        margin: 6px 8px;
+      .mf-bar-at-risk.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 0 5px #f59e0b, 0 0 12px rgba(239, 68, 68, 0.5);
       }
       /* ── Milestone diamond ── */
       .mf-gantt-milestone {
@@ -693,9 +764,17 @@ function getIframeSrcDoc() {
         cursor: grab;
         overflow: visible;
         box-sizing: border-box;
-        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-        transition: box-shadow 0.12s ease, filter 0.12s ease;
+        background: transparent !important;
+        transition: filter 0.12s ease;
         min-width: 0;
+        z-index: 3;
+      }
+      .mf-gantt-milestone::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: #22c55e;
+        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
       }
       .mf-gantt-milestone:hover {
         filter: brightness(1.1);
@@ -721,11 +800,25 @@ function getIframeSrcDoc() {
         right: calc(100% + 8px);
         text-align: right;
       }
-      .mf-gantt-milestone .bar-date-suffix { display: none; }
-      .mf-gantt-milestone.mf-selected {
-        outline: 2.5px solid #2563eb;
-        outline-offset: 2px;
-        box-shadow: 0 0 10px rgba(37, 99, 235, 0.3);
+      .mf-gantt-milestone .bar-date-suffix {
+        position: absolute;
+        left: calc(100% + 8px + var(--outside-label-width, 0px) + 6px);
+        top: 50%;
+        transform: translateY(-50%);
+        white-space: nowrap;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 400;
+        text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+        pointer-events: none;
+      }
+      .mf-gantt-milestone.mf-label-outside-left .bar-date-suffix {
+        left: auto;
+        right: calc(100% + 8px + var(--outside-label-width, 0px) + 6px);
+      }
+      .mf-gantt-milestone.mf-selected::before {
+        filter: brightness(0.85);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5);
       }
       /* ── Excluded day shading ── */
       .mf-gantt-excluded-day {
@@ -1208,6 +1301,34 @@ function getIframeSrcDoc() {
         color: #e4e6ed;
       }
       [data-theme="dark"] .mf-bar-default { background: #3a3f52; }
+      [data-theme="dark"] .mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+        outline: 2px solid #f87171;
+        outline-offset: 1px;
+      }
+      [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path::before {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+      }
+      [data-theme="dark"] .mf-gantt-milestone::before {
+        background: #4ade80;
+      }
+      [data-theme="dark"] .mf-gantt-milestone .bar-label {
+        color: #e4e6ed;
+        text-shadow: 0 0 3px #0f1117, 0 0 3px #0f1117;
+      }
+      [data-theme="dark"] .mf-gantt-milestone .bar-date-suffix {
+        color: #9a9fb2;
+        text-shadow: 0 0 3px #0f1117, 0 0 3px #0f1117;
+      }
+      [data-theme="dark"] .mf-gantt-risk-badge { color: #fbbf24; }
+      [data-theme="dark"] .mf-bar-at-risk {
+        box-shadow: 0 0 0 2px #fbbf24, 0 0 8px rgba(251, 191, 36, 0.4);
+      }
+      [data-theme="dark"] .mf-bar-at-risk.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 0 5px #fbbf24, 0 0 12px rgba(248, 113, 113, 0.5);
+      }
+      [data-theme="dark"] .mf-dep-lines-svg path { stroke: #d1d5db; }
+      [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #d1d5db; }
       [data-theme="dark"] .mf-gantt-excluded-day {
         background: rgba(255,255,255,0.03);
       }
@@ -1299,6 +1420,83 @@ function getIframeSrcDoc() {
         background: #1c1f2b;
         border-color: #2a2e3d;
         color: #e4e6ed;
+      }
+      /* ── Executive view banner ── */
+      .mf-exec-banner {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .mf-exec-banner-inner {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+        font-weight: 500;
+        font-family: "Manrope", system-ui, sans-serif;
+      }
+      .mf-exec-progress {
+        flex: 0 0 120px;
+        height: 6px;
+        background: #e5e7eb;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .mf-exec-progress-bar {
+        height: 100%;
+        background: #22c55e;
+        border-radius: 3px;
+        transition: width 0.3s ease;
+      }
+      .mf-exec-pct {
+        font-weight: 700;
+        color: #1e293b;
+      }
+      .mf-exec-counts {
+        color: #64748b;
+      }
+      .mf-exec-status {
+        margin-left: auto;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .mf-exec-on-track {
+        background: rgba(34, 197, 94, 0.15);
+        color: #16a34a;
+      }
+      .mf-exec-at-risk {
+        background: rgba(234, 179, 8, 0.15);
+        color: #ca8a04;
+      }
+      .mf-exec-late {
+        background: rgba(239, 68, 68, 0.15);
+        color: #dc2626;
+      }
+      [data-theme="dark"] .mf-exec-banner {
+        border-color: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-exec-progress {
+        background: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-exec-pct {
+        color: #e4e6ed;
+      }
+      [data-theme="dark"] .mf-exec-counts {
+        color: #9a9fb2;
+      }
+      [data-theme="dark"] .mf-exec-on-track {
+        background: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+      }
+      [data-theme="dark"] .mf-exec-at-risk {
+        background: rgba(234, 179, 8, 0.2);
+        color: #facc15;
+      }
+      [data-theme="dark"] .mf-exec-late {
+        background: rgba(239, 68, 68, 0.2);
+        color: #f87171;
       }
     </style>
   </head>
@@ -1610,7 +1808,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, depGraph, cycles) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1740,7 +1938,22 @@ function getIframeSrcDoc() {
 
         // Separate vert markers from regular tasks
         const vertTasks = tasks.filter((t) => t.isVertMarker);
-        const regularTasks = tasks.filter((t) => !t.isVertMarker);
+        const allRegularTasks = tasks.filter((t) => !t.isVertMarker);
+
+        // Executive view: filter to milestones, critical, and overdue tasks
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const regularTasks = executiveView
+          ? allRegularTasks.filter((t) => {
+              if (t.isMilestone) return true;
+              const statuses = t.statusTokens || [];
+              if (statuses.includes("crit")) return true;
+              // Overdue: not done and end date is in the past
+              const isDone = statuses.includes("done");
+              const end = t.computedEnd || t.endDate || "";
+              if (!isDone && end && end < todayIso) return true;
+              return false;
+            })
+          : allRegularTasks;
 
         // Enrich tasks with resolved end dates
         const enriched = regularTasks.map((t) => {
@@ -1819,6 +2032,10 @@ function getIframeSrcDoc() {
         };
 
         // Build container
+        // Track bar positions for dependency arrows
+        const barPositions = new Map();
+        let cumulativeTop = 0;
+
         const container = document.createElement("div");
         container.className = "mf-gantt-container";
         container.style.gridTemplateColumns = roleColWidth + "px " + timelineWidth + "px";
@@ -1857,18 +2074,42 @@ function getIframeSrcDoc() {
         }
         container.appendChild(timelineHeader);
 
-        // === Circular dependency warning banner ===
-        let bannerHeight = 0;
-        if (cycles.length > 0) {
-          const warnBanner = document.createElement("div");
-          warnBanner.className = "mf-gantt-cycle-warning";
-          warnBanner.textContent = "Circular dependency detected: " + cycles[0].join(" \u2192 ");
-          container.appendChild(warnBanner);
-          bannerHeight = warnBanner.offsetHeight;
-        }
+        cumulativeTop = headerHeight;
 
-        // Track cumulative section height for absolute bar Y positions
-        let cumulativeTrackTop = 0;
+        // === Executive view: progress summary banner ===
+        if (executiveView) {
+          const totalCount = allRegularTasks.length;
+          const doneCount = allRegularTasks.filter((t) => (t.statusTokens || []).includes("done")).length;
+          const overdueCount = allRegularTasks.filter((t) => {
+            const isDone = (t.statusTokens || []).includes("done");
+            const end = t.computedEnd || t.endDate || "";
+            return !isDone && end && end < todayIso;
+          }).length;
+          const critCount = allRegularTasks.filter((t) => (t.statusTokens || []).includes("crit") && !(t.statusTokens || []).includes("done")).length;
+          const pct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+
+          let statusLabel = "On track";
+          let statusClass = "mf-exec-on-track";
+          if (overdueCount > 0) {
+            statusLabel = overdueCount + " overdue";
+            statusClass = "mf-exec-late";
+          } else if (critCount > 0) {
+            statusLabel = "At risk";
+            statusClass = "mf-exec-at-risk";
+          }
+
+          const banner = document.createElement("div");
+          banner.className = "mf-exec-banner";
+          banner.style.gridColumn = "1 / -1";
+          banner.innerHTML =
+            '<div class="mf-exec-banner-inner">' +
+              '<div class="mf-exec-progress"><div class="mf-exec-progress-bar" style="width:' + pct + '%"></div></div>' +
+              '<span class="mf-exec-pct">' + pct + '% complete</span>' +
+              '<span class="mf-exec-counts">' + doneCount + '/' + totalCount + ' tasks done</span>' +
+              '<span class="mf-exec-status ' + statusClass + '">' + statusLabel + '</span>' +
+            '</div>';
+          container.appendChild(banner);
+        }
 
         // === Body: Section rows ===
         for (const [section, sectionTasks] of sectionMap.entries()) {
@@ -1983,9 +2224,15 @@ function getIframeSrcDoc() {
             else if (statuses.includes("crit")) barClass = "mf-bar-crit";
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
+            // Critical path highlighting — dim ALL non-critical tasks
+            let cpClass = "";
+            if (showCriticalPath) {
+              cpClass = task.isCriticalPath ? " mf-bar-critical-path" : " mf-bar-dimmed";
+            }
+
             const bar = document.createElement("div");
             const isNarrow = width < 70;
-            const showsMetaSuffix = !task.isMilestone && showDates && !!task.startDate;
+            const showsMetaSuffix = showDates && !!task.startDate;
             let barLeft = left;
             let barPixelWidth = width;
 
@@ -1995,13 +2242,13 @@ function getIframeSrcDoc() {
               const milestoneLeft = left + Math.floor(width / 2) - Math.floor(diamondSize / 2);
               barLeft = milestoneLeft;
               barPixelWidth = diamondSize;
-              bar.className = "mf-gantt-milestone " + barClass;
+              bar.className = "mf-gantt-milestone " + barClass + cpClass;
               bar.style.left = milestoneLeft + "px";
               bar.style.width = diamondSize + "px";
               bar.style.height = diamondSize + "px";
               bar.style.top = top + "px";
             } else {
-              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "");
+              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "") + cpClass;
               bar.style.left = left + "px";
               bar.style.width = width + "px";
               bar.style.top = top + "px";
@@ -2022,6 +2269,92 @@ function getIframeSrcDoc() {
               endHandle.setAttribute("data-drag-mode", "resize-end");
               bar.append(startHandle, endHandle);
             }
+
+            // Dependency connector handle (drag from this to create a dependency)
+            const depConn = document.createElement("div");
+            depConn.className = "mf-dep-connector";
+            bar.appendChild(depConn);
+
+            depConn.addEventListener("pointerdown", (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              // Hide any visible tooltip during drag
+              tooltipEl.style.display = "none";
+              // Capture pointer so events keep firing even outside the element
+              depConn.setPointerCapture(e.pointerId);
+
+              const fromId = task.idToken || task.label || "";
+              const fromLabel = task.label || "";
+              const canvasRect = canvas.getBoundingClientRect();
+              // Look up bar position from the map (populated at render time)
+              const barKey = (task.idToken || task.label || "").toLowerCase();
+              const pos = barPositions.get(barKey);
+              const startX = pos ? pos.right + 2 : 0;
+              const startY = pos ? pos.centerY : 0;
+
+              // Create temporary SVG drag line
+              const svgNS = "http://www.w3.org/2000/svg";
+              const dragSvg = document.createElementNS(svgNS, "svg");
+              dragSvg.className = "mf-dep-drag-line";
+              dragSvg.style.width = canvas.scrollWidth + "px";
+              dragSvg.style.height = canvas.scrollHeight + "px";
+              const dragLine = document.createElementNS(svgNS, "line");
+              dragLine.setAttribute("x1", startX);
+              dragLine.setAttribute("y1", startY);
+              dragLine.setAttribute("x2", startX);
+              dragLine.setAttribute("y2", startY);
+              dragLine.setAttribute("stroke", "#3b82f6");
+              dragLine.setAttribute("stroke-width", "2");
+              dragLine.setAttribute("stroke-dasharray", "6 3");
+              dragSvg.appendChild(dragLine);
+              const ganttContainer = canvas.querySelector(".mf-gantt-container");
+              ganttContainer.appendChild(dragSvg);
+
+              let currentTarget = null;
+              let dragging = false;
+
+              const onMove = (ev) => {
+                dragging = true;
+                tooltipEl.style.display = "none";
+                const mx = ev.clientX - canvasRect.left + canvas.scrollLeft;
+                const my = ev.clientY - canvasRect.top + canvas.scrollTop;
+                dragLine.setAttribute("x2", mx);
+                dragLine.setAttribute("y2", my);
+
+                // Temporarily hide drag SVG to find element underneath
+                dragSvg.style.display = "none";
+                const el = document.elementFromPoint(ev.clientX, ev.clientY);
+                dragSvg.style.display = "";
+                const targetBar = el?.closest(".mf-gantt-bar, .mf-gantt-milestone");
+                if (currentTarget && currentTarget !== targetBar) {
+                  currentTarget.classList.remove("mf-dep-drop-target");
+                }
+                if (targetBar && targetBar !== bar) {
+                  targetBar.classList.add("mf-dep-drop-target");
+                  currentTarget = targetBar;
+                } else {
+                  currentTarget = null;
+                }
+              };
+
+              const onUp = (ev) => {
+                depConn.removeEventListener("pointermove", onMove);
+                depConn.removeEventListener("pointerup", onUp);
+                try { depConn.releasePointerCapture(ev.pointerId); } catch (_) {}
+                dragSvg.remove();
+                if (!dragging) return;
+                if (currentTarget) {
+                  currentTarget.classList.remove("mf-dep-drop-target");
+                  const targetLabel = currentTarget.getAttribute("data-label") || "";
+                  if (targetLabel && targetLabel !== fromLabel) {
+                    send("gantt:dep-created", { fromId, fromLabel, targetLabel });
+                  }
+                }
+              };
+
+              depConn.addEventListener("pointermove", onMove);
+              depConn.addEventListener("pointerup", onUp);
+            });
 
             // Bar label
             const labelSpan = document.createElement("span");
@@ -2128,49 +2461,21 @@ function getIframeSrcDoc() {
             if (task.assignee) tip += "\\nAssignee: " + task.assignee;
             if (task.notes) tip += "\\nNotes: " + task.notes;
             if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
-            // Dependency info in tooltip
-            if (task.afterDeps && task.afterDeps.length) {
-              tip += "\\nDepends on: " + task.afterDeps.join(", ");
+            const taskRisk = showRisks && riskFlags[task.label];
+            if (taskRisk && taskRisk.reasons.length > 0) {
+              tip += "\\n--- Risks ---";
+              for (const r of taskRisk.reasons) tip += "\\n\\u26A0 " + r;
             }
-            if (task.conflicts && task.conflicts.length) {
-              tip += "\\n\\u26a0 Conflict: starts before " + task.conflicts.map((c) => '"' + c.depLabel + '"').join(", ") + " finishes";
-            }
-            if (typeof task.slack === "number") {
-              tip += "\\nSlack: " + task.slack + " day" + (task.slack !== 1 ? "s" : "");
-            }
-            if (task.isCritical) tip += "\\n\\u2b50 Critical path";
             bar.setAttribute("data-mf-tip", tip);
 
-            // Critical path styling
-            if (task.isCritical && !task.isMilestone) {
-              bar.classList.add("mf-bar-critical-path");
-            }
-
-            // Conflict badge
-            if (task.conflicts && task.conflicts.length > 0 && !task.isMilestone) {
-              const conflictBadge = document.createElement("div");
-              conflictBadge.className = "mf-gantt-conflict-badge";
-              conflictBadge.textContent = "!";
-              conflictBadge.style.left = (barLeft - 14) + "px";
-              conflictBadge.style.top = (top - 2) + "px";
-              conflictBadge.setAttribute("data-mf-tip",
-                "Scheduling conflict:\\n" +
-                task.conflicts.map((c) => 'Starts before "' + c.depLabel + '" ends (' + c.overlapDays + "d overlap)").join("\\n")
-              );
-              track.appendChild(conflictBadge);
-            }
-
-            // Slack indicator bar
-            if (typeof task.slack === "number" && task.slack > 0 && !task.isMilestone) {
-              const slackBar = document.createElement("div");
-              slackBar.className = "mf-gantt-slack";
-              const slackPx = Math.round(task.slack * pxPerDay);
-              slackBar.style.left = (barLeft + barPixelWidth) + "px";
-              slackBar.style.width = Math.min(slackPx, timelineWidth - barLeft - barPixelWidth) + "px";
-              slackBar.style.top = (top + barHeight / 2 - 2) + "px";
-              slackBar.style.height = "4px";
-              slackBar.setAttribute("data-mf-tip", "Slack: " + task.slack + " day" + (task.slack !== 1 ? "s" : "") + "\\nCan slip without delaying project");
-              track.appendChild(slackBar);
+            // Record bar position for dependency arrows
+            const barKey = (task.idToken || task.label || "").toLowerCase();
+            if (barKey) {
+              barPositions.set(barKey, {
+                left: roleColWidth + barLeft,
+                right: roleColWidth + barLeft + barPixelWidth,
+                centerY: cumulativeTop + top + barHeight / 2,
+              });
             }
 
             // Overdue dot
@@ -2182,18 +2487,18 @@ function getIframeSrcDoc() {
               track.appendChild(dot);
             }
 
-            // Store bar position for dependency lines & highlighting
-            const tKey = (task.idToken || task.label || "").toLowerCase();
-            const absoluteY = sectionTrackTop + rowAssignments[idx] * rowHeight + barGap + barHeight / 2;
-            barPositionMap.set(tKey, {
-              left: barLeft,
-              width: barPixelWidth,
-              absoluteY,
-              bar,
-              task,
-            });
+            // Risk badge
+            if (taskRisk && taskRisk.flags.length > 0 && !task.isMilestone) {
+              const riskBadge = document.createElement("div");
+              riskBadge.className = "mf-gantt-risk-badge";
+              riskBadge.style.left = (left - 12) + "px";
+              riskBadge.style.top = isOverdue ? (top + barHeight / 2 + 6) + "px" : (top + barHeight / 2 - 6) + "px";
+              riskBadge.textContent = "\\u26A0";
+              track.appendChild(riskBadge);
+              bar.classList.add("mf-bar-at-risk");
+            }
 
-            // Click handler: select task + highlight dependency chain
+            // Click handler: select task
             bar.addEventListener("click", (e) => {
               e.stopPropagation();
               canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
@@ -2230,6 +2535,7 @@ function getIframeSrcDoc() {
             bar.addEventListener("pointerdown", (e) => {
               if (e.button !== 0) return;
               if (e.target.closest(".bar-link-icon")) return;
+              if (e.target.closest(".mf-dep-connector")) return;
               e.preventDefault();
               const rect = bar.getBoundingClientRect();
               const relX = e.clientX - rect.left;
@@ -2341,76 +2647,7 @@ function getIframeSrcDoc() {
           // (Insert buttons moved to role cell)
 
           container.appendChild(track);
-          cumulativeTrackTop += trackHeight;
-        }
-
-        // === SVG overlay for dependency lines ===
-        if (barPositionMap.size > 0 && cumulativeTrackTop > 0) {
-          const ns = "http://www.w3.org/2000/svg";
-          svgOverlay = document.createElementNS(ns, "svg");
-          svgOverlay.setAttribute("class", "mf-gantt-dep-overlay");
-          svgOverlay.style.cssText = "position:absolute;top:" + (headerHeight + bannerHeight) + "px;left:" + roleColWidth + "px;width:" + timelineWidth + "px;height:" + cumulativeTrackTop + "px;pointer-events:none;z-index:6;overflow:visible;";
-
-          // Arrow marker
-          const defs = document.createElementNS(ns, "defs");
-          const marker = document.createElementNS(ns, "marker");
-          marker.setAttribute("id", "dep-arrowhead");
-          marker.setAttribute("markerWidth", "8");
-          marker.setAttribute("markerHeight", "6");
-          marker.setAttribute("refX", "8");
-          marker.setAttribute("refY", "3");
-          marker.setAttribute("orient", "auto");
-          const arrowPath = document.createElementNS(ns, "path");
-          arrowPath.setAttribute("d", "M0,0 L8,3 L0,6 Z");
-          arrowPath.setAttribute("fill", "var(--dep-arrow-color, #94a3b8)");
-          marker.appendChild(arrowPath);
-          defs.appendChild(marker);
-          svgOverlay.appendChild(defs);
-
-          // Draw dependency arrows
-          for (const [labelKey, pos] of barPositionMap) {
-            const task = pos.task;
-            if (!task.afterDeps || !task.afterDeps.length) continue;
-
-            for (const depId of task.afterDeps) {
-              const depKey = depId.toLowerCase();
-              const resolvedKey = idToLabelKey.get(depKey) || depKey;
-              const depPos = barPositionMap.get(resolvedKey);
-              if (!depPos) continue;
-
-              // Source: end of dependency bar; Target: start of this bar
-              const x1 = depPos.left + depPos.width;
-              const y1 = depPos.absoluteY;
-              const x2 = pos.left;
-              const y2 = pos.absoluteY;
-
-              const path = document.createElementNS(ns, "path");
-              let d;
-              if (x2 > x1 + 10) {
-                // Normal: dependency ends before this task starts
-                const cpOffset = Math.min(Math.abs(x2 - x1) * 0.4, 60);
-                d = "M" + x1 + "," + y1 + " C" + (x1 + cpOffset) + "," + y1 + " " + (x2 - cpOffset) + "," + y2 + " " + x2 + "," + y2;
-              } else {
-                // Overlap or reverse: route around
-                const detour = Math.max(Math.abs(y2 - y1) * 0.5, 25);
-                const bypassY = y2 > y1 ? Math.max(y1, y2) + detour : Math.min(y1, y2) - detour;
-                const midX = (x1 + x2) / 2;
-                d = "M" + x1 + "," + y1 + " L" + (x1 + 10) + "," + y1 + " Q" + (x1 + 10) + "," + bypassY + " " + midX + "," + bypassY + " Q" + (x2 - 10) + "," + bypassY + " " + (x2 - 10) + "," + y2 + " L" + x2 + "," + y2;
-              }
-
-              path.setAttribute("d", d);
-              path.setAttribute("fill", "none");
-              path.setAttribute("stroke", "var(--dep-arrow-color, #94a3b8)");
-              path.setAttribute("stroke-width", "1.5");
-              path.setAttribute("marker-end", "url(#dep-arrowhead)");
-              path.setAttribute("class", "mf-dep-line");
-              path.setAttribute("data-from", resolvedKey);
-              path.setAttribute("data-to", labelKey);
-              svgOverlay.appendChild(path);
-            }
-          }
-
-          container.appendChild(svgOverlay);
+          cumulativeTop += trackHeight;
         }
 
         // Vertical markers (vert)
@@ -2426,6 +2663,91 @@ function getIframeSrcDoc() {
           vtLabel.textContent = vt.label || "";
           vtLine.appendChild(vtLabel);
           container.appendChild(vtLine);
+        }
+
+        // Dependency arrows
+        if (showDepLines) {
+          const svgNS = "http://www.w3.org/2000/svg";
+          const totalHeight = cumulativeTop;
+          const totalWidth = roleColWidth + timelineWidth;
+          const svg = document.createElementNS(svgNS, "svg");
+          svg.setAttribute("class", "mf-dep-lines-svg");
+          svg.setAttribute("width", totalWidth);
+          svg.setAttribute("height", totalHeight);
+          svg.setAttribute("viewBox", "0 0 " + totalWidth + " " + totalHeight);
+          svg.style.position = "absolute";
+          svg.style.top = "0";
+          svg.style.left = "0";
+          svg.style.pointerEvents = "none";
+          svg.style.zIndex = "2";
+
+          // Arrowhead markers
+          const defs = document.createElementNS(svgNS, "defs");
+          const makeMarker = (id, color) => {
+            const m = document.createElementNS(svgNS, "marker");
+            m.setAttribute("id", id);
+            m.setAttribute("viewBox", "0 0 10 10");
+            m.setAttribute("refX", "9");
+            m.setAttribute("refY", "5");
+            m.setAttribute("markerWidth", "6");
+            m.setAttribute("markerHeight", "6");
+            m.setAttribute("orient", "auto-start-reverse");
+            const p = document.createElementNS(svgNS, "path");
+            p.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+            p.setAttribute("fill", color);
+            m.appendChild(p);
+            return m;
+          };
+          defs.appendChild(makeMarker("dep-arrow", "#374151"));
+          defs.appendChild(makeMarker("dep-arrow-cp", "#ef4444"));
+          svg.appendChild(defs);
+
+          // Build critical path set for coloring arrows
+          const cpSet = new Set();
+          if (showCriticalPath) {
+            for (const t of enriched) {
+              if (t.isCriticalPath) cpSet.add((t.idToken || t.label || "").toLowerCase());
+            }
+          }
+
+          const allRegularTasks = enriched;
+          for (const task of allRegularTasks) {
+            if (!task.afterDeps || !task.afterDeps.length) continue;
+            const toKey = (task.idToken || task.label || "").toLowerCase();
+            const toPos = barPositions.get(toKey);
+            if (!toPos) continue;
+
+            for (const depId of task.afterDeps) {
+              const fromKey = depId.toLowerCase();
+              const fromPos = barPositions.get(fromKey);
+              if (!fromPos) continue;
+
+              const x1 = fromPos.right + 2;
+              const y1 = fromPos.centerY;
+              const x2 = toPos.left - 2;
+              const y2 = toPos.centerY;
+              const isCpEdge = showCriticalPath && cpSet.has(fromKey) && cpSet.has(toKey);
+
+              const path = document.createElementNS(svgNS, "path");
+              if (Math.abs(y1 - y2) < 2) {
+                // Same row: straight horizontal line
+                path.setAttribute("d", "M " + x1 + " " + y1 + " L " + x2 + " " + y2);
+              } else {
+                // Smooth S-curve from predecessor right → dependent left
+                const gapX = x2 - x1;
+                const cx1 = x1 + Math.max(gapX * 0.4, 20);
+                const cx2 = x2 - Math.max(gapX * 0.4, 20);
+                path.setAttribute("d", "M " + x1 + " " + y1 + " C " + cx1 + " " + y1 + " " + cx2 + " " + y2 + " " + x2 + " " + y2);
+              }
+              path.setAttribute("stroke", isCpEdge ? "#ef4444" : "#374151");
+              path.setAttribute("stroke-width", isCpEdge ? "2" : "1.5");
+              path.setAttribute("fill", "none");
+              path.setAttribute("marker-end", isCpEdge ? "url(#dep-arrow-cp)" : "url(#dep-arrow)");
+              svg.appendChild(path);
+            }
+          }
+
+          container.appendChild(svg);
         }
 
         // Today line (respect todayMarker directive)
@@ -3109,6 +3431,11 @@ function getIframeSrcDoc() {
       };
 
       canvas.addEventListener("mouseover", (e) => {
+        // Hide tooltip when hovering dependency connector
+        if (e.target.closest(".mf-dep-connector")) {
+          tooltipEl.style.display = "none";
+          return;
+        }
         // Support both SVG elements (rect/text) and HTML elements (div with data-mf-tip)
         const tipEl = e.target.closest("[data-mf-tip]");
         const tip = tipEl ? tipEl.getAttribute("data-mf-tip") : "";
@@ -4737,7 +5064,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.depGraph || {}, gd.cycles || []);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {});
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4858,6 +5185,8 @@ function App() {
   const exportMenuRef = useRef(null);
   const mobileActionsRef = useRef(null);
   const mobileViewMenuRef = useRef(null);
+  const ganttViewMenuRef = useRef(null);
+  const ganttAnalysisMenuRef = useRef(null);
 
   // Router integration
   const params = useParams();
@@ -4927,10 +5256,12 @@ function App() {
     startDate: "",
     endDate: "",
     status: [],
+    isMilestone: false,
     assignee: "",
     notes: "",
     link: "",
     section: "",
+    dependsOn: [],
   });
 
   // UI state
@@ -4952,7 +5283,12 @@ function App() {
   const [compactMode, setCompactMode] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
   const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
-  const [showChainView, setShowChainView] = useState(false);
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
+  const [showDepLines, setShowDepLines] = useState(false);
+  const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
+  const [showRisks, setShowRisks] = useState(false);
+  const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis"
+  const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -5009,6 +5345,17 @@ function App() {
     }
     return options;
   }, [ganttSections, ganttDraft.section]);
+  const allAssignees = useMemo(() => {
+    const set = new Set();
+    for (const t of ganttTasks) {
+      if (!t.assignee) continue;
+      for (const name of t.assignee.split(",")) {
+        const trimmed = name.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [ganttTasks]);
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
     return { direction: "TD", nodes: [], edges: [], subgraphs: [] };
@@ -5168,46 +5515,43 @@ function App() {
     // Pre-compute gantt data so the iframe can render custom HTML gantt
     const directives = parseGanttDirectives(code);
     const tasks = resolveDependencies(parseGanttTasks(code));
-    const depGraph = buildDependencyGraph(tasks);
-    const cycles = detectCycles(tasks);
-    const conflicts = detectConflicts(tasks);
-    const slackMap = calculateSlack(tasks);
+    const { criticalSet, connectedSet, slackByTask } = computeCriticalPath(tasks);
+    const enrichedTasks = tasks.map((t) => {
+      const effectiveStart = t.startDate || t.resolvedStartDate || "";
+      let computedEnd = t.endDate || t.resolvedEndDate || "";
+      if (!computedEnd && effectiveStart && t.durationDays) {
+        computedEnd = directives.excludes.length
+          ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
+          : (() => {
+              const d = new Date(effectiveStart + "T00:00:00Z");
+              d.setUTCDate(d.getUTCDate() + t.durationDays);
+              return d.toISOString().slice(0, 10);
+            })();
+      }
+      const taskKey = t.idToken || t.label || "";
+      return {
+        label: t.label,
+        startDate: effectiveStart,
+        endDate: t.endDate,
+        durationDays: t.durationDays,
+        computedEnd,
+        assignee: t.assignee || "",
+        statusTokens: t.statusTokens || [],
+        notes: t.notes || "",
+        link: t.link || "",
+        section: t.section || "",
+        isMilestone: t.isMilestone || false,
+        isVertMarker: t.isVertMarker || false,
+        afterDeps: t.afterDeps || [],
+        idToken: t.idToken || "",
+        hasExplicitDate: t.hasExplicitDate,
+        isCriticalPath: criticalSet.has(taskKey),
+        isConnected: connectedSet ? connectedSet.has(taskKey) : false,
+        slackDays: slackByTask.get(taskKey) || 0,
+      };
+    });
     const ganttData = {
-      tasks: tasks.map((t) => {
-        const effectiveStart = t.startDate || t.resolvedStartDate || "";
-        let computedEnd = t.endDate || t.resolvedEndDate || "";
-        if (!computedEnd && effectiveStart && t.durationDays) {
-          computedEnd = directives.excludes.length
-            ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
-            : (() => {
-                const d = new Date(effectiveStart + "T00:00:00Z");
-                d.setUTCDate(d.getUTCDate() + t.durationDays);
-                return d.toISOString().slice(0, 10);
-              })();
-        }
-        const slackInfo = slackMap.get(t.label);
-        return {
-          label: t.label,
-          startDate: effectiveStart,
-          endDate: t.endDate,
-          durationDays: t.durationDays,
-          computedEnd,
-          assignee: t.assignee || "",
-          statusTokens: t.statusTokens || [],
-          notes: t.notes || "",
-          link: t.link || "",
-          section: t.section || "",
-          isMilestone: t.isMilestone || false,
-          isVertMarker: t.isVertMarker || false,
-          afterDeps: t.afterDeps || [],
-          untilDep: t.untilDep || "",
-          idToken: t.idToken || "",
-          hasExplicitDate: t.hasExplicitDate,
-          slack: slackInfo?.slack ?? null,
-          isCritical: slackInfo?.isCritical ?? false,
-          conflicts: conflicts.filter((c) => c.taskLabel === t.label),
-        };
-      }),
+      tasks: enrichedTasks,
       directives,
       depGraph: serializeGraph(depGraph),
       cycles,
@@ -5217,6 +5561,11 @@ function App() {
       compact: compactMode || directives.displayMode === "compact",
       ganttZoom,
       pinCategories,
+      showCriticalPath,
+      showDepLines,
+      executiveView,
+      showRisks,
+      riskFlags: showRisks ? computeRiskFlags(enrichedTasks) : {},
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -5248,7 +5597,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
-  }, [code, autoRender, mermaidRenderConfig]);
+  }, [code, autoRender, mermaidRenderConfig, showCriticalPath, showDepLines]);
 
   /* ── Sync app theme to iframe ─────────────────────────── */
   useEffect(() => {
@@ -5372,7 +5721,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "", section: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", dependsOn: [] });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -5386,10 +5735,12 @@ function App() {
       startDate: selectedGanttTask.startDate || "",
       endDate: computedEnd,
       status: selectedGanttTask.statusTokens || [],
+      isMilestone: selectedGanttTask.isMilestone || false,
       assignee: selectedGanttTask.assignee || "",
       notes: selectedGanttTask.notes || "",
       link: selectedGanttTask.link || "",
       section: selectedGanttTask.section || "",
+      dependsOn: selectedGanttTask.afterDeps || [],
     });
   }, [selectedGanttTask]);
 
@@ -5704,6 +6055,35 @@ function App() {
         setHighlightLine(task.lineIndex + 1);
       }
 
+      if (data.type === "gantt:dep-created") {
+        const { fromId, fromLabel, targetLabel } = data.payload || {};
+        if (!fromLabel || !targetLabel) return;
+        // Find the target task (the one that will depend on fromId)
+        const targetTask = findTaskByLabel(ganttTasks, targetLabel);
+        if (!targetTask) {
+          setRenderMessage("Could not find target task");
+          return;
+        }
+        // Resolve the fromId: use idToken if available, otherwise label
+        const fromTask = findTaskByLabel(ganttTasks, fromLabel);
+        const resolvedFromId = fromTask ? (fromTask.idToken || fromTask.label) : fromId;
+        // Add the dependency: target task now depends on from task
+        const existingDeps = targetTask.afterDeps || [];
+        if (existingDeps.map((d) => d.toLowerCase()).includes(resolvedFromId.toLowerCase())) {
+          setRenderMessage(`"${targetLabel}" already depends on "${fromLabel}"`);
+          return;
+        }
+        const newDeps = [...existingDeps, resolvedFromId];
+        setCode((prev) => {
+          const freshTasks = parseGanttTasks(prev);
+          const freshTarget = findTaskByLabel(freshTasks, targetLabel);
+          if (!freshTarget) return prev;
+          return updateGanttDependency(prev, freshTarget, newDeps);
+        });
+        setRenderMessage(`Added dependency: "${targetLabel}" now depends on "${fromLabel}"`);
+        setHighlightLine(targetTask.lineIndex + 1);
+      }
+
       if (data.type === "gantt:add-between") {
         const afterLabel = (data.payload?.afterLabel || "").trim();
         const afterTask = findTaskByLabel(ganttTasks, afterLabel);
@@ -5767,7 +6147,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -5798,7 +6178,7 @@ function App() {
 
   /* ── Outside click for top/view dropdowns ────────────── */
   useEffect(() => {
-    if (!exportMenuOpen && !mobileActionsOpen && !mobileViewMenuOpen) return;
+    if (!exportMenuOpen && !mobileActionsOpen && !mobileViewMenuOpen && !ganttDropdown) return;
     const handler = (e) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
         setExportMenuOpen(false);
@@ -5809,10 +6189,15 @@ function App() {
       if (mobileViewMenuRef.current && !mobileViewMenuRef.current.contains(e.target)) {
         setMobileViewMenuOpen(false);
       }
+      if (ganttDropdown) {
+        const inView = ganttViewMenuRef.current?.contains(e.target);
+        const inAnalysis = ganttAnalysisMenuRef.current?.contains(e.target);
+        if (!inView && !inAnalysis) setGanttDropdown(null);
+      }
     };
     document.addEventListener("pointerdown", handler);
     return () => document.removeEventListener("pointerdown", handler);
-  }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen]);
+  }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, ganttDropdown]);
 
   /* ── Keyboard shortcuts ─────────────────────────────── */
   useEffect(() => {
@@ -5841,6 +6226,7 @@ function App() {
         if (presentMode) { setPresentMode(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (drawerOpen) { setDrawerOpen(false); return; }
+        if (ganttDropdown) { setGanttDropdown(null); return; }
         if (mobileViewMenuOpen) { setMobileViewMenuOpen(false); return; }
         if (mobileActionsOpen) { setMobileActionsOpen(false); return; }
         if (exportMenuOpen) { setExportMenuOpen(false); return; }
@@ -5848,7 +6234,7 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, toolsetKey]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, ganttDropdown]);
 
   /* ── Style Toolbar ──────────────────────────────────── */
   const applyToolbarStyle = (nodeId, stylePatch) => {
@@ -5922,6 +6308,13 @@ function App() {
       }
     }
 
+    // Apply milestone toggle
+    const msTasks = parseGanttTasks(updated);
+    const msTask = findTaskByLabel(msTasks, nextLabel);
+    if (msTask) {
+      updated = toggleGanttMilestone(updated, msTask, ganttDraft.isMilestone);
+    }
+
     // Apply assignee
     const assigneeTasks = parseGanttTasks(updated);
     const assigneeTask = findTaskByLabel(assigneeTasks, nextLabel);
@@ -5941,6 +6334,13 @@ function App() {
     const linkTask = findTaskByLabel(linkTasks, nextLabel);
     if (linkTask) {
       updated = updateGanttLink(updated, linkTask, ganttDraft.link.trim());
+    }
+
+    // Apply dependency changes
+    const depTasks = parseGanttTasks(updated);
+    const depTask = findTaskByLabel(depTasks, nextLabel);
+    if (depTask) {
+      updated = updateGanttDependency(updated, depTask, ganttDraft.dependsOn);
     }
 
     // Move task to a different category / phase when changed
@@ -6498,11 +6898,21 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setGanttScale("month"); setMobileViewMenuOpen(false); }}>
                     Month view
                   </button>
-                  <button className="dropdown-item" onClick={() => { setCompactMode((prev) => !prev); setMobileViewMenuOpen(false); }}>
-                    {compactMode ? "Expanded" : "Compact"}
-                  </button>
                   <button className="dropdown-item" onClick={() => { setPinCategories((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {pinCategories ? "Unpin labels" : "Pin labels"}
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setShowCriticalPath((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showCriticalPath ? "Hide critical path" : "Critical path"}
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setShowDepLines((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showDepLines ? "Hide dep lines" : "Dep lines"}
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setShowRisks((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showRisks ? "Hide risks" : "Show risks"}
+                  </button>
+                  <div className="dropdown-sep" />
+                  <button className="dropdown-item" onClick={() => { setExecutiveView((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {executiveView ? "All tasks" : "Executive"}
                   </button>
                 </div>
               </div>
@@ -6510,41 +6920,56 @@ function App() {
             <span className="preview-hint desktop-only">
               {toolsetKey === "gantt" && (
                 <>
+                  <div className="dropdown-wrap" ref={ganttViewMenuRef}>
+                    <button
+                      className={`date-toggle-btn${ganttDropdown === "view" ? " active" : ""}`}
+                      onClick={() => toggleGanttDropdown("view")}
+                    >
+                      View &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu${ganttDropdown === "view" ? " open" : ""}`}>
+                      <button className="dropdown-item" onClick={() => setGanttScale("week")}>
+                        <span className="dropdown-item-check">{ganttScale === "week" ? "\u2713" : ""}</span>Week view
+                      </button>
+                      <button className="dropdown-item" onClick={() => setGanttScale("month")}>
+                        <span className="dropdown-item-check">{ganttScale === "month" ? "\u2713" : ""}</span>Month view
+                      </button>
+                      <div className="dropdown-sep" />
+                      <button className="dropdown-item" onClick={() => setShowGrid((p) => !p)}>
+                        <span className="dropdown-item-check">{showGrid ? "\u2713" : ""}</span>Show grid
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowDates((p) => !p)}>
+                        <span className="dropdown-item-check">{showDates ? "\u2713" : ""}</span>Show dates
+                      </button>
+                      <button className="dropdown-item" onClick={() => setPinCategories((p) => !p)}>
+                        <span className="dropdown-item-check">{pinCategories ? "\u2713" : ""}</span>Pin labels
+                      </button>
+                    </div>
+                  </div>
+                  <div className="dropdown-wrap" ref={ganttAnalysisMenuRef}>
+                    <button
+                      className={`date-toggle-btn${ganttDropdown === "analysis" ? " active" : ""}`}
+                      onClick={() => toggleGanttDropdown("analysis")}
+                    >
+                      Analysis &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu${ganttDropdown === "analysis" ? " open" : ""}`}>
+                      <button className="dropdown-item" onClick={() => setShowCriticalPath((p) => !p)}>
+                        <span className="dropdown-item-check">{showCriticalPath ? "\u2713" : ""}</span>Critical path
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowDepLines((p) => !p)}>
+                        <span className="dropdown-item-check">{showDepLines ? "\u2713" : ""}</span>Dep lines
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowRisks((p) => !p)}>
+                        <span className="dropdown-item-check">{showRisks ? "\u2713" : ""}</span>Risk flags
+                      </button>
+                    </div>
+                  </div>
                   <button
-                    className="date-toggle-btn"
-                    onClick={() => setShowGrid((prev) => !prev)}
+                    className={`date-toggle-btn${executiveView ? " active" : ""}`}
+                    onClick={() => setExecutiveView((prev) => !prev)}
                   >
-                    {showGrid ? "Hide grid" : "Show grid"}
-                  </button>
-                  <button
-                    className="date-toggle-btn"
-                    onClick={() => setShowDates((prev) => !prev)}
-                  >
-                    {showDates ? "Hide dates" : "Show dates"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${ganttScale === "week" ? " active" : ""}`}
-                    onClick={() => setGanttScale("week")}
-                  >
-                    Week view
-                  </button>
-                  <button
-                    className={`date-toggle-btn${ganttScale === "month" ? " active" : ""}`}
-                    onClick={() => setGanttScale("month")}
-                  >
-                    Month view
-                  </button>
-                  <button
-                    className={`date-toggle-btn${compactMode ? " active" : ""}`}
-                    onClick={() => setCompactMode((prev) => !prev)}
-                  >
-                    {compactMode ? "Expanded" : "Compact"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${pinCategories ? " active" : ""}`}
-                    onClick={() => setPinCategories((prev) => !prev)}
-                  >
-                    {pinCategories ? "Unpin labels" : "Pin labels"}
+                    {executiveView ? "All tasks" : "Executive"}
                   </button>
                   <button
                     className={`date-toggle-btn${showChainView ? " active" : ""}`}
@@ -6715,14 +7140,12 @@ function App() {
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
                   />
                 </label>
-                <label>
-                  Assignee
-                  <input
-                    value={ganttDraft.assignee}
-                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
-                    placeholder="e.g. Mohammed, John"
-                  />
-                </label>
+                <label>Assignee</label>
+                <AssigneeTagInput
+                  value={ganttDraft.assignee}
+                  onChange={(val) => setGanttDraft((prev) => ({ ...prev, assignee: val }))}
+                  suggestions={allAssignees}
+                />
                 <label>
                   Link
                   <input
@@ -6871,14 +7294,24 @@ function App() {
                   })}
                 </div>
 
-                <label>
-                  Assignee
-                  <input
-                    value={ganttDraft.assignee}
-                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
-                    placeholder="e.g. Mohammed, John"
-                  />
-                </label>
+                <div className="milestone-toggle-row">
+                  <label className="milestone-toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={ganttDraft.isMilestone}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, isMilestone: e.target.checked }))}
+                    />
+                    <span className="milestone-diamond" />
+                    Milestone
+                  </label>
+                </div>
+
+                <label>Assignee</label>
+                <AssigneeTagInput
+                  value={ganttDraft.assignee}
+                  onChange={(val) => setGanttDraft((prev) => ({ ...prev, assignee: val }))}
+                  suggestions={allAssignees}
+                />
 
                 <label>
                   Link
@@ -6931,6 +7364,73 @@ function App() {
                     />
                   </label>
                 </div>
+
+                <label>
+                  Depends on
+                  <div className="dep-picker">
+                    {ganttDraft.dependsOn.map((depId) => {
+                      const depTask = ganttTasks.find((t) => (t.idToken || "").toLowerCase() === depId.toLowerCase() || (t.label || "").toLowerCase() === depId.toLowerCase());
+                      return (
+                        <span className="dep-pill" key={depId}>
+                          {depTask ? depTask.label : depId}
+                          <button
+                            type="button"
+                            onClick={() => setGanttDraft((prev) => ({ ...prev, dependsOn: prev.dependsOn.filter((d) => d !== depId) }))}
+                          >
+                            &times;
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {(() => {
+                      const currentLabel = task?.label || contextMenu.label;
+                      const available = ganttTasks.filter((t) => !t.isVertMarker && t.label !== currentLabel && !ganttDraft.dependsOn.includes(t.idToken || t.label));
+                      return (
+                        <div className="dep-search-wrap">
+                          <input
+                            className="dep-search-input"
+                            type="text"
+                            placeholder="Search tasks..."
+                            value={ganttDraft._depSearch || ""}
+                            onChange={(e) => setGanttDraft((prev) => ({ ...prev, _depSearch: e.target.value }))}
+                            onFocus={() => setGanttDraft((prev) => ({ ...prev, _depOpen: true }))}
+                            onBlur={() => setTimeout(() => setGanttDraft((prev) => ({ ...prev, _depOpen: false })), 150)}
+                          />
+                          {ganttDraft._depOpen && (() => {
+                            const query = (ganttDraft._depSearch || "").toLowerCase();
+                            const filtered = query ? available.filter((t) => t.label.toLowerCase().includes(query) || (t.idToken || "").toLowerCase().includes(query)) : available;
+                            if (!filtered.length) return <div className="dep-dropdown"><div className="dep-dropdown-empty">No matching tasks</div></div>;
+                            return (
+                              <div className="dep-dropdown">
+                                {filtered.map((t) => {
+                                  const id = t.idToken || t.label;
+                                  return (
+                                    <button
+                                      key={id}
+                                      type="button"
+                                      className="dep-dropdown-item"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setGanttDraft((prev) => ({
+                                          ...prev,
+                                          dependsOn: prev.dependsOn.includes(id) ? prev.dependsOn : [...prev.dependsOn, id],
+                                          _depSearch: "",
+                                          _depOpen: false,
+                                        }));
+                                      }}
+                                    >
+                                      {t.label}{t.idToken && t.idToken !== t.label ? <span className="dep-dropdown-id"> ({t.idToken})</span> : ""}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </label>
 
                 <label>
                   Notes
