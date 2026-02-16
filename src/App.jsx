@@ -20,6 +20,7 @@ import {
   getGanttSections,
   moveGanttTaskToSection,
   renameGanttSection,
+  computeCriticalPath,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
@@ -401,6 +402,14 @@ function getIframeSrcDoc() {
       .mf-bar-active  { background: #fef08a; }
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
+      .mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 8px rgba(239, 68, 68, 0.3);
+        z-index: 2;
+      }
+      .mf-gantt-milestone.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 8px rgba(239, 68, 68, 0.3);
+      }
+      .mf-bar-dimmed { opacity: 0.35; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
       .mf-gantt-bar.mf-bar-active .bar-label {
         color: #1f2937;
@@ -1130,6 +1139,12 @@ function getIframeSrcDoc() {
         color: #e4e6ed;
       }
       [data-theme="dark"] .mf-bar-default { background: #3a3f52; }
+      [data-theme="dark"] .mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 8px rgba(248, 113, 113, 0.4);
+      }
+      [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 8px rgba(248, 113, 113, 0.4);
+      }
       [data-theme="dark"] .mf-gantt-excluded-day {
         background: rgba(255,255,255,0.03);
       }
@@ -1507,7 +1522,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1776,6 +1791,12 @@ function getIframeSrcDoc() {
             else if (statuses.includes("crit")) barClass = "mf-bar-crit";
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
+            // Critical path highlighting
+            let cpClass = "";
+            if (showCriticalPath) {
+              cpClass = task.isCriticalPath ? " mf-bar-critical-path" : " mf-bar-dimmed";
+            }
+
             const bar = document.createElement("div");
             const isNarrow = width < 70;
             const showsMetaSuffix = !task.isMilestone && showDates && !!task.startDate;
@@ -1788,13 +1809,13 @@ function getIframeSrcDoc() {
               const milestoneLeft = left + Math.floor(width / 2) - Math.floor(diamondSize / 2);
               barLeft = milestoneLeft;
               barPixelWidth = diamondSize;
-              bar.className = "mf-gantt-milestone " + barClass;
+              bar.className = "mf-gantt-milestone " + barClass + cpClass;
               bar.style.left = milestoneLeft + "px";
               bar.style.width = diamondSize + "px";
               bar.style.height = diamondSize + "px";
               bar.style.top = top + "px";
             } else {
-              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "");
+              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "") + cpClass;
               bar.style.left = left + "px";
               bar.style.width = width + "px";
               bar.style.top = top + "px";
@@ -4352,7 +4373,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4567,6 +4588,7 @@ function App() {
   const [compactMode, setCompactMode] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
   const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -4777,6 +4799,7 @@ function App() {
     // Pre-compute gantt data so the iframe can render custom HTML gantt
     const directives = parseGanttDirectives(code);
     const tasks = resolveDependencies(parseGanttTasks(code));
+    const { criticalSet, slackByTask } = computeCriticalPath(tasks);
     const ganttData = {
       tasks: tasks.map((t) => {
         const effectiveStart = t.startDate || t.resolvedStartDate || "";
@@ -4790,6 +4813,7 @@ function App() {
                 return d.toISOString().slice(0, 10);
               })();
         }
+        const taskKey = t.idToken || t.label || "";
         return {
           label: t.label,
           startDate: effectiveStart,
@@ -4806,6 +4830,8 @@ function App() {
           afterDeps: t.afterDeps || [],
           idToken: t.idToken || "",
           hasExplicitDate: t.hasExplicitDate,
+          isCriticalPath: criticalSet.has(taskKey),
+          slackDays: slackByTask.get(taskKey) || 0,
         };
       }),
       directives,
@@ -4815,6 +4841,7 @@ function App() {
       compact: compactMode || directives.displayMode === "compact",
       ganttZoom,
       pinCategories,
+      showCriticalPath,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -4846,7 +4873,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
-  }, [code, autoRender, mermaidRenderConfig]);
+  }, [code, autoRender, mermaidRenderConfig, showCriticalPath]);
 
   /* ── Sync app theme to iframe ─────────────────────────── */
   useEffect(() => {
@@ -5338,7 +5365,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -6069,6 +6096,9 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setPinCategories((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {pinCategories ? "Unpin labels" : "Pin labels"}
                   </button>
+                  <button className="dropdown-item" onClick={() => { setShowCriticalPath((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showCriticalPath ? "Hide critical path" : "Critical path"}
+                  </button>
                 </div>
               </div>
             )}
@@ -6110,6 +6140,12 @@ function App() {
                     onClick={() => setPinCategories((prev) => !prev)}
                   >
                     {pinCategories ? "Unpin labels" : "Pin labels"}
+                  </button>
+                  <button
+                    className={`date-toggle-btn${showCriticalPath ? " active" : ""}`}
+                    onClick={() => setShowCriticalPath((prev) => !prev)}
+                  >
+                    {showCriticalPath ? "Hide critical path" : "Critical path"}
                   </button>
                 </>
               )}
