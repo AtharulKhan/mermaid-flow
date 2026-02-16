@@ -1842,9 +1842,15 @@ function getIframeSrcDoc() {
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
             // Critical path highlighting
+            // Only dim tasks that are part of the dependency graph but NOT critical.
+            // Disconnected tasks (no deps) stay at normal opacity.
             let cpClass = "";
             if (showCriticalPath) {
-              cpClass = task.isCriticalPath ? " mf-bar-critical-path" : " mf-bar-dimmed";
+              if (task.isCriticalPath) {
+                cpClass = " mf-bar-critical-path";
+              } else if (task.isConnected) {
+                cpClass = " mf-bar-dimmed";
+              }
             }
 
             const bar = document.createElement("div");
@@ -5028,7 +5034,7 @@ function App() {
     // Pre-compute gantt data so the iframe can render custom HTML gantt
     const directives = parseGanttDirectives(code);
     const tasks = resolveDependencies(parseGanttTasks(code));
-    const { criticalSet, slackByTask } = computeCriticalPath(tasks);
+    const { criticalSet, connectedSet, slackByTask } = computeCriticalPath(tasks);
     const ganttData = {
       tasks: tasks.map((t) => {
         const effectiveStart = t.startDate || t.resolvedStartDate || "";
@@ -5060,6 +5066,7 @@ function App() {
           idToken: t.idToken || "",
           hasExplicitDate: t.hasExplicitDate,
           isCriticalPath: criticalSet.has(taskKey),
+          isConnected: connectedSet ? connectedSet.has(taskKey) : false,
           slackDays: slackByTask.get(taskKey) || 0,
         };
       }),

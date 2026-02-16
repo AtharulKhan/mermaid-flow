@@ -586,10 +586,23 @@ export function computeCriticalPath(tasks) {
     EF.set(k, ES.get(k) + getDurationMs(t));
   }
 
-  // Project end
+  // Project end — only consider tasks that participate in the dependency graph
+  // (have at least one predecessor or successor). Disconnected tasks shouldn't
+  // inflate projectEnd, which would give chained tasks false slack.
   let projectEnd = -Infinity;
-  for (const ef of EF.values()) {
-    if (ef > projectEnd) projectEnd = ef;
+  for (const k of topoOrder) {
+    const hasPreds = (predecessors.get(k) || []).length > 0;
+    const hasSuccs = (successors.get(k) || []).length > 0;
+    if (hasPreds || hasSuccs) {
+      const ef = EF.get(k);
+      if (ef > projectEnd) projectEnd = ef;
+    }
+  }
+  // Fallback: if no connected tasks, use global max
+  if (projectEnd === -Infinity) {
+    for (const ef of EF.values()) {
+      if (ef > projectEnd) projectEnd = ef;
+    }
   }
 
   // Backward pass: Latest Start (LS) and Latest Finish (LF)
@@ -615,6 +628,7 @@ export function computeCriticalPath(tasks) {
 
   // Compute slack and critical set
   const criticalSet = new Set();
+  const connectedSet = new Set(); // tasks with at least one edge
   const slackByTask = new Map();
   const slackThreshold = dayMs * 0.5;
 
@@ -624,12 +638,17 @@ export function computeCriticalPath(tasks) {
     const t = byKey.get(k);
     const origKey = t.idToken || t.label || "";
     slackByTask.set(origKey, slackDays);
-    if (Math.abs(slack) <= slackThreshold) {
-      criticalSet.add(origKey);
+    const hasPreds = (predecessors.get(k) || []).length > 0;
+    const hasSuccs = (successors.get(k) || []).length > 0;
+    if (hasPreds || hasSuccs) {
+      connectedSet.add(origKey);
+      if (Math.abs(slack) <= slackThreshold) {
+        criticalSet.add(origKey);
+      }
     }
   }
 
-  return { criticalSet, slackByTask };
+  return { criticalSet, connectedSet, slackByTask };
 }
 
 /* ── Existing utilities ───────────────────────────────── */
