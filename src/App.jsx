@@ -6525,29 +6525,53 @@ function App() {
                         </span>
                       );
                     })}
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (!val) return;
-                        setGanttDraft((prev) => ({
-                          ...prev,
-                          dependsOn: prev.dependsOn.includes(val) ? prev.dependsOn : [...prev.dependsOn, val],
-                        }));
-                      }}
-                    >
-                      <option value="">+ Add dependency...</option>
-                      {ganttTasks
-                        .filter((t) => !t.isVertMarker && t.label !== (task?.label || contextMenu.label) && !ganttDraft.dependsOn.includes(t.idToken || t.label))
-                        .map((t) => {
-                          const id = t.idToken || t.label;
-                          return (
-                            <option key={id} value={id}>
-                              {t.label}{t.idToken && t.idToken !== t.label ? ` (${t.idToken})` : ""}
-                            </option>
-                          );
-                        })}
-                    </select>
+                    {(() => {
+                      const currentLabel = task?.label || contextMenu.label;
+                      const available = ganttTasks.filter((t) => !t.isVertMarker && t.label !== currentLabel && !ganttDraft.dependsOn.includes(t.idToken || t.label));
+                      return (
+                        <div className="dep-search-wrap">
+                          <input
+                            className="dep-search-input"
+                            type="text"
+                            placeholder="Search tasks..."
+                            value={ganttDraft._depSearch || ""}
+                            onChange={(e) => setGanttDraft((prev) => ({ ...prev, _depSearch: e.target.value }))}
+                            onFocus={() => setGanttDraft((prev) => ({ ...prev, _depOpen: true }))}
+                            onBlur={() => setTimeout(() => setGanttDraft((prev) => ({ ...prev, _depOpen: false })), 150)}
+                          />
+                          {ganttDraft._depOpen && (() => {
+                            const query = (ganttDraft._depSearch || "").toLowerCase();
+                            const filtered = query ? available.filter((t) => t.label.toLowerCase().includes(query) || (t.idToken || "").toLowerCase().includes(query)) : available;
+                            if (!filtered.length) return <div className="dep-dropdown"><div className="dep-dropdown-empty">No matching tasks</div></div>;
+                            return (
+                              <div className="dep-dropdown">
+                                {filtered.map((t) => {
+                                  const id = t.idToken || t.label;
+                                  return (
+                                    <button
+                                      key={id}
+                                      type="button"
+                                      className="dep-dropdown-item"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setGanttDraft((prev) => ({
+                                          ...prev,
+                                          dependsOn: prev.dependsOn.includes(id) ? prev.dependsOn : [...prev.dependsOn, id],
+                                          _depSearch: "",
+                                          _depOpen: false,
+                                        }));
+                                      }}
+                                    >
+                                      {t.label}{t.idToken && t.idToken !== t.label ? <span className="dep-dropdown-id"> ({t.idToken})</span> : ""}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </label>
 

@@ -978,6 +978,53 @@ input:focus {
   flex: 1;
   min-width: 160px;
 }
+.dep-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 160px;
+}
+.dep-search-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.dep-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.dep-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 7px 12px;
+  font-size: 0.85rem;
+  color: var(--ink);
+  cursor: pointer;
+  line-height: 1.35;
+}
+.dep-dropdown-item:hover {
+  background: var(--accent-soft);
+}
+.dep-dropdown-id {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+.dep-dropdown-empty {
+  padding: 10px 12px;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
 
 .task-modal-actions {
   display: flex;
