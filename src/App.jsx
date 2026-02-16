@@ -4393,7 +4393,10 @@ function App() {
   });
 
   // UI state
-  const [editorCollapsed, setEditorCollapsed] = useState(false);
+  const [editorCollapsed, setEditorCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.location.pathname.startsWith("/flow/");
+  });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
