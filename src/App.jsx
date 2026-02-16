@@ -5856,6 +5856,7 @@ function App() {
         statusTokens: t.statusTokens || [],
         notes: t.notes || "",
         link: t.link || "",
+        progress: t.progress != null ? t.progress : null,
         section: t.section || "",
         isMilestone: t.isMilestone || false,
         isVertMarker: t.isVertMarker || false,
