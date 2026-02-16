@@ -1146,6 +1146,8 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path {
         box-shadow: 0 0 0 2.5px #f87171, 0 0 8px rgba(248, 113, 113, 0.4);
       }
+      [data-theme="dark"] .mf-dep-lines-svg path { stroke: #9ca3af; }
+      [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #9ca3af; }
       [data-theme="dark"] .mf-gantt-excluded-day {
         background: rgba(255,255,255,0.03);
       }
@@ -1523,7 +1525,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1643,6 +1645,10 @@ function getIframeSrcDoc() {
         };
 
         // Build container
+        // Track bar positions for dependency arrows
+        const barPositions = new Map();
+        let cumulativeTop = 0;
+
         const container = document.createElement("div");
         container.className = "mf-gantt-container";
         container.style.gridTemplateColumns = roleColWidth + "px " + timelineWidth + "px";
@@ -1680,6 +1686,8 @@ function getIframeSrcDoc() {
           timelineHeader.appendChild(buildTimelineHeaderRow("week", paddedMin, totalDays, pxPerDay));
         }
         container.appendChild(timelineHeader);
+
+        cumulativeTop = headerHeight;
 
         // === Body: Section rows ===
         for (const [section, sectionTasks] of sectionMap.entries()) {
@@ -1945,6 +1953,16 @@ function getIframeSrcDoc() {
             if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
             bar.setAttribute("data-mf-tip", tip);
 
+            // Record bar position for dependency arrows
+            const barKey = (task.idToken || task.label || "").toLowerCase();
+            if (barKey) {
+              barPositions.set(barKey, {
+                left: roleColWidth + barLeft,
+                right: roleColWidth + barLeft + barPixelWidth,
+                centerY: cumulativeTop + top + barHeight / 2,
+              });
+            }
+
             // Overdue dot
             if (isOverdue && !task.isMilestone) {
               const dot = document.createElement("div");
@@ -2049,6 +2067,7 @@ function getIframeSrcDoc() {
           // (Insert buttons moved to role cell)
 
           container.appendChild(track);
+          cumulativeTop += trackHeight;
         }
 
         // Vertical markers (vert)
@@ -2064,6 +2083,76 @@ function getIframeSrcDoc() {
           vtLabel.textContent = vt.label || "";
           vtLine.appendChild(vtLabel);
           container.appendChild(vtLine);
+        }
+
+        // Dependency arrows
+        if (showDepLines) {
+          const svgNS = "http://www.w3.org/2000/svg";
+          const totalHeight = cumulativeTop;
+          const totalWidth = roleColWidth + timelineWidth;
+          const svg = document.createElementNS(svgNS, "svg");
+          svg.setAttribute("class", "mf-dep-lines-svg");
+          svg.setAttribute("width", totalWidth);
+          svg.setAttribute("height", totalHeight);
+          svg.setAttribute("viewBox", "0 0 " + totalWidth + " " + totalHeight);
+          svg.style.position = "absolute";
+          svg.style.top = "0";
+          svg.style.left = "0";
+          svg.style.pointerEvents = "none";
+          svg.style.zIndex = "3";
+
+          // Arrowhead marker
+          const defs = document.createElementNS(svgNS, "defs");
+          const marker = document.createElementNS(svgNS, "marker");
+          marker.setAttribute("id", "dep-arrow");
+          marker.setAttribute("viewBox", "0 0 10 10");
+          marker.setAttribute("refX", "9");
+          marker.setAttribute("refY", "5");
+          marker.setAttribute("markerWidth", "6");
+          marker.setAttribute("markerHeight", "6");
+          marker.setAttribute("orient", "auto-start-reverse");
+          const arrowPath = document.createElementNS(svgNS, "path");
+          arrowPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+          arrowPath.setAttribute("fill", "#6b7280");
+          marker.appendChild(arrowPath);
+          defs.appendChild(marker);
+          svg.appendChild(defs);
+
+          const allRegularTasks = enriched;
+          for (const task of allRegularTasks) {
+            if (!task.afterDeps || !task.afterDeps.length) continue;
+            const toKey = (task.idToken || task.label || "").toLowerCase();
+            const toPos = barPositions.get(toKey);
+            if (!toPos) continue;
+
+            for (const depId of task.afterDeps) {
+              const fromKey = depId.toLowerCase();
+              const fromPos = barPositions.get(fromKey);
+              if (!fromPos) continue;
+
+              const x1 = fromPos.right;
+              const y1 = fromPos.centerY;
+              const x2 = toPos.left;
+              const y2 = toPos.centerY;
+
+              const path = document.createElementNS(svgNS, "path");
+              if (Math.abs(y1 - y2) < 2) {
+                // Horizontal: straight line
+                path.setAttribute("d", "M " + x1 + " " + y1 + " L " + x2 + " " + y2);
+              } else {
+                // Curved: horizontal out, curve down/up, horizontal in
+                const midX = x1 + (x2 - x1) * 0.5;
+                path.setAttribute("d", "M " + x1 + " " + y1 + " C " + midX + " " + y1 + " " + midX + " " + y2 + " " + x2 + " " + y2);
+              }
+              path.setAttribute("stroke", "#6b7280");
+              path.setAttribute("stroke-width", "1.5");
+              path.setAttribute("fill", "none");
+              path.setAttribute("marker-end", "url(#dep-arrow)");
+              svg.appendChild(path);
+            }
+          }
+
+          container.appendChild(svg);
         }
 
         // Today line (respect todayMarker directive)
@@ -4374,7 +4463,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4591,6 +4680,7 @@ function App() {
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
   const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
   const [showCriticalPath, setShowCriticalPath] = useState(false);
+  const [showDepLines, setShowDepLines] = useState(false);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -4844,6 +4934,7 @@ function App() {
       ganttZoom,
       pinCategories,
       showCriticalPath,
+      showDepLines,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -4875,7 +4966,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
-  }, [code, autoRender, mermaidRenderConfig, showCriticalPath]);
+  }, [code, autoRender, mermaidRenderConfig, showCriticalPath, showDepLines]);
 
   /* ── Sync app theme to iframe ─────────────────────────── */
   useEffect(() => {
@@ -5368,7 +5459,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -6109,6 +6200,9 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setShowCriticalPath((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {showCriticalPath ? "Hide critical path" : "Critical path"}
                   </button>
+                  <button className="dropdown-item" onClick={() => { setShowDepLines((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showDepLines ? "Hide dep lines" : "Dep lines"}
+                  </button>
                 </div>
               </div>
             )}
@@ -6156,6 +6250,12 @@ function App() {
                     onClick={() => setShowCriticalPath((prev) => !prev)}
                   >
                     {showCriticalPath ? "Hide critical path" : "Critical path"}
+                  </button>
+                  <button
+                    className={`date-toggle-btn${showDepLines ? " active" : ""}`}
+                    onClick={() => setShowDepLines((prev) => !prev)}
+                  >
+                    {showDepLines ? "Hide dep lines" : "Dep lines"}
                   </button>
                 </>
               )}
