@@ -1199,3 +1199,82 @@ export function computeRiskFlags(tasks) {
 
   return result;
 }
+
+/* ── Week key helper ─────────────────────────────────── */
+
+export function getWeekKey(isoDate) {
+  const d = new Date(isoDate + "T00:00:00Z");
+  const dayOfWeek = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayOfWeek);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+/* ── Resource load / overload detection ──────────────── */
+
+export function computeResourceLoad(tasks) {
+  const assigneeWeeks = new Map();
+
+  for (const task of tasks) {
+    if (!task.assignee || !task.startDate || !task.computedEnd) continue;
+
+    const names = task.assignee
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
+
+    for (const name of names) {
+      if (!assigneeWeeks.has(name)) assigneeWeeks.set(name, new Map());
+      const weeks = assigneeWeeks.get(name);
+
+      let current = task.startDate;
+      const endMs = Date.parse(task.computedEnd + "T00:00:00Z");
+
+      while (Date.parse(current + "T00:00:00Z") < endMs) {
+        const wk = getWeekKey(current);
+        if (!weeks.has(wk)) {
+          const d = new Date(current + "T00:00:00Z");
+          const day = d.getUTCDay() || 7;
+          d.setUTCDate(d.getUTCDate() - day + 1);
+          const weekStart = d.toISOString().slice(0, 10);
+          weeks.set(wk, { weekStart, tasks: [] });
+        }
+        const entry = weeks.get(wk);
+        if (!entry.tasks.includes(task.label)) {
+          entry.tasks.push(task.label);
+        }
+
+        const next = new Date(Date.parse(current + "T00:00:00Z") + 86400000);
+        current = next.toISOString().slice(0, 10);
+      }
+    }
+  }
+
+  const result = [];
+  for (const [name, weeks] of assigneeWeeks) {
+    const taskSet = new Set();
+    const overloadedWeeks = [];
+
+    for (const [weekKey, entry] of weeks) {
+      for (const t of entry.tasks) taskSet.add(t);
+      if (entry.tasks.length >= 2) {
+        overloadedWeeks.push({
+          weekKey,
+          weekStart: entry.weekStart,
+          tasks: [...entry.tasks],
+        });
+      }
+    }
+
+    overloadedWeeks.sort((a, b) => a.weekKey.localeCompare(b.weekKey));
+    result.push({ name, totalTasks: taskSet.size, overloadedWeeks });
+  }
+
+  result.sort((a, b) => {
+    const diff = b.overloadedWeeks.length - a.overloadedWeeks.length;
+    return diff !== 0 ? diff : a.name.localeCompare(b.name);
+  });
+
+  return result;
+}
