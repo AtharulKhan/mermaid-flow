@@ -259,10 +259,11 @@ export function parseGanttTasks(code) {
       durationDays = Math.round((e - s) / (1000 * 60 * 60 * 24));
     }
 
-    // Check subsequent lines for metadata comments (assignee, notes, link)
+    // Check subsequent lines for metadata comments (assignee, notes, link, progress)
     let assignee = "";
     let notes = "";
     let link = "";
+    let progress = null;
     let metaIdx = lineIndex + 1;
     while (metaIdx < lines.length) {
       const metaLine = lines[metaIdx].trim();
@@ -273,6 +274,8 @@ export function parseGanttTasks(code) {
       if (nMatch) notes = nMatch[1].trim();
       const lMatch = metaLine.match(/^%%\s*link:\s*(.+)$/i);
       if (lMatch) link = lMatch[1].trim();
+      const pMatch = metaLine.match(/^%%\s*progress:\s*(\d+)$/i);
+      if (pMatch) { const val = parseInt(pMatch[1], 10); if (val >= 0 && val <= 100) progress = val; }
       metaIdx++;
     }
 
@@ -297,6 +300,7 @@ export function parseGanttTasks(code) {
       assignee,
       notes,
       link,
+      progress,
       isMilestone,
       isVertMarker,
       afterDeps,
@@ -964,6 +968,13 @@ export function updateGanttNotes(code, task, notes) {
 
 export function updateGanttLink(code, task, link) {
   return updateGanttMetadataComment(code, task, "link", link);
+}
+
+export function updateGanttProgress(code, task, progress) {
+  const value = progress !== null && progress !== undefined && progress !== ""
+    ? String(Math.max(0, Math.min(100, Math.round(Number(progress)))))
+    : "";
+  return updateGanttMetadataComment(code, task, "progress", value);
 }
 
 function parseSectionHeader(line) {

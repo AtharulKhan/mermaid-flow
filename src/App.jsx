@@ -15,6 +15,7 @@ import {
   updateGanttAssignee,
   updateGanttNotes,
   updateGanttLink,
+  updateGanttProgress,
   deleteGanttTask,
   insertGanttTaskAfter,
   addGanttSection,
@@ -487,6 +488,15 @@ function getIframeSrcDoc() {
         filter: brightness(1.06);
       }
       .mf-gantt-bar:active { cursor: grabbing; }
+      .mf-gantt-progress-fill {
+        position: absolute;
+        left: 0; top: 0; bottom: 0;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.18);
+        pointer-events: none;
+        z-index: 0;
+        transition: width 0.2s ease;
+      }
       .mf-bar-default { background: #d1d5db; }
       .mf-bar-done    { background: #22c55e; }
       .mf-bar-crit    { background: #ef4444; }
@@ -1411,6 +1421,8 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-gantt-bar.mf-bar-active .bar-label {
         color: #e4e6ed;
       }
+      [data-theme="dark"] .mf-gantt-progress-fill { background: rgba(255, 255, 255, 0.15); }
+      [data-theme="dark"] .mf-bar-active .mf-gantt-progress-fill { background: rgba(0, 0, 0, 0.18); }
       [data-theme="dark"] .mf-bar-default { background: #3a3f52; }
       [data-theme="dark"] .mf-bar-critical-path {
         box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
@@ -2348,6 +2360,14 @@ function getIframeSrcDoc() {
               bar.append(startHandle, endHandle);
             }
 
+            // Progress fill overlay
+            if (!task.isMilestone && task.progress != null && task.progress > 0) {
+              const progressFill = document.createElement("div");
+              progressFill.className = "mf-gantt-progress-fill";
+              progressFill.style.width = Math.min(100, task.progress) + "%";
+              bar.appendChild(progressFill);
+            }
+
             // Dependency connector handle (drag from this to create a dependency)
             const depConn = document.createElement("div");
             depConn.className = "mf-dep-connector";
@@ -2538,6 +2558,7 @@ function getIframeSrcDoc() {
             if (isOverdue) tip += "\\nOVERDUE";
             if (task.assignee) tip += "\\nAssignee: " + task.assignee;
             if (task.notes) tip += "\\nNotes: " + task.notes;
+            if (task.progress != null) tip += "\\nProgress: " + task.progress + "%";
             if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
             // Dependency info in tooltip
             if (task.afterDeps && task.afterDeps.length) {
@@ -5495,6 +5516,7 @@ function App() {
     notes: "",
     link: "",
     section: "",
+    progress: "",
     dependsOn: [],
   });
 
@@ -6019,7 +6041,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", dependsOn: [] });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", progress: "", dependsOn: [] });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -6038,6 +6060,7 @@ function App() {
       notes: selectedGanttTask.notes || "",
       link: selectedGanttTask.link || "",
       section: selectedGanttTask.section || "",
+      progress: selectedGanttTask.progress !== null && selectedGanttTask.progress !== undefined ? String(selectedGanttTask.progress) : "",
       dependsOn: selectedGanttTask.afterDeps || [],
     });
   }, [selectedGanttTask]);
@@ -6606,6 +6629,13 @@ function App() {
     const linkTask = findTaskByLabel(linkTasks, nextLabel);
     if (linkTask) {
       updated = updateGanttLink(updated, linkTask, ganttDraft.link.trim());
+    }
+
+    // Apply progress
+    const progressTasks = parseGanttTasks(updated);
+    const progressTask = findTaskByLabel(progressTasks, nextLabel);
+    if (progressTask) {
+      updated = updateGanttProgress(updated, progressTask, ganttDraft.progress);
     }
 
     // Apply dependency changes
@@ -7524,6 +7554,23 @@ function App() {
                     placeholder="https://example.com/task"
                   />
                 </label>
+                <label>
+                  Progress
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={ganttDraft.progress || 0}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, progress: e.target.value }))}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: "36px", textAlign: "right" }}>
+                      {ganttDraft.progress ? ganttDraft.progress + "%" : "--"}
+                    </span>
+                  </div>
+                </label>
                 <label>Status</label>
                 <div className="status-toggle-group">
                   {["done", "active", "crit"].map((flag) => {
@@ -7810,6 +7857,24 @@ function App() {
                     placeholder="Add notes about this task..."
                     rows={3}
                   />
+                </label>
+
+                <label>
+                  Progress
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={ganttDraft.progress || 0}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, progress: e.target.value }))}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: "36px", textAlign: "right" }}>
+                      {ganttDraft.progress ? ganttDraft.progress + "%" : "--"}
+                    </span>
+                  </div>
                 </label>
               </div>
 
