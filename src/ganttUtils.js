@@ -679,6 +679,32 @@ export function updateGanttTask(code, task, updates) {
   return lines.join("\n");
 }
 
+export function updateGanttDependency(code, task, depIds) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const nextTokens = [...task.tokens];
+
+  // Remove existing "after ..." token if present
+  if (task.afterTokenIndex >= 0) {
+    nextTokens.splice(task.afterTokenIndex, 1);
+  }
+
+  if (depIds.length > 0) {
+    const afterToken = "after " + depIds.join(" ");
+    // Insert before duration token if one exists, otherwise append
+    // Recalculate duration index after possible splice
+    const durIdx = nextTokens.findIndex((t) => /^\d+[dwmy]$/i.test(t.trim()));
+    if (durIdx >= 0) {
+      nextTokens.splice(durIdx, 0, afterToken);
+    } else {
+      nextTokens.push(afterToken);
+    }
+  }
+
+  lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
 export function deleteGanttTask(code, task) {
   if (!task) return code;
   const lines = code.split("\n");
