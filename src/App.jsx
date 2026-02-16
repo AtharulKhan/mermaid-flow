@@ -386,6 +386,7 @@ function getIframeSrcDoc() {
         overflow: visible;
         box-sizing: border-box;
         min-width: 18px;
+        --outside-label-width: 0px;
       }
       .mf-gantt-bar:hover {
         box-shadow: 0 2px 8px rgba(0,0,0,0.15);
@@ -452,7 +453,7 @@ function getIframeSrcDoc() {
         text-overflow: clip;
       }
       .bar-date-suffix {
-        color: rgba(148, 163, 184, 0.78);
+        color: rgba(148, 163, 184, 0.58);
         font-size: 9.5px;
         font-weight: 400;
         position: absolute;
@@ -461,6 +462,14 @@ function getIframeSrcDoc() {
         transform: translateY(-50%);
         white-space: nowrap;
         pointer-events: none;
+      }
+      .mf-gantt-bar.mf-label-outside .bar-date-suffix {
+        left: calc(100% + 8px + var(--outside-label-width, 0px) + 8px);
+        right: auto;
+      }
+      .mf-gantt-bar.mf-label-outside-left .bar-date-suffix {
+        right: calc(100% + 8px + var(--outside-label-width, 0px) + 8px);
+        left: auto;
       }
       .mf-bar-resize-handle {
         position: absolute;
@@ -1697,16 +1706,6 @@ function getIframeSrcDoc() {
               bar.style.setProperty("--date-suffix-width", "0px");
             }
 
-            if (!task.isMilestone) {
-              const reservedWidth =
-                (dateSuffixWidth ? dateSuffixWidth + 6 : 0) +
-                (hasTaskLink ? 24 : 0) +
-                16;
-              // Avoid negative max-width values; those can invalidate CSS and cause overlap.
-              const clampedLabelWidth = Math.max(0, width - reservedWidth);
-              labelSpan.style.maxWidth = clampedLabelWidth + "px";
-            }
-
             if (hasTaskLink) {
               const linkBtn = document.createElement("button");
               linkBtn.type = "button";
@@ -1738,6 +1737,7 @@ function getIframeSrcDoc() {
             }
 
             const labelWidth = measureLabelWidth(task.label || "");
+            bar.style.setProperty("--outside-label-width", labelWidth + "px");
             if (task.isMilestone) {
               const rightSpace = timelineWidth - (barLeft + barPixelWidth);
               if (rightSpace < labelWidth + 14) bar.classList.add("mf-label-outside-left");
@@ -1750,9 +1750,25 @@ function getIframeSrcDoc() {
                   (hasTaskLink ? 24 : 0)
               );
               if (labelWidth > innerLabelWidth) {
-                const rightSpace = timelineWidth - (left + width);
-                if (rightSpace >= labelWidth + 14) bar.classList.add("mf-label-outside");
-                else bar.classList.add("mf-label-outside-left");
+                // Keep task title outside-right when it doesn't fit in the bar.
+                bar.classList.add("mf-label-outside");
+              }
+            }
+
+            if (!task.isMilestone) {
+              const hasOutsideLabel =
+                bar.classList.contains("mf-label-outside") ||
+                bar.classList.contains("mf-label-outside-left");
+              if (hasOutsideLabel) {
+                labelSpan.style.maxWidth = "none";
+              } else {
+                const reservedWidth =
+                  (dateSuffixWidth ? dateSuffixWidth + 6 : 0) +
+                  (hasTaskLink ? 24 : 0) +
+                  16;
+                // Avoid negative max-width values; those can invalidate CSS and cause overlap.
+                const clampedLabelWidth = Math.max(0, width - reservedWidth);
+                labelSpan.style.maxWidth = clampedLabelWidth + "px";
               }
             }
 
