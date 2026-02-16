@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../firebase/AuthContext";
 import { logOut } from "../firebase/auth";
+import { getStoredTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "../themeUtils";
 import {
   getUserProjects,
   createProject,
@@ -31,6 +32,9 @@ export default function Dashboard() {
   const [subprojects, setSubprojects] = useState([]);
   const [selectedSubproject, setSelectedSubproject] = useState(null);
   const [projectFlows, setProjectFlows] = useState([]);
+
+  // Theme
+  const [themeMode, setThemeMode] = useState(getStoredTheme);
 
   // UI state
   const [view, setView] = useState("all"); // "all" | "projects" | "project-detail"
@@ -269,6 +273,13 @@ export default function Dashboard() {
           <h1>Mermaid Flow</h1>
         </div>
         <div className="dash-header-actions">
+          <button
+            className="icon-btn"
+            title={THEME_LABELS[themeMode]}
+            onClick={() => setThemeMode(cycleTheme())}
+          >
+            {themeMode === "dark" ? <IconMoon /> : themeMode === "light" ? <IconSun /> : <IconMonitor />}
+          </button>
           <span className="dash-user">{user.displayName || user.email}</span>
           <button className="soft-btn small" onClick={() => logOut()}>
             Sign Out

@@ -6,7 +6,11 @@ import App from "./App";
 import AuthPage from "./components/AuthPage";
 import Dashboard from "./components/Dashboard";
 import UserSettings from "./components/UserSettings";
+import { applyTheme, getStoredTheme } from "./themeUtils";
 import "./styles.css";
+
+// Apply theme before first render to prevent flash
+applyTheme(getStoredTheme());
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
