@@ -129,6 +129,25 @@ body {
   gap: 4px;
 }
 
+.mobile-only {
+  display: none !important;
+}
+
+.mobile-menu-btn {
+  font-size: 0.78rem;
+  padding: 5px 11px;
+}
+
+.mobile-dropdown {
+  min-width: 210px;
+  max-width: min(88vw, 320px);
+}
+
+.mobile-preview-tip {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+}
+
 /* ── Buttons ───────────────────────────────────────────── */
 .soft-btn,
 .tool-btn {
@@ -1606,6 +1625,14 @@ input:focus {
 }
 
 @media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: inline-flex !important;
+  }
+
   .top-strip {
     height: auto;
     padding: 8px 12px;
@@ -1624,17 +1651,10 @@ input:focus {
 
   .toolbar {
     width: 100%;
-    justify-content: flex-start;
-    overflow-x: auto;
-    overflow-y: hidden;
+    justify-content: flex-end;
+    overflow: visible;
     flex-wrap: nowrap;
-    padding-bottom: 2px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-
-  .toolbar::-webkit-scrollbar {
-    display: none;
+    padding-bottom: 0;
   }
 
   .toolbar > * {
@@ -1655,6 +1675,15 @@ input:focus {
     display: none;
   }
 
+  .toolbar .mobile-only {
+    position: relative;
+  }
+
+  .toolbar .mobile-dropdown {
+    right: 0;
+    left: auto;
+  }
+
   .preview-panel {
     min-width: 0;
     width: 100%;
@@ -1663,28 +1692,24 @@ input:focus {
   }
 
   .panel-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
     padding: 8px 10px;
   }
 
-  .preview-hint {
-    width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
-    flex-wrap: nowrap;
-    padding-bottom: 2px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+  .panel-header .mobile-only {
+    position: relative;
   }
 
-  .preview-hint::-webkit-scrollbar {
-    display: none;
+  .panel-header .mobile-dropdown {
+    left: 0;
+    right: auto;
   }
 
-  .preview-hint > * {
-    flex: 0 0 auto;
+  .mobile-preview-tip {
+    margin-left: auto;
   }
 
   .zoom-controls {

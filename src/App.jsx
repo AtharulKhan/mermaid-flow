@@ -78,6 +78,11 @@ function normalizeAssigneeList(value) {
     .join(", ");
 }
 
+function isMobileViewport() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
 function getIframeSrcDoc() {
   return `<!doctype html>
 <html lang="en">
@@ -4198,6 +4203,8 @@ function App() {
   const iframeRef = useRef(null);
   const editorRef = useRef(null);
   const exportMenuRef = useRef(null);
+  const mobileActionsRef = useRef(null);
+  const mobileViewMenuRef = useRef(null);
 
   // Router integration
   const params = useParams();
@@ -4260,6 +4267,8 @@ function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presentMode, setPresentMode] = useState(false);
   const [editorWidth, setEditorWidth] = useState(30);
@@ -4268,7 +4277,7 @@ function App() {
   const [ganttScale, setGanttScale] = useState("week"); // "week" | "month"
   const [compactMode, setCompactMode] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
-  const [pinCategories, setPinCategories] = useState(true); // sticky Category/Phase column
+  const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -4996,17 +5005,23 @@ function App() {
     document.addEventListener("pointerup", onUp);
   };
 
-  /* ── Outside click for export dropdown ───────────────── */
+  /* ── Outside click for top/view dropdowns ────────────── */
   useEffect(() => {
-    if (!exportMenuOpen) return;
+    if (!exportMenuOpen && !mobileActionsOpen && !mobileViewMenuOpen) return;
     const handler = (e) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
         setExportMenuOpen(false);
       }
+      if (mobileActionsRef.current && !mobileActionsRef.current.contains(e.target)) {
+        setMobileActionsOpen(false);
+      }
+      if (mobileViewMenuRef.current && !mobileViewMenuRef.current.contains(e.target)) {
+        setMobileViewMenuOpen(false);
+      }
     };
     document.addEventListener("pointerdown", handler);
     return () => document.removeEventListener("pointerdown", handler);
-  }, [exportMenuOpen]);
+  }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen]);
 
   /* ── Escape key handler ──────────────────────────────── */
   useEffect(() => {
@@ -5029,12 +5044,14 @@ function App() {
         if (presentMode) { setPresentMode(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (drawerOpen) { setDrawerOpen(false); return; }
+        if (mobileViewMenuOpen) { setMobileViewMenuOpen(false); return; }
+        if (mobileActionsOpen) { setMobileActionsOpen(false); return; }
         if (exportMenuOpen) { setExportMenuOpen(false); return; }
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar]);
 
   /* ── Style Toolbar ──────────────────────────────────── */
   const applyToolbarStyle = (nodeId, stylePatch) => {
@@ -5436,7 +5453,7 @@ function App() {
 
         <div className="toolbar">
           <button
-            className="icon-btn"
+            className="icon-btn desktop-only"
             title={editorCollapsed ? "Show editor" : "Hide editor"}
             onClick={() => setEditorCollapsed(!editorCollapsed)}
           >
@@ -5444,20 +5461,20 @@ function App() {
           </button>
 
           {!autoRender && (
-            <button className="soft-btn primary" onClick={postRender}>
+            <button className="soft-btn primary desktop-only" onClick={postRender}>
               Render
             </button>
           )}
 
           <button
-            className="soft-btn primary"
+            className="soft-btn primary desktop-only"
             onClick={handleManualSave}
             disabled={manualSaving || cloudSaving}
           >
             {manualSaving || cloudSaving ? "Saving..." : "Save"}
           </button>
 
-          <div className="dropdown-wrap" ref={exportMenuRef}>
+          <div className="dropdown-wrap desktop-only" ref={exportMenuRef}>
             <button
               className="soft-btn"
               onClick={() => setExportMenuOpen(!exportMenuOpen)}
@@ -5500,7 +5517,7 @@ function App() {
 
           {flowId && currentUser && canEditCurrentFlow && (
             <button
-              className="soft-btn small"
+              className="soft-btn small desktop-only"
               onClick={() => setShareDialogOpen(true)}
             >
               Share
@@ -5508,7 +5525,7 @@ function App() {
           )}
           {flowId && canCommentCurrentFlow && (
             <button
-              className="soft-btn small"
+              className="soft-btn small desktop-only"
               onClick={() => setCommentPanelOpen(!commentPanelOpen)}
             >
               Comments
@@ -5516,7 +5533,7 @@ function App() {
           )}
           {flowId && currentUser && (
             <button
-              className="soft-btn small"
+              className="soft-btn small desktop-only"
               onClick={() => setVersionPanelOpen(!versionPanelOpen)}
             >
               History
@@ -5525,12 +5542,70 @@ function App() {
 
           {ENABLE_NOTION_INTEGRATION && toolsetKey === "gantt" && (
             <button
-              className="soft-btn small"
+              className="soft-btn small desktop-only"
               onClick={() => setNotionSyncOpen(!notionSyncOpen)}
             >
               Notion
             </button>
           )}
+
+          <div className="dropdown-wrap mobile-only" ref={mobileActionsRef}>
+                <button
+                  className="soft-btn mobile-menu-btn"
+                  onClick={() => {
+                    setMobileActionsOpen((prev) => !prev);
+                    setExportMenuOpen(false);
+                    setMobileViewMenuOpen(false);
+                  }}
+                >
+                  Menu
+                </button>
+            <div className={`dropdown-menu mobile-dropdown ${mobileActionsOpen ? "open" : ""}`}>
+              <button className="dropdown-item" onClick={() => { handleManualSave(); setMobileActionsOpen(false); }}>
+                {manualSaving || cloudSaving ? "Saving..." : "Save"}
+              </button>
+              <button className="dropdown-item" onClick={() => { copyCode(); setMobileActionsOpen(false); }}>
+                Copy Mermaid code
+              </button>
+              <button className="dropdown-item" onClick={() => { copyShareLink(); setMobileActionsOpen(false); }}>
+                Copy shareable link
+              </button>
+              <div className="dropdown-sep" />
+              <button className="dropdown-item" onClick={() => { downloadSvg(); setMobileActionsOpen(false); }}>
+                Export SVG
+              </button>
+              <button className="dropdown-item" onClick={() => { downloadPng(); setMobileActionsOpen(false); }}>
+                Export PNG
+              </button>
+              <button className="dropdown-item" onClick={() => { handleDownloadPdf(); setMobileActionsOpen(false); }}>
+                Export PDF
+              </button>
+              <div className="dropdown-sep" />
+              <button className="dropdown-item" onClick={() => { setSaveDialogOpen(true); setMobileActionsOpen(false); }}>
+                Save local copy
+              </button>
+              {flowId && currentUser && canEditCurrentFlow && (
+                <button className="dropdown-item" onClick={() => { setShareDialogOpen(true); setMobileActionsOpen(false); }}>
+                  Share
+                </button>
+              )}
+              {flowId && canCommentCurrentFlow && (
+                <button className="dropdown-item" onClick={() => { setCommentPanelOpen((prev) => !prev); setMobileActionsOpen(false); }}>
+                  Comments
+                </button>
+              )}
+              {flowId && currentUser && (
+                <button className="dropdown-item" onClick={() => { setVersionPanelOpen((prev) => !prev); setMobileActionsOpen(false); }}>
+                  History
+                </button>
+              )}
+              {ENABLE_NOTION_INTEGRATION && toolsetKey === "gantt" && (
+                <button className="dropdown-item" onClick={() => { setNotionSyncOpen((prev) => !prev); setMobileActionsOpen(false); }}>
+                  Notion
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </header>
 
@@ -5579,7 +5654,42 @@ function App() {
         <article className="preview-panel">
           <div className="panel-header">
             <h2>Preview</h2>
-            <span className="preview-hint">
+            {toolsetKey === "gantt" && (
+              <div className="dropdown-wrap mobile-only" ref={mobileViewMenuRef}>
+                <button
+                  className="date-toggle-btn mobile-menu-btn"
+                  onClick={() => {
+                    setMobileViewMenuOpen((prev) => !prev);
+                    setMobileActionsOpen(false);
+                    setExportMenuOpen(false);
+                  }}
+                >
+                  View options
+                </button>
+                <div className={`dropdown-menu mobile-dropdown ${mobileViewMenuOpen ? "open" : ""}`}>
+                  <button className="dropdown-item" onClick={() => { setShowGrid((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showGrid ? "Hide grid" : "Show grid"}
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setShowDates((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showDates ? "Hide dates" : "Show dates"}
+                  </button>
+                  <div className="dropdown-sep" />
+                  <button className="dropdown-item" onClick={() => { setGanttScale("week"); setMobileViewMenuOpen(false); }}>
+                    Week view
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setGanttScale("month"); setMobileViewMenuOpen(false); }}>
+                    Month view
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setCompactMode((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {compactMode ? "Expanded" : "Compact"}
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setPinCategories((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {pinCategories ? "Unpin labels" : "Pin labels"}
+                  </button>
+                </div>
+              </div>
+            )}
+            <span className="preview-hint desktop-only">
               {toolsetKey === "gantt" && (
                 <>
                   <button
@@ -5622,6 +5732,7 @@ function App() {
               )}
               Click, right-click, and drag to edit
             </span>
+            <span className="mobile-preview-tip mobile-only">Tap bars to edit</span>
           </div>
           <iframe
             ref={iframeRef}
