@@ -1137,61 +1137,97 @@ export function computeRiskFlags(tasks) {
       }
     }
 
-    // Condition 3: Zero slack
-    const taskEndMs = isoToMs(task.computedEnd);
-    if (taskEndMs !== null) {
-      const key = (task.idToken || "").toLowerCase() || task.label.toLowerCase();
-      const dependents = reverseDeps.get(key) || [];
-      for (const dep of dependents) {
-        const depStartMs = isoToMs(dep.startDate);
-        if (depStartMs !== null && depStartMs === taskEndMs) {
-          const entry = getEntry(task.label);
-          entry.flags.push("zero-slack");
-          entry.reasons.push("No buffer before '" + dep.label + "'");
-          break;
+    // Condition 3: Zero slack — only flag on critical-path tasks
+    // Back-to-back chaining via `after` is normal; only flag when a
+    // critical task has zero buffer, since a slip there delays the project.
+    const isCrit = (task.statusTokens || []).includes("crit") || task.isCriticalPath;
+    if (isCrit) {
+      const taskEndMs = isoToMs(task.computedEnd);
+      if (taskEndMs !== null) {
+        const key = (task.idToken || "").toLowerCase() || task.label.toLowerCase();
+        const dependents = reverseDeps.get(key) || [];
+        for (const dep of dependents) {
+          const depStartMs = isoToMs(dep.startDate);
+          if (depStartMs !== null && depStartMs === taskEndMs) {
+            const entry = getEntry(task.label);
+            entry.flags.push("zero-slack");
+            entry.reasons.push("No buffer before '" + dep.label + "'");
+            break;
+          }
         }
       }
     }
   }
 
-  // Condition 4: Overloaded assignee (overlapping tasks, same person)
-  // Assignees can be comma-separated (e.g. "Alice, Bob"), so split and
-  // index each individual person to their tasks.
+  // Condition 4: Overloaded assignee (4+ concurrent active tasks on any day)
+  // Uses sweep-line to find the actual peak concurrent count per person.
+  // 2-3 concurrent tasks is normal work; only 4+ is a genuine overload.
+  // Skip passive/background tasks (>14 days) — warm-ups, monitoring, etc.
+  const PASSIVE_DAYS = 14;
+  const OVERLOAD_THRESHOLD = 4;
   const splitAssignees = (raw) =>
     String(raw || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+  const taskDuration = (t) => {
+    if (t.durationDays != null) return t.durationDays;
+    const s = isoToMs(t.startDate);
+    const e = isoToMs(t.computedEnd);
+    if (s !== null && e !== null) return (e - s) / 86400000;
+    return null;
+  };
 
   const byAssignee = new Map();
   for (const t of tasks) {
     if (!t.assignee || t.isVertMarker || t.isMilestone) continue;
+    const dur = taskDuration(t);
+    if (dur !== null && dur > PASSIVE_DAYS) continue;
     for (const person of splitAssignees(t.assignee)) {
       if (!byAssignee.has(person)) byAssignee.set(person, []);
       byAssignee.get(person).push(t);
     }
   }
   for (const [person, group] of byAssignee) {
-    if (group.length < 2) continue;
-    for (let i = 0; i < group.length; i++) {
-      const a = group[i];
-      const aStart = isoToMs(a.startDate);
-      const aEnd = isoToMs(a.computedEnd);
-      if (aStart === null || aEnd === null) continue;
-      for (let j = i + 1; j < group.length; j++) {
-        const b = group[j];
-        const bStart = isoToMs(b.startDate);
-        const bEnd = isoToMs(b.computedEnd);
-        if (bStart === null || bEnd === null) continue;
-        if (aStart < bEnd && bStart < aEnd) {
-          const displayName = person.charAt(0).toUpperCase() + person.slice(1);
-          const entryA = getEntry(a.label);
-          if (!entryA.flags.includes("overloaded-assignee")) {
-            entryA.flags.push("overloaded-assignee");
-            entryA.reasons.push(displayName + " also on '" + b.label + "'");
-          }
-          const entryB = getEntry(b.label);
-          if (!entryB.flags.includes("overloaded-assignee")) {
-            entryB.flags.push("overloaded-assignee");
-            entryB.reasons.push(displayName + " also on '" + a.label + "'");
-          }
+    if (group.length < OVERLOAD_THRESHOLD) continue;
+
+    // Sweep-line: find peak concurrent tasks on any given day
+    const events = [];
+    for (const t of group) {
+      const s = isoToMs(t.startDate);
+      const e = isoToMs(t.computedEnd);
+      if (s === null || e === null) continue;
+      events.push({ ms: s, delta: 1, task: t });
+      events.push({ ms: e, delta: -1, task: t });
+    }
+    // Sort by time; at same time, process ends before starts so
+    // a task ending on day X and another starting on day X don't overlap
+    events.sort((a, b) => a.ms - b.ms || a.delta - b.delta);
+
+    let concurrent = 0;
+    let peakConcurrent = 0;
+    const active = new Set();
+    const overloadedTasks = new Set();
+
+    for (const ev of events) {
+      if (ev.delta === 1) {
+        concurrent++;
+        active.add(ev.task);
+      } else {
+        concurrent--;
+        active.delete(ev.task);
+      }
+      if (concurrent >= OVERLOAD_THRESHOLD) {
+        for (const t of active) overloadedTasks.add(t);
+        peakConcurrent = Math.max(peakConcurrent, concurrent);
+      }
+    }
+
+    if (overloadedTasks.size > 0) {
+      const displayName = person.charAt(0).toUpperCase() + person.slice(1);
+      for (const task of overloadedTasks) {
+        const entry = getEntry(task.label);
+        if (!entry.flags.includes("overloaded-assignee")) {
+          entry.flags.push("overloaded-assignee");
+          entry.reasons.push(displayName + " has " + peakConcurrent + " concurrent tasks");
         }
       }
     }
