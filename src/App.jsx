@@ -1257,6 +1257,83 @@ function getIframeSrcDoc() {
         border-color: #2a2e3d;
         color: #e4e6ed;
       }
+      /* ── Executive view banner ── */
+      .mf-exec-banner {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .mf-exec-banner-inner {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+        font-weight: 500;
+        font-family: "Manrope", system-ui, sans-serif;
+      }
+      .mf-exec-progress {
+        flex: 0 0 120px;
+        height: 6px;
+        background: #e5e7eb;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .mf-exec-progress-bar {
+        height: 100%;
+        background: #22c55e;
+        border-radius: 3px;
+        transition: width 0.3s ease;
+      }
+      .mf-exec-pct {
+        font-weight: 700;
+        color: #1e293b;
+      }
+      .mf-exec-counts {
+        color: #64748b;
+      }
+      .mf-exec-status {
+        margin-left: auto;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .mf-exec-on-track {
+        background: rgba(34, 197, 94, 0.15);
+        color: #16a34a;
+      }
+      .mf-exec-at-risk {
+        background: rgba(234, 179, 8, 0.15);
+        color: #ca8a04;
+      }
+      .mf-exec-late {
+        background: rgba(239, 68, 68, 0.15);
+        color: #dc2626;
+      }
+      [data-theme="dark"] .mf-exec-banner {
+        border-color: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-exec-progress {
+        background: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-exec-pct {
+        color: #e4e6ed;
+      }
+      [data-theme="dark"] .mf-exec-counts {
+        color: #9a9fb2;
+      }
+      [data-theme="dark"] .mf-exec-on-track {
+        background: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+      }
+      [data-theme="dark"] .mf-exec-at-risk {
+        background: rgba(234, 179, 8, 0.2);
+        color: #facc15;
+      }
+      [data-theme="dark"] .mf-exec-late {
+        background: rgba(239, 68, 68, 0.2);
+        color: #f87171;
+      }
     </style>
   </head>
   <body>
@@ -1567,7 +1644,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1617,7 +1694,22 @@ function getIframeSrcDoc() {
 
         // Separate vert markers from regular tasks
         const vertTasks = tasks.filter((t) => t.isVertMarker);
-        const regularTasks = tasks.filter((t) => !t.isVertMarker);
+        const allRegularTasks = tasks.filter((t) => !t.isVertMarker);
+
+        // Executive view: filter to milestones, critical, and overdue tasks
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const regularTasks = executiveView
+          ? allRegularTasks.filter((t) => {
+              if (t.isMilestone) return true;
+              const statuses = t.statusTokens || [];
+              if (statuses.includes("crit")) return true;
+              // Overdue: not done and end date is in the past
+              const isDone = statuses.includes("done");
+              const end = t.computedEnd || t.endDate || "";
+              if (!isDone && end && end < todayIso) return true;
+              return false;
+            })
+          : allRegularTasks;
 
         // Enrich tasks with resolved end dates
         const enriched = regularTasks.map((t) => {
@@ -1730,6 +1822,41 @@ function getIframeSrcDoc() {
         container.appendChild(timelineHeader);
 
         cumulativeTop = headerHeight;
+
+        // === Executive view: progress summary banner ===
+        if (executiveView) {
+          const totalCount = allRegularTasks.length;
+          const doneCount = allRegularTasks.filter((t) => (t.statusTokens || []).includes("done")).length;
+          const overdueCount = allRegularTasks.filter((t) => {
+            const isDone = (t.statusTokens || []).includes("done");
+            const end = t.computedEnd || t.endDate || "";
+            return !isDone && end && end < todayIso;
+          }).length;
+          const critCount = allRegularTasks.filter((t) => (t.statusTokens || []).includes("crit") && !(t.statusTokens || []).includes("done")).length;
+          const pct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+
+          let statusLabel = "On track";
+          let statusClass = "mf-exec-on-track";
+          if (overdueCount > 0) {
+            statusLabel = overdueCount + " overdue";
+            statusClass = "mf-exec-late";
+          } else if (critCount > 0) {
+            statusLabel = "At risk";
+            statusClass = "mf-exec-at-risk";
+          }
+
+          const banner = document.createElement("div");
+          banner.className = "mf-exec-banner";
+          banner.style.gridColumn = "1 / -1";
+          banner.innerHTML =
+            '<div class="mf-exec-banner-inner">' +
+              '<div class="mf-exec-progress"><div class="mf-exec-progress-bar" style="width:' + pct + '%"></div></div>' +
+              '<span class="mf-exec-pct">' + pct + '% complete</span>' +
+              '<span class="mf-exec-counts">' + doneCount + '/' + totalCount + ' tasks done</span>' +
+              '<span class="mf-exec-status ' + statusClass + '">' + statusLabel + '</span>' +
+            '</div>';
+          container.appendChild(banner);
+        }
 
         // === Body: Section rows ===
         for (const [section, sectionTasks] of sectionMap.entries()) {
@@ -4612,7 +4739,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4830,6 +4957,7 @@ function App() {
   const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
   const [showCriticalPath, setShowCriticalPath] = useState(false);
   const [showDepLines, setShowDepLines] = useState(false);
+  const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -5085,6 +5213,7 @@ function App() {
       pinCategories,
       showCriticalPath,
       showDepLines,
+      executiveView,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -5638,7 +5767,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -6382,6 +6511,10 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setShowDepLines((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {showDepLines ? "Hide dep lines" : "Dep lines"}
                   </button>
+                  <div className="dropdown-sep" />
+                  <button className="dropdown-item" onClick={() => { setExecutiveView((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {executiveView ? "All tasks" : "Executive"}
+                  </button>
                 </div>
               </div>
             )}
@@ -6435,6 +6568,12 @@ function App() {
                     onClick={() => setShowDepLines((prev) => !prev)}
                   >
                     {showDepLines ? "Hide dep lines" : "Dep lines"}
+                  </button>
+                  <button
+                    className={`date-toggle-btn${executiveView ? " active" : ""}`}
+                    onClick={() => setExecutiveView((prev) => !prev)}
+                  >
+                    {executiveView ? "All tasks" : "Executive"}
                   </button>
                 </>
               )}
