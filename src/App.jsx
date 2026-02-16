@@ -365,7 +365,6 @@ function getIframeSrcDoc() {
         background: #ffffff;
         position: relative;
         box-sizing: border-box;
-        overflow: hidden;
       }
       .mf-gantt-track:nth-child(4n+1) {
         background: #fafbfd;
@@ -390,6 +389,7 @@ function getIframeSrcDoc() {
         overflow: visible;
         box-sizing: border-box;
         min-width: 18px;
+        z-index: 3;
         --outside-label-width: 0px;
       }
       .mf-gantt-bar:hover {
@@ -665,6 +665,7 @@ function getIframeSrcDoc() {
         clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
         transition: box-shadow 0.12s ease, filter 0.12s ease;
         min-width: 0;
+        z-index: 3;
       }
       .mf-gantt-milestone:hover {
         filter: brightness(1.1);
@@ -2227,7 +2228,7 @@ function getIframeSrcDoc() {
           svg.style.top = "0";
           svg.style.left = "0";
           svg.style.pointerEvents = "none";
-          svg.style.zIndex = "1";
+          svg.style.zIndex = "2";
 
           // Arrowhead markers
           const defs = document.createElementNS(svgNS, "defs");
