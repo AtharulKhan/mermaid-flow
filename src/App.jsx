@@ -27,6 +27,7 @@ import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
 import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
+import { buildDependencyGraph, detectCycles, detectConflicts, calculateSlack, getCriticalPath, serializeGraph } from "./ganttDepGraph";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 import VersionHistoryPanel from "./components/VersionHistoryPanel";
@@ -609,6 +610,83 @@ function getIframeSrcDoc() {
         background: #dc2626;
         pointer-events: none;
       }
+      /* ── Dependency features ── */
+      .mf-gantt-dep-overlay { --dep-arrow-color: #94a3b8; }
+      .mf-dep-line {
+        transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
+      }
+      .mf-dep-line.mf-dep-upstream { stroke: #8b5cf6 !important; stroke-width: 2.5; }
+      .mf-dep-line.mf-dep-downstream { stroke: #f97316 !important; stroke-width: 2.5; }
+      .mf-dep-line.mf-dep-dimmed { opacity: 0.1; }
+      .mf-gantt-bar.mf-dep-dimmed,
+      .mf-gantt-milestone.mf-dep-dimmed {
+        opacity: 0.2;
+        filter: grayscale(0.6);
+        transition: opacity 0.2s ease, filter 0.2s ease;
+      }
+      .mf-gantt-bar.mf-dep-upstream-bar { outline: 2px solid #8b5cf6; outline-offset: 1px; }
+      .mf-gantt-bar.mf-dep-downstream-bar { outline: 2px solid #f97316; outline-offset: 1px; }
+      .mf-gantt-milestone.mf-dep-upstream-bar { filter: drop-shadow(0 0 4px #8b5cf6); }
+      .mf-gantt-milestone.mf-dep-downstream-bar { filter: drop-shadow(0 0 4px #f97316); }
+      .mf-gantt-conflict-badge {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #f59e0b;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 7;
+        pointer-events: auto;
+        cursor: help;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      }
+      .mf-gantt-slack {
+        position: absolute;
+        background: repeating-linear-gradient(90deg, rgba(59,130,246,0.25), rgba(59,130,246,0.25) 3px, transparent 3px, transparent 6px);
+        border-radius: 2px;
+        pointer-events: auto;
+        cursor: help;
+        z-index: 1;
+      }
+      .mf-bar-critical-path {
+        box-shadow: 0 0 0 2px #ef4444, 0 0 6px rgba(239,68,68,0.25) !important;
+      }
+      .mf-gantt-ghost-bar {
+        position: absolute;
+        border-radius: 8px;
+        background: rgba(59,130,246,0.12);
+        border: 1.5px dashed #3b82f6;
+        pointer-events: none;
+        z-index: 2;
+      }
+      .mf-gantt-ripple-summary {
+        position: fixed;
+        background: #1e293b;
+        color: #fff;
+        font-size: 11px;
+        padding: 5px 10px;
+        border-radius: 6px;
+        z-index: 9999;
+        pointer-events: none;
+        white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      }
+      .mf-gantt-cycle-warning {
+        grid-column: 1 / -1;
+        background: #fef3c7;
+        border: 1px solid #f59e0b;
+        border-radius: 6px;
+        padding: 7px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #92400e;
+        margin: 6px 8px;
+      }
       /* ── Milestone diamond ── */
       .mf-gantt-milestone {
         position: absolute;
@@ -1152,6 +1230,31 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-gantt-vert-label {
         color: #60a5fa;
       }
+      /* Dark dependency features */
+      [data-theme="dark"] .mf-gantt-dep-overlay { --dep-arrow-color: #4b5563; }
+      [data-theme="dark"] .mf-gantt-conflict-badge {
+        background: #d97706;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+      }
+      [data-theme="dark"] .mf-gantt-slack {
+        background: repeating-linear-gradient(90deg, rgba(96,165,250,0.2), rgba(96,165,250,0.2) 3px, transparent 3px, transparent 6px);
+      }
+      [data-theme="dark"] .mf-bar-critical-path {
+        box-shadow: 0 0 0 2px #f87171, 0 0 6px rgba(248,113,113,0.3) !important;
+      }
+      [data-theme="dark"] .mf-gantt-ghost-bar {
+        background: rgba(96,165,250,0.1);
+        border-color: #60a5fa;
+      }
+      [data-theme="dark"] .mf-gantt-ripple-summary {
+        background: #0f172a;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      }
+      [data-theme="dark"] .mf-gantt-cycle-warning {
+        background: rgba(245,158,11,0.12);
+        border-color: #d97706;
+        color: #fcd34d;
+      }
       [data-theme="dark"] #mf-tooltip {
         background: #252838;
         color: #e4e6ed;
@@ -1507,11 +1610,91 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, depGraph, cycles) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "flex-start";
+
+        // Dependency graph data for highlighting
+        depGraph = depGraph || {};
+        cycles = cycles || [];
+        const depForward = depGraph.forward || {};
+        const depReverse = depGraph.reverse || {};
+
+        // Bar position map for dependency lines & highlighting
+        const barPositionMap = new Map();
+        const idToLabelKey = new Map();
+        let svgOverlay = null;
+        const rippleGhosts = [];
+        let rippleSummaryEl = null;
+
+        // BFS helpers for upstream/downstream traversal
+        function getAllUpstream(key) {
+          const visited = new Set();
+          const queue = [...(depReverse[key] || [])];
+          for (const k of queue) visited.add(k);
+          let i = 0;
+          while (i < queue.length) {
+            const cur = queue[i++];
+            for (const dep of (depReverse[cur] || [])) {
+              if (!visited.has(dep)) { visited.add(dep); queue.push(dep); }
+            }
+          }
+          return visited;
+        }
+        function getAllDownstream(key) {
+          const visited = new Set();
+          const queue = [...(depForward[key] || [])];
+          for (const k of queue) visited.add(k);
+          let i = 0;
+          while (i < queue.length) {
+            const cur = queue[i++];
+            for (const dep of (depForward[cur] || [])) {
+              if (!visited.has(dep)) { visited.add(dep); queue.push(dep); }
+            }
+          }
+          return visited;
+        }
+        function highlightDependencyChain(selectedKey, upstream, downstream) {
+          const related = new Set([selectedKey, ...upstream, ...downstream]);
+          for (const [, pos] of barPositionMap) {
+            const bk = (pos.task.idToken || pos.task.label || "").toLowerCase();
+            if (!related.has(bk)) {
+              pos.bar.classList.add("mf-dep-dimmed");
+            } else if (upstream.has(bk)) {
+              pos.bar.classList.add("mf-dep-upstream-bar");
+            } else if (downstream.has(bk)) {
+              pos.bar.classList.add("mf-dep-downstream-bar");
+            }
+          }
+          if (svgOverlay) {
+            svgOverlay.querySelectorAll(".mf-dep-line").forEach((line) => {
+              const from = line.getAttribute("data-from");
+              const to = line.getAttribute("data-to");
+              if (related.has(from) && related.has(to)) {
+                line.classList.add(upstream.has(from) ? "mf-dep-upstream" : "mf-dep-downstream");
+              } else {
+                line.classList.add("mf-dep-dimmed");
+              }
+            });
+          }
+        }
+        function clearDependencyHighlights() {
+          for (const [, pos] of barPositionMap) {
+            pos.bar.classList.remove("mf-dep-dimmed", "mf-dep-upstream-bar", "mf-dep-downstream-bar");
+          }
+          if (svgOverlay) {
+            svgOverlay.querySelectorAll(".mf-dep-line").forEach((line) => {
+              line.classList.remove("mf-dep-upstream", "mf-dep-downstream", "mf-dep-dimmed");
+            });
+          }
+        }
+        function clearRipplePreview() {
+          for (const ghost of rippleGhosts) ghost.remove();
+          rippleGhosts.length = 0;
+          if (rippleSummaryEl) { rippleSummaryEl.remove(); rippleSummaryEl = null; }
+        }
 
         if (!tasks || !tasks.length) {
           const msg = document.createElement("div");
@@ -1569,6 +1752,15 @@ function getIframeSrcDoc() {
           }
           return { ...t, resolvedEnd };
         });
+
+        // Build id-to-label mapping for dependency line lookup
+        for (const t of enriched) {
+          const key = (t.idToken || t.label || "").toLowerCase();
+          if (t.idToken) idToLabelKey.set(t.idToken.toLowerCase(), key);
+          if (t.label && !idToLabelKey.has(t.label.toLowerCase())) {
+            idToLabelKey.set(t.label.toLowerCase(), key);
+          }
+        }
 
         // Date range (include vert markers in range calculation)
         const allItems = [...enriched, ...vertTasks.map((t) => ({ startDate: t.startDate, resolvedEnd: t.startDate }))];
@@ -1665,6 +1857,19 @@ function getIframeSrcDoc() {
         }
         container.appendChild(timelineHeader);
 
+        // === Circular dependency warning banner ===
+        let bannerHeight = 0;
+        if (cycles.length > 0) {
+          const warnBanner = document.createElement("div");
+          warnBanner.className = "mf-gantt-cycle-warning";
+          warnBanner.textContent = "Circular dependency detected: " + cycles[0].join(" \u2192 ");
+          container.appendChild(warnBanner);
+          bannerHeight = warnBanner.offsetHeight;
+        }
+
+        // Track cumulative section height for absolute bar Y positions
+        let cumulativeTrackTop = 0;
+
         // === Body: Section rows ===
         for (const [section, sectionTasks] of sectionMap.entries()) {
           // Compact mode: greedy lane packing
@@ -1757,6 +1962,8 @@ function getIframeSrcDoc() {
               }
             }
           }
+
+          const sectionTrackTop = cumulativeTrackTop;
 
           sectionTasks.forEach((task, idx) => {
             const startMs = isoToMs(task.startDate);
@@ -1921,7 +2128,50 @@ function getIframeSrcDoc() {
             if (task.assignee) tip += "\\nAssignee: " + task.assignee;
             if (task.notes) tip += "\\nNotes: " + task.notes;
             if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
+            // Dependency info in tooltip
+            if (task.afterDeps && task.afterDeps.length) {
+              tip += "\\nDepends on: " + task.afterDeps.join(", ");
+            }
+            if (task.conflicts && task.conflicts.length) {
+              tip += "\\n\\u26a0 Conflict: starts before " + task.conflicts.map((c) => '"' + c.depLabel + '"').join(", ") + " finishes";
+            }
+            if (typeof task.slack === "number") {
+              tip += "\\nSlack: " + task.slack + " day" + (task.slack !== 1 ? "s" : "");
+            }
+            if (task.isCritical) tip += "\\n\\u2b50 Critical path";
             bar.setAttribute("data-mf-tip", tip);
+
+            // Critical path styling
+            if (task.isCritical && !task.isMilestone) {
+              bar.classList.add("mf-bar-critical-path");
+            }
+
+            // Conflict badge
+            if (task.conflicts && task.conflicts.length > 0 && !task.isMilestone) {
+              const conflictBadge = document.createElement("div");
+              conflictBadge.className = "mf-gantt-conflict-badge";
+              conflictBadge.textContent = "!";
+              conflictBadge.style.left = (barLeft - 14) + "px";
+              conflictBadge.style.top = (top - 2) + "px";
+              conflictBadge.setAttribute("data-mf-tip",
+                "Scheduling conflict:\\n" +
+                task.conflicts.map((c) => 'Starts before "' + c.depLabel + '" ends (' + c.overlapDays + "d overlap)").join("\\n")
+              );
+              track.appendChild(conflictBadge);
+            }
+
+            // Slack indicator bar
+            if (typeof task.slack === "number" && task.slack > 0 && !task.isMilestone) {
+              const slackBar = document.createElement("div");
+              slackBar.className = "mf-gantt-slack";
+              const slackPx = Math.round(task.slack * pxPerDay);
+              slackBar.style.left = (barLeft + barPixelWidth) + "px";
+              slackBar.style.width = Math.min(slackPx, timelineWidth - barLeft - barPixelWidth) + "px";
+              slackBar.style.top = (top + barHeight / 2 - 2) + "px";
+              slackBar.style.height = "4px";
+              slackBar.setAttribute("data-mf-tip", "Slack: " + task.slack + " day" + (task.slack !== 1 ? "s" : "") + "\\nCan slip without delaying project");
+              track.appendChild(slackBar);
+            }
 
             // Overdue dot
             if (isOverdue && !task.isMilestone) {
@@ -1932,12 +2182,31 @@ function getIframeSrcDoc() {
               track.appendChild(dot);
             }
 
-            // Click handler: select task
+            // Store bar position for dependency lines & highlighting
+            const tKey = (task.idToken || task.label || "").toLowerCase();
+            const absoluteY = sectionTrackTop + rowAssignments[idx] * rowHeight + barGap + barHeight / 2;
+            barPositionMap.set(tKey, {
+              left: barLeft,
+              width: barPixelWidth,
+              absoluteY,
+              bar,
+              task,
+            });
+
+            // Click handler: select task + highlight dependency chain
             bar.addEventListener("click", (e) => {
               e.stopPropagation();
-              // Clear previous selection
               canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              clearDependencyHighlights();
               bar.classList.add("mf-selected");
+
+              const taskKey = (task.idToken || task.label || "").toLowerCase();
+              const upstream = getAllUpstream(taskKey);
+              const downstream = getAllDownstream(taskKey);
+              if (upstream.size > 0 || downstream.size > 0) {
+                highlightDependencyChain(taskKey, upstream, downstream);
+              }
+
               send("element:selected", { label: task.label, id: "", elementType: "node" });
             });
 
@@ -1967,7 +2236,6 @@ function getIframeSrcDoc() {
               const edgeZone = Math.max(rect.width * 0.15, 8);
               const explicitMode = e.target.closest(".mf-bar-resize-handle")?.getAttribute("data-drag-mode");
               let mode = explicitMode || "shift";
-              // Milestones only support shift (no resize)
               if (!task.isMilestone && !explicitMode) {
                 if (relX > rect.width - edgeZone) mode = "resize-end";
                 else if (relX < edgeZone) mode = "resize-start";
@@ -1979,6 +2247,7 @@ function getIframeSrcDoc() {
                 origWidth: parseFloat(bar.style.width),
                 mode,
                 moved: false,
+                lastRippleShift: 0,
               };
               bar.style.cursor = mode.startsWith("resize") ? "ew-resize" : "grabbing";
               bar.setPointerCapture(e.pointerId);
@@ -1997,6 +2266,43 @@ function getIframeSrcDoc() {
                 bar.style.width = Math.max(4, dragInfo.origWidth - dx) + "px";
               } else {
                 bar.style.left = (dragInfo.origLeft + dx) + "px";
+
+                // Ripple preview: show ghost bars for downstream tasks
+                const tentativeDayShift = Math.round(dx / pxPerDay);
+                if (tentativeDayShift !== dragInfo.lastRippleShift) {
+                  dragInfo.lastRippleShift = tentativeDayShift;
+                  clearRipplePreview();
+                  if (tentativeDayShift !== 0) {
+                    const taskKey = (task.idToken || task.label || "").toLowerCase();
+                    const downstream = getAllDownstream(taskKey);
+                    let affectedCount = 0;
+                    for (const [dKey, dPos] of barPositionMap) {
+                      if (!downstream.has(dKey)) continue;
+                      affectedCount++;
+                      const ghost = document.createElement("div");
+                      ghost.className = "mf-gantt-ghost-bar";
+                      const shiftPx = tentativeDayShift * pxPerDay;
+                      ghost.style.left = (dPos.left + shiftPx) + "px";
+                      ghost.style.width = dPos.width + "px";
+                      ghost.style.top = dPos.bar.style.top;
+                      ghost.style.height = barHeight + "px";
+                      const parentTrack = dPos.bar.closest(".mf-gantt-track");
+                      if (parentTrack) parentTrack.appendChild(ghost);
+                      rippleGhosts.push(ghost);
+                    }
+                    if (affectedCount > 0) {
+                      rippleSummaryEl = document.createElement("div");
+                      rippleSummaryEl.className = "mf-gantt-ripple-summary";
+                      rippleSummaryEl.textContent = "Affects " + affectedCount + " task" + (affectedCount !== 1 ? "s" : "") + ", shifts by " + Math.abs(tentativeDayShift) + "d";
+                      rippleSummaryEl.style.left = (e.clientX + 16) + "px";
+                      rippleSummaryEl.style.top = (e.clientY - 30) + "px";
+                      document.body.appendChild(rippleSummaryEl);
+                    }
+                  }
+                } else if (rippleSummaryEl) {
+                  rippleSummaryEl.style.left = (e.clientX + 16) + "px";
+                  rippleSummaryEl.style.top = (e.clientY - 30) + "px";
+                }
               }
             });
 
@@ -2004,17 +2310,25 @@ function getIframeSrcDoc() {
               if (!dragInfo) return;
               const dx = e.clientX - dragInfo.startX;
               bar.releasePointerCapture(e.pointerId);
+              clearRipplePreview();
 
               if (dragInfo.moved && Math.abs(dx) > 4) {
+                const taskKey = (task.idToken || task.label || "").toLowerCase();
+                const downstream = getAllDownstream(taskKey);
+                const downstreamLabels = [];
+                for (const [dKey, dPos] of barPositionMap) {
+                  if (downstream.has(dKey)) downstreamLabels.push(dPos.task.label);
+                }
                 send("gantt:dragged", {
                   label: task.label,
                   deltaX: dx,
                   barWidth: dragInfo.origWidth,
                   dragMode: dragInfo.mode,
+                  hasDownstream: downstreamLabels.length > 0,
+                  downstreamLabels,
                 });
               }
 
-              // Reset bar (re-render will come from code update)
               bar.style.left = dragInfo.origLeft + "px";
               bar.style.width = dragInfo.origWidth + "px";
               bar.style.cursor = "";
@@ -2027,6 +2341,76 @@ function getIframeSrcDoc() {
           // (Insert buttons moved to role cell)
 
           container.appendChild(track);
+          cumulativeTrackTop += trackHeight;
+        }
+
+        // === SVG overlay for dependency lines ===
+        if (barPositionMap.size > 0 && cumulativeTrackTop > 0) {
+          const ns = "http://www.w3.org/2000/svg";
+          svgOverlay = document.createElementNS(ns, "svg");
+          svgOverlay.setAttribute("class", "mf-gantt-dep-overlay");
+          svgOverlay.style.cssText = "position:absolute;top:" + (headerHeight + bannerHeight) + "px;left:" + roleColWidth + "px;width:" + timelineWidth + "px;height:" + cumulativeTrackTop + "px;pointer-events:none;z-index:6;overflow:visible;";
+
+          // Arrow marker
+          const defs = document.createElementNS(ns, "defs");
+          const marker = document.createElementNS(ns, "marker");
+          marker.setAttribute("id", "dep-arrowhead");
+          marker.setAttribute("markerWidth", "8");
+          marker.setAttribute("markerHeight", "6");
+          marker.setAttribute("refX", "8");
+          marker.setAttribute("refY", "3");
+          marker.setAttribute("orient", "auto");
+          const arrowPath = document.createElementNS(ns, "path");
+          arrowPath.setAttribute("d", "M0,0 L8,3 L0,6 Z");
+          arrowPath.setAttribute("fill", "var(--dep-arrow-color, #94a3b8)");
+          marker.appendChild(arrowPath);
+          defs.appendChild(marker);
+          svgOverlay.appendChild(defs);
+
+          // Draw dependency arrows
+          for (const [labelKey, pos] of barPositionMap) {
+            const task = pos.task;
+            if (!task.afterDeps || !task.afterDeps.length) continue;
+
+            for (const depId of task.afterDeps) {
+              const depKey = depId.toLowerCase();
+              const resolvedKey = idToLabelKey.get(depKey) || depKey;
+              const depPos = barPositionMap.get(resolvedKey);
+              if (!depPos) continue;
+
+              // Source: end of dependency bar; Target: start of this bar
+              const x1 = depPos.left + depPos.width;
+              const y1 = depPos.absoluteY;
+              const x2 = pos.left;
+              const y2 = pos.absoluteY;
+
+              const path = document.createElementNS(ns, "path");
+              let d;
+              if (x2 > x1 + 10) {
+                // Normal: dependency ends before this task starts
+                const cpOffset = Math.min(Math.abs(x2 - x1) * 0.4, 60);
+                d = "M" + x1 + "," + y1 + " C" + (x1 + cpOffset) + "," + y1 + " " + (x2 - cpOffset) + "," + y2 + " " + x2 + "," + y2;
+              } else {
+                // Overlap or reverse: route around
+                const detour = Math.max(Math.abs(y2 - y1) * 0.5, 25);
+                const bypassY = y2 > y1 ? Math.max(y1, y2) + detour : Math.min(y1, y2) - detour;
+                const midX = (x1 + x2) / 2;
+                d = "M" + x1 + "," + y1 + " L" + (x1 + 10) + "," + y1 + " Q" + (x1 + 10) + "," + bypassY + " " + midX + "," + bypassY + " Q" + (x2 - 10) + "," + bypassY + " " + (x2 - 10) + "," + y2 + " L" + x2 + "," + y2;
+              }
+
+              path.setAttribute("d", d);
+              path.setAttribute("fill", "none");
+              path.setAttribute("stroke", "var(--dep-arrow-color, #94a3b8)");
+              path.setAttribute("stroke-width", "1.5");
+              path.setAttribute("marker-end", "url(#dep-arrowhead)");
+              path.setAttribute("class", "mf-dep-line");
+              path.setAttribute("data-from", resolvedKey);
+              path.setAttribute("data-to", labelKey);
+              svgOverlay.appendChild(path);
+            }
+          }
+
+          container.appendChild(svgOverlay);
         }
 
         // Vertical markers (vert)
@@ -2088,10 +2472,11 @@ function getIframeSrcDoc() {
           }
         }
 
-        // Click on empty area deselects
+        // Click on empty area deselects and clears dependency highlights
         container.addEventListener("click", (e) => {
           if (e.target === container || e.target.classList.contains("mf-gantt-track")) {
             canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+            clearDependencyHighlights();
             send("element:selected", null);
           }
         });
@@ -4352,7 +4737,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.depGraph || {}, gd.cycles || []);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4567,6 +4952,7 @@ function App() {
   const [compactMode, setCompactMode] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
   const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
+  const [showChainView, setShowChainView] = useState(false);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -4586,6 +4972,11 @@ function App() {
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
   const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
+  const criticalPath = useMemo(() => {
+    if (toolsetKey !== "gantt") return [];
+    const resolved = resolveDependencies(ganttTasks.map((t) => ({ ...t })));
+    return getCriticalPath(resolved);
+  }, [code, ganttTasks, toolsetKey]);
   const ganttSections = useMemo(() => {
     const ordered = [];
     const seen = new Set();
@@ -4777,6 +5168,10 @@ function App() {
     // Pre-compute gantt data so the iframe can render custom HTML gantt
     const directives = parseGanttDirectives(code);
     const tasks = resolveDependencies(parseGanttTasks(code));
+    const depGraph = buildDependencyGraph(tasks);
+    const cycles = detectCycles(tasks);
+    const conflicts = detectConflicts(tasks);
+    const slackMap = calculateSlack(tasks);
     const ganttData = {
       tasks: tasks.map((t) => {
         const effectiveStart = t.startDate || t.resolvedStartDate || "";
@@ -4790,6 +5185,7 @@ function App() {
                 return d.toISOString().slice(0, 10);
               })();
         }
+        const slackInfo = slackMap.get(t.label);
         return {
           label: t.label,
           startDate: effectiveStart,
@@ -4804,11 +5200,17 @@ function App() {
           isMilestone: t.isMilestone || false,
           isVertMarker: t.isVertMarker || false,
           afterDeps: t.afterDeps || [],
+          untilDep: t.untilDep || "",
           idToken: t.idToken || "",
           hasExplicitDate: t.hasExplicitDate,
+          slack: slackInfo?.slack ?? null,
+          isCritical: slackInfo?.isCritical ?? false,
+          conflicts: conflicts.filter((c) => c.taskLabel === t.label),
         };
       }),
       directives,
+      depGraph: serializeGraph(depGraph),
+      cycles,
       scale: ganttScale,
       showDates,
       showGrid,
@@ -5269,8 +5671,35 @@ function App() {
           if (task.endDate) {
             updates.endDate = shiftIsoDate(task.endDate, dayShift);
           }
-          setCode((prev) => updateGanttTask(prev, task, updates));
-          setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
+          const downLabels = payload.downstreamLabels || [];
+          const shouldShiftDownstream = downLabels.length > 0 && window.confirm(
+            `Shift ${downLabels.length} downstream task${downLabels.length !== 1 ? "s" : ""} by ${Math.abs(dayShift)} day${Math.abs(dayShift) !== 1 ? "s" : ""}?`
+          );
+          let shiftedCount = 0;
+          setCode((prev) => {
+            let updated = updateGanttTask(prev, task, updates);
+
+            if (shouldShiftDownstream) {
+              // Apply in reverse line order to avoid index shifts
+              const reParsed = parseGanttTasks(updated);
+              const toShift = downLabels
+                .map((label) => findTaskByLabel(reParsed, label))
+                .filter((t) => t && t.hasExplicitDate)
+                .sort((a, b) => b.lineIndex - a.lineIndex);
+              for (const depTask of toShift) {
+                const depUpdates = { startDate: shiftIsoDate(depTask.startDate, dayShift) };
+                if (depTask.endDate) depUpdates.endDate = shiftIsoDate(depTask.endDate, dayShift);
+                updated = updateGanttTask(updated, depTask, depUpdates);
+              }
+              shiftedCount = toShift.length;
+            }
+            return updated;
+          });
+          if (shouldShiftDownstream) {
+            setRenderMessage(`Updated "${task.label}" and ${shiftedCount} downstream task${shiftedCount !== 1 ? "s" : ""}`);
+          } else {
+            setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
+          }
         }
         setHighlightLine(task.lineIndex + 1);
       }
@@ -5385,9 +5814,15 @@ function App() {
     return () => document.removeEventListener("pointerdown", handler);
   }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen]);
 
-  /* ── Escape key handler ──────────────────────────────── */
+  /* ── Keyboard shortcuts ─────────────────────────────── */
   useEffect(() => {
     const handler = (e) => {
+      // Ctrl/Cmd+D: toggle dependency chain view
+      if ((e.ctrlKey || e.metaKey) && e.key === "d" && toolsetKey === "gantt") {
+        e.preventDefault();
+        setShowChainView((prev) => !prev);
+        return;
+      }
       if (e.key === "Escape") {
         if (connectMode) {
           setConnectMode(null);
@@ -5413,7 +5848,7 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, toolsetKey]);
 
   /* ── Style Toolbar ──────────────────────────────────── */
   const applyToolbarStyle = (nodeId, stylePatch) => {
@@ -6111,6 +6546,13 @@ function App() {
                   >
                     {pinCategories ? "Unpin labels" : "Pin labels"}
                   </button>
+                  <button
+                    className={`date-toggle-btn${showChainView ? " active" : ""}`}
+                    onClick={() => setShowChainView((prev) => !prev)}
+                    title="Show dependency chain (Ctrl+D)"
+                  >
+                    Chain view
+                  </button>
                 </>
               )}
               Click, right-click, and drag to edit
@@ -6124,6 +6566,34 @@ function App() {
             srcDoc={srcDoc}
             className="preview-frame"
           />
+          {showChainView && toolsetKey === "gantt" && criticalPath.length > 0 && (
+            <div className="chain-view-panel">
+              <div className="chain-view-header">
+                <span className="chain-view-title">Dependency Chain</span>
+                <button className="chain-view-close" onClick={() => setShowChainView(false)} title="Close">&times;</button>
+              </div>
+              <div className="chain-view-body">
+                {criticalPath.length === 0 && <div className="chain-view-empty">No dependency chain found</div>}
+                {criticalPath.map((label, idx) => (
+                  <div key={label} className="chain-view-node">
+                    <div
+                      className="chain-view-card"
+                      onClick={() => {
+                        setSelectedElement({ label, id: "", elementType: "node" });
+                        setHighlightLine(getMatchingLine(code, label));
+                      }}
+                      title={label}
+                    >
+                      {label}
+                    </div>
+                    {idx < criticalPath.length - 1 && (
+                      <div className="chain-view-arrow">&darr;</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="zoom-controls">
             <button title="Zoom out" onClick={() => {
               if (toolsetKey === "gantt") {
