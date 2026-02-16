@@ -11,6 +11,7 @@ import {
   updateGanttTask,
   toggleGanttStatus,
   clearGanttStatus,
+  toggleGanttMilestone,
   updateGanttAssignee,
   updateGanttNotes,
   updateGanttLink,
@@ -4929,6 +4930,7 @@ function App() {
     startDate: "",
     endDate: "",
     status: [],
+    isMilestone: false,
     assignee: "",
     notes: "",
     link: "",
@@ -5369,7 +5371,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "", section: "", dependsOn: [] });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", dependsOn: [] });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -5383,6 +5385,7 @@ function App() {
       startDate: selectedGanttTask.startDate || "",
       endDate: computedEnd,
       status: selectedGanttTask.statusTokens || [],
+      isMilestone: selectedGanttTask.isMilestone || false,
       assignee: selectedGanttTask.assignee || "",
       notes: selectedGanttTask.notes || "",
       link: selectedGanttTask.link || "",
@@ -5914,6 +5917,13 @@ function App() {
         const currentTask = findTaskByLabel(currentTasks, nextLabel);
         if (currentTask) updated = toggleGanttStatus(updated, currentTask, flag);
       }
+    }
+
+    // Apply milestone toggle
+    const msTasks = parseGanttTasks(updated);
+    const msTask = findTaskByLabel(msTasks, nextLabel);
+    if (msTask) {
+      updated = toggleGanttMilestone(updated, msTask, ganttDraft.isMilestone);
     }
 
     // Apply assignee
@@ -6863,6 +6873,18 @@ function App() {
                       </button>
                     );
                   })}
+                </div>
+
+                <div className="milestone-toggle-row">
+                  <label className="milestone-toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={ganttDraft.isMilestone}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, isMilestone: e.target.checked }))}
+                    />
+                    <span className="milestone-diamond" />
+                    Milestone
+                  </label>
                 </div>
 
                 <label>
