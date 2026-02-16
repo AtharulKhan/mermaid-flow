@@ -424,14 +424,31 @@ export function computeCriticalPath(tasks) {
   const dayMs = 86400000;
   const taskKey = (t) => (t.idToken || t.label || "").toLowerCase();
 
+  const getStartMs = (t) => {
+    const iso = t.resolvedStartDate || t.startDate;
+    return iso ? Date.parse(iso + "T00:00:00Z") : null;
+  };
+  const getEndMs = (t) => {
+    const iso = t.resolvedEndDate || t.endDate;
+    if (iso) return Date.parse(iso + "T00:00:00Z");
+    const s = getStartMs(t);
+    if (s !== null && t.durationDays) return s + t.durationDays * dayMs;
+    return s;
+  };
+  const getDurationMs = (t) => {
+    const s = getStartMs(t);
+    const e = getEndMs(t);
+    if (s !== null && e !== null) return Math.max(0, e - s);
+    return (t.durationDays || 0) * dayMs;
+  };
+
   // Build lookup and adjacency
   const byKey = new Map();
-  const successors = new Map(); // key → [keys that depend on it]
-  const predecessors = new Map(); // key → [keys it depends on]
-  let hasDeps = false;
+  const successors = new Map();
+  const predecessors = new Map();
 
   for (const t of tasks) {
-    if (t.isMilestone && !t.afterDeps?.length) continue;
+    if (t.isVertMarker) continue;
     const k = taskKey(t);
     if (!k) continue;
     byKey.set(k, t);
@@ -439,7 +456,7 @@ export function computeCriticalPath(tasks) {
     if (!predecessors.has(k)) predecessors.set(k, []);
   }
 
-  // Also build a label-based lookup for resolving afterDeps by label
+  // Label-based lookup for resolving afterDeps by label
   const byLabel = new Map();
   for (const t of tasks) {
     const k = taskKey(t);
@@ -448,32 +465,81 @@ export function computeCriticalPath(tasks) {
     }
   }
 
+  // Add explicit "after" dependencies
+  let hasExplicitDeps = false;
   for (const t of tasks) {
     const k = taskKey(t);
     if (!k || !byKey.has(k)) continue;
     for (const dep of t.afterDeps || []) {
       const depKey = byKey.has(dep.toLowerCase()) ? dep.toLowerCase() : byLabel.get(dep.toLowerCase());
       if (!depKey || !byKey.has(depKey)) continue;
-      hasDeps = true;
-      if (!successors.has(depKey)) successors.set(depKey, []);
+      hasExplicitDeps = true;
       successors.get(depKey).push(k);
-      if (!predecessors.has(k)) predecessors.set(k, []);
       predecessors.get(k).push(depKey);
     }
   }
 
-  // If no dependency chains exist, return empty (no critical path to show)
-  if (!hasDeps) return { criticalSet: new Set(), slackByTask: new Map() };
+  // When no explicit deps, infer sequential dependencies within each section.
+  // If task B starts within 3 days of task A ending (same section, A listed before B),
+  // treat A → B as an implicit dependency.
+  if (!hasExplicitDeps) {
+    const sectionTasks = new Map();
+    for (const t of tasks) {
+      if (t.isVertMarker) continue;
+      const k = taskKey(t);
+      if (!k || !byKey.has(k)) continue;
+      const sec = t.section || "";
+      if (!sectionTasks.has(sec)) sectionTasks.set(sec, []);
+      sectionTasks.get(sec).push(t);
+    }
 
-  const getStartMs = (t) => {
-    const iso = t.resolvedStartDate || t.startDate;
-    return iso ? Date.parse(iso + "T00:00:00Z") : null;
-  };
-  const getDurationMs = (t) => (t.durationDays || 0) * dayMs;
+    const gapTolerance = 3 * dayMs;
+    for (const secList of sectionTasks.values()) {
+      for (let i = 0; i < secList.length - 1; i++) {
+        const a = secList[i];
+        const b = secList[i + 1];
+        const aEnd = getEndMs(a);
+        const bStart = getStartMs(b);
+        if (aEnd === null || bStart === null) continue;
+        // B starts within gapTolerance after A ends (sequential or small gap)
+        const gap = bStart - aEnd;
+        if (gap >= 0 && gap <= gapTolerance) {
+          const aKey = taskKey(a);
+          const bKey = taskKey(b);
+          successors.get(aKey).push(bKey);
+          predecessors.get(bKey).push(aKey);
+        }
+      }
+    }
 
-  // Forward pass: Earliest Start (ES) and Earliest Finish (EF)
-  const ES = new Map();
-  const EF = new Map();
+    // Also infer cross-section dependencies: if the last task in section X ends
+    // within tolerance of the first task in section Y, link them.
+    const secEntries = [...sectionTasks.entries()];
+    for (let i = 0; i < secEntries.length - 1; i++) {
+      const prevList = secEntries[i][1];
+      const nextList = secEntries[i + 1][1];
+      if (!prevList.length || !nextList.length) continue;
+      const lastOfPrev = prevList[prevList.length - 1];
+      const firstOfNext = nextList[0];
+      const prevEnd = getEndMs(lastOfPrev);
+      const nextStart = getStartMs(firstOfNext);
+      if (prevEnd === null || nextStart === null) continue;
+      const gap = nextStart - prevEnd;
+      if (gap >= 0 && gap <= gapTolerance) {
+        const pKey = taskKey(lastOfPrev);
+        const nKey = taskKey(firstOfNext);
+        successors.get(pKey).push(nKey);
+        predecessors.get(nKey).push(pKey);
+      }
+    }
+  }
+
+  // Check if we have any edges at all
+  let hasEdges = false;
+  for (const succs of successors.values()) {
+    if (succs.length > 0) { hasEdges = true; break; }
+  }
+  if (!hasEdges) return { criticalSet: new Set(), slackByTask: new Map() };
 
   // Topological order via Kahn's algorithm
   const inDegree = new Map();
@@ -500,7 +566,10 @@ export function computeCriticalPath(tasks) {
     }
   }
 
-  // Forward pass
+  // Forward pass: Earliest Start (ES) and Earliest Finish (EF)
+  const ES = new Map();
+  const EF = new Map();
+
   for (const k of topoOrder) {
     const t = byKey.get(k);
     const preds = predecessors.get(k) || [];
@@ -547,7 +616,7 @@ export function computeCriticalPath(tasks) {
   // Compute slack and critical set
   const criticalSet = new Set();
   const slackByTask = new Map();
-  const slackThreshold = dayMs * 0.5; // half-day tolerance for rounding
+  const slackThreshold = dayMs * 0.5;
 
   for (const k of topoOrder) {
     const slack = LS.get(k) - ES.get(k);
