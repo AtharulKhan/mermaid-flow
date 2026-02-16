@@ -422,6 +422,338 @@ export function resolveDependencies(tasks) {
   return tasks;
 }
 
+/* ── Critical Path Method (CPM) ──────────────────────── */
+
+export function computeCriticalPath(tasks) {
+  const dayMs = 86400000;
+  const taskKey = (t) => (t.idToken || t.label || "").toLowerCase();
+
+  const getStartMs = (t) => {
+    const iso = t.resolvedStartDate || t.startDate;
+    return iso ? Date.parse(iso + "T00:00:00Z") : null;
+  };
+  const getEndMs = (t) => {
+    const iso = t.resolvedEndDate || t.endDate;
+    if (iso) return Date.parse(iso + "T00:00:00Z");
+    const s = getStartMs(t);
+    if (s !== null && t.durationDays) return s + t.durationDays * dayMs;
+    return s;
+  };
+  const getDurationMs = (t) => {
+    const s = getStartMs(t);
+    const e = getEndMs(t);
+    if (s !== null && e !== null) return Math.max(0, e - s);
+    return (t.durationDays || 0) * dayMs;
+  };
+
+  // Build lookup and adjacency
+  const byKey = new Map();
+  const successors = new Map();
+  const predecessors = new Map();
+
+  for (const t of tasks) {
+    if (t.isVertMarker) continue;
+    const k = taskKey(t);
+    if (!k) continue;
+    byKey.set(k, t);
+    if (!successors.has(k)) successors.set(k, []);
+    if (!predecessors.has(k)) predecessors.set(k, []);
+  }
+
+  // Label-based lookup for resolving afterDeps by label
+  const byLabel = new Map();
+  for (const t of tasks) {
+    const k = taskKey(t);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), k);
+    }
+  }
+
+  // Add explicit "after" dependencies
+  let hasExplicitDeps = false;
+  for (const t of tasks) {
+    const k = taskKey(t);
+    if (!k || !byKey.has(k)) continue;
+    for (const dep of t.afterDeps || []) {
+      const depKey = byKey.has(dep.toLowerCase()) ? dep.toLowerCase() : byLabel.get(dep.toLowerCase());
+      if (!depKey || !byKey.has(depKey)) continue;
+      hasExplicitDeps = true;
+      successors.get(depKey).push(k);
+      predecessors.get(k).push(depKey);
+    }
+  }
+
+  // When no explicit deps, infer sequential dependencies within each section.
+  // If task B starts within 3 days of task A ending (same section, A listed before B),
+  // treat A → B as an implicit dependency.
+  if (!hasExplicitDeps) {
+    const sectionTasks = new Map();
+    for (const t of tasks) {
+      if (t.isVertMarker) continue;
+      const k = taskKey(t);
+      if (!k || !byKey.has(k)) continue;
+      const sec = t.section || "";
+      if (!sectionTasks.has(sec)) sectionTasks.set(sec, []);
+      sectionTasks.get(sec).push(t);
+    }
+
+    const gapTolerance = 3 * dayMs;
+    for (const secList of sectionTasks.values()) {
+      for (let i = 0; i < secList.length - 1; i++) {
+        const a = secList[i];
+        const b = secList[i + 1];
+        const aEnd = getEndMs(a);
+        const bStart = getStartMs(b);
+        if (aEnd === null || bStart === null) continue;
+        // B starts within gapTolerance after A ends (sequential or small gap)
+        const gap = bStart - aEnd;
+        if (gap >= 0 && gap <= gapTolerance) {
+          const aKey = taskKey(a);
+          const bKey = taskKey(b);
+          successors.get(aKey).push(bKey);
+          predecessors.get(bKey).push(aKey);
+        }
+      }
+    }
+
+    // Also infer cross-section dependencies: if the last task in section X ends
+    // within tolerance of the first task in section Y, link them.
+    const secEntries = [...sectionTasks.entries()];
+    for (let i = 0; i < secEntries.length - 1; i++) {
+      const prevList = secEntries[i][1];
+      const nextList = secEntries[i + 1][1];
+      if (!prevList.length || !nextList.length) continue;
+      const lastOfPrev = prevList[prevList.length - 1];
+      const firstOfNext = nextList[0];
+      const prevEnd = getEndMs(lastOfPrev);
+      const nextStart = getStartMs(firstOfNext);
+      if (prevEnd === null || nextStart === null) continue;
+      const gap = nextStart - prevEnd;
+      if (gap >= 0 && gap <= gapTolerance) {
+        const pKey = taskKey(lastOfPrev);
+        const nKey = taskKey(firstOfNext);
+        successors.get(pKey).push(nKey);
+        predecessors.get(nKey).push(pKey);
+      }
+    }
+  }
+
+  // Check if we have any edges at all
+  let hasEdges = false;
+  for (const succs of successors.values()) {
+    if (succs.length > 0) { hasEdges = true; break; }
+  }
+  if (!hasEdges) return { criticalSet: new Set(), slackByTask: new Map() };
+
+  // Topological order via Kahn's algorithm
+  const inDegree = new Map();
+  for (const k of byKey.keys()) inDegree.set(k, 0);
+  for (const k of byKey.keys()) {
+    for (const succ of successors.get(k) || []) {
+      inDegree.set(succ, (inDegree.get(succ) || 0) + 1);
+    }
+  }
+
+  const queue = [];
+  for (const [k, deg] of inDegree) {
+    if (deg === 0) queue.push(k);
+  }
+
+  const topoOrder = [];
+  while (queue.length) {
+    const k = queue.shift();
+    topoOrder.push(k);
+    for (const succ of successors.get(k) || []) {
+      const newDeg = inDegree.get(succ) - 1;
+      inDegree.set(succ, newDeg);
+      if (newDeg === 0) queue.push(succ);
+    }
+  }
+
+  // Forward pass: Earliest Start (ES) and Earliest Finish (EF)
+  const ES = new Map();
+  const EF = new Map();
+
+  for (const k of topoOrder) {
+    const t = byKey.get(k);
+    const preds = predecessors.get(k) || [];
+    if (preds.length === 0) {
+      ES.set(k, getStartMs(t) || 0);
+    } else {
+      let maxPredEF = -Infinity;
+      for (const p of preds) {
+        const pef = EF.get(p);
+        if (pef !== undefined && pef > maxPredEF) maxPredEF = pef;
+      }
+      ES.set(k, maxPredEF === -Infinity ? (getStartMs(t) || 0) : maxPredEF);
+    }
+    EF.set(k, ES.get(k) + getDurationMs(t));
+  }
+
+  // Project end — only consider tasks that participate in the dependency graph
+  // (have at least one predecessor or successor). Disconnected tasks shouldn't
+  // inflate projectEnd, which would give chained tasks false slack.
+  let projectEnd = -Infinity;
+  for (const k of topoOrder) {
+    const hasPreds = (predecessors.get(k) || []).length > 0;
+    const hasSuccs = (successors.get(k) || []).length > 0;
+    if (hasPreds || hasSuccs) {
+      const ef = EF.get(k);
+      if (ef > projectEnd) projectEnd = ef;
+    }
+  }
+  // Fallback: if no connected tasks, use global max
+  if (projectEnd === -Infinity) {
+    for (const ef of EF.values()) {
+      if (ef > projectEnd) projectEnd = ef;
+    }
+  }
+
+  // Backward pass: Latest Start (LS) and Latest Finish (LF)
+  const LS = new Map();
+  const LF = new Map();
+
+  for (let i = topoOrder.length - 1; i >= 0; i--) {
+    const k = topoOrder[i];
+    const t = byKey.get(k);
+    const succs = successors.get(k) || [];
+    if (succs.length === 0) {
+      LF.set(k, projectEnd);
+    } else {
+      let minSuccLS = Infinity;
+      for (const s of succs) {
+        const sls = LS.get(s);
+        if (sls !== undefined && sls < minSuccLS) minSuccLS = sls;
+      }
+      LF.set(k, minSuccLS === Infinity ? projectEnd : minSuccLS);
+    }
+    LS.set(k, LF.get(k) - getDurationMs(t));
+  }
+
+  // Compute slack and critical set
+  const criticalSet = new Set();
+  const connectedSet = new Set(); // tasks with at least one edge
+  const slackByTask = new Map();
+  const slackThreshold = dayMs * 0.5;
+
+  for (const k of topoOrder) {
+    const slack = LS.get(k) - ES.get(k);
+    const slackDays = Math.round(slack / dayMs);
+    const t = byKey.get(k);
+    const origKey = t.idToken || t.label || "";
+    slackByTask.set(origKey, slackDays);
+    const hasPreds = (predecessors.get(k) || []).length > 0;
+    const hasSuccs = (successors.get(k) || []).length > 0;
+    if (hasPreds || hasSuccs) {
+      connectedSet.add(origKey);
+      if (Math.abs(slack) <= slackThreshold) {
+        criticalSet.add(origKey);
+      }
+    }
+  }
+
+  return { criticalSet, connectedSet, slackByTask };
+}
+
+/* ── Cycle detection ─────────────────────────────────── */
+
+export function detectCycles(tasks) {
+  const graph = new Map();
+  const byKey = new Map();
+  const byLabel = new Map();
+
+  for (const t of tasks) {
+    if (t.isVertMarker) continue;
+    const key = (t.idToken || t.label || "").toLowerCase();
+    if (!key) continue;
+    byKey.set(key, t);
+    graph.set(key, []);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), key);
+    }
+  }
+
+  for (const t of tasks) {
+    if (t.isVertMarker) continue;
+    const key = (t.idToken || t.label || "").toLowerCase();
+    if (!key || !graph.has(key)) continue;
+    for (const dep of t.afterDeps || []) {
+      const depKey = byKey.has(dep.toLowerCase())
+        ? dep.toLowerCase()
+        : byLabel.get(dep.toLowerCase());
+      if (depKey && graph.has(depKey)) {
+        graph.get(depKey).push(key);
+      }
+    }
+  }
+
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = new Map();
+  for (const node of graph.keys()) color.set(node, WHITE);
+  const cycles = [];
+
+  const dfs = (node, stack) => {
+    color.set(node, GRAY);
+    stack.push(node);
+    for (const neighbor of graph.get(node) || []) {
+      if (color.get(neighbor) === GRAY) {
+        const idx = stack.indexOf(neighbor);
+        cycles.push(stack.slice(idx).map((k) => (byKey.get(k) || {}).label || k));
+      } else if (color.get(neighbor) === WHITE) {
+        dfs(neighbor, stack);
+      }
+    }
+    stack.pop();
+    color.set(node, BLACK);
+  };
+
+  for (const node of graph.keys()) {
+    if (color.get(node) === WHITE) dfs(node, []);
+  }
+  return cycles;
+}
+
+/* ── Conflict detection ──────────────────────────────── */
+
+export function detectConflicts(tasks) {
+  const byId = new Map();
+  const byLabel = new Map();
+  for (const t of tasks) {
+    if (t.idToken) byId.set(t.idToken.toLowerCase(), t);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), t);
+    }
+  }
+
+  const toMs = (iso) => {
+    if (!iso) return null;
+    const v = Date.parse(iso + "T00:00:00Z");
+    return Number.isFinite(v) ? v : null;
+  };
+  const DAY = 86400000;
+  const conflicts = [];
+
+  for (const task of tasks) {
+    if (task.isVertMarker) continue;
+    const startMs = toMs(task.startDate || task.resolvedStartDate);
+    if (startMs === null) continue;
+    for (const depId of task.afterDeps || []) {
+      const dep = byId.get(depId.toLowerCase()) || byLabel.get(depId.toLowerCase());
+      if (!dep) continue;
+      const depEndMs = toMs(dep.computedEnd || dep.endDate || dep.resolvedEndDate);
+      if (depEndMs === null) continue;
+      if (startMs < depEndMs) {
+        conflicts.push({
+          taskLabel: task.label,
+          depLabel: dep.label,
+          overlapDays: Math.ceil((depEndMs - startMs) / DAY),
+        });
+      }
+    }
+  }
+  return conflicts;
+}
+
 /* ── Existing utilities ───────────────────────────────── */
 
 export function findTaskByLabel(tasks, label) {
@@ -466,6 +798,32 @@ export function updateGanttTask(code, task, updates) {
   }
 
   lines[task.lineIndex] = `${task.indent}${nextLabel} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
+export function updateGanttDependency(code, task, depIds) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const nextTokens = [...task.tokens];
+
+  // Remove existing "after ..." token if present
+  if (task.afterTokenIndex >= 0) {
+    nextTokens.splice(task.afterTokenIndex, 1);
+  }
+
+  if (depIds.length > 0) {
+    const afterToken = "after " + depIds.join(" ");
+    // Insert before duration token if one exists, otherwise append
+    // Recalculate duration index after possible splice
+    const durIdx = nextTokens.findIndex((t) => /^\d+[dwmy]$/i.test(t.trim()));
+    if (durIdx >= 0) {
+      nextTokens.splice(durIdx, 0, afterToken);
+    } else {
+      nextTokens.push(afterToken);
+    }
+  }
+
+  lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
   return lines.join("\n");
 }
 
@@ -525,6 +883,26 @@ export function toggleGanttStatus(code, task, flag) {
     if (idx >= 0) nextTokens.splice(idx, 1);
   } else {
     nextTokens.unshift(flag);
+  }
+
+  lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
+export function toggleGanttMilestone(code, task, shouldBeMilestone) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const nextTokens = [...task.tokens];
+  const milestoneIdx = nextTokens.findIndex((t) => t.toLowerCase() === "milestone");
+  const hasMilestone = milestoneIdx >= 0;
+
+  if (shouldBeMilestone && !hasMilestone) {
+    // Insert "milestone" at the beginning of tokens (before status tokens)
+    nextTokens.unshift("milestone");
+  } else if (!shouldBeMilestone && hasMilestone) {
+    nextTokens.splice(milestoneIdx, 1);
+  } else {
+    return code; // no change needed
   }
 
   lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
@@ -694,4 +1072,130 @@ export function moveGanttTaskToSection(code, task, targetSection) {
   const insertAt = Math.max(targetLine + 1, nextSectionLine);
   lines.splice(insertAt, 0, ...taskBlock);
   return lines.join("\n");
+}
+
+/* ── Risk flag computation ──────────────────────────── */
+
+export function computeRiskFlags(tasks) {
+  const MANY_DEPS_THRESHOLD = 3;
+  const result = {};
+
+  const byId = new Map();
+  const byLabel = new Map();
+  for (const t of tasks) {
+    if (t.idToken) byId.set(t.idToken.toLowerCase(), t);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), t);
+    }
+  }
+
+  const isoToMs = (iso) => {
+    if (!iso) return null;
+    const val = Date.parse(iso + "T00:00:00Z");
+    return Number.isFinite(val) ? val : null;
+  };
+
+  const getEntry = (label) => {
+    if (!result[label]) result[label] = { flags: [], reasons: [] };
+    return result[label];
+  };
+
+  // Reverse dep map: depKey -> [tasks that depend on it]
+  const reverseDeps = new Map();
+  for (const t of tasks) {
+    for (const depId of t.afterDeps || []) {
+      const key = depId.toLowerCase();
+      if (!reverseDeps.has(key)) reverseDeps.set(key, []);
+      reverseDeps.get(key).push(t);
+    }
+  }
+
+  for (const task of tasks) {
+    if (task.isVertMarker) continue;
+
+    const deps = task.afterDeps || [];
+
+    // Condition 1: Many dependencies
+    if (deps.length >= MANY_DEPS_THRESHOLD) {
+      const entry = getEntry(task.label);
+      entry.flags.push("many-deps");
+      entry.reasons.push("Has " + deps.length + " dependencies");
+    }
+
+    // Condition 2: Broken dependency (starts before dep ends)
+    const taskStartMs = isoToMs(task.startDate);
+    if (taskStartMs !== null) {
+      for (const depId of deps) {
+        const dep = byId.get(depId.toLowerCase()) || byLabel.get(depId.toLowerCase());
+        if (!dep) continue;
+        const depEndMs = isoToMs(dep.computedEnd);
+        if (depEndMs !== null && taskStartMs < depEndMs) {
+          const entry = getEntry(task.label);
+          entry.flags.push("broken-dep");
+          entry.reasons.push("Starts before '" + (dep.label || depId) + "' ends");
+        }
+      }
+    }
+
+    // Condition 3: Zero slack
+    const taskEndMs = isoToMs(task.computedEnd);
+    if (taskEndMs !== null) {
+      const key = (task.idToken || "").toLowerCase() || task.label.toLowerCase();
+      const dependents = reverseDeps.get(key) || [];
+      for (const dep of dependents) {
+        const depStartMs = isoToMs(dep.startDate);
+        if (depStartMs !== null && depStartMs === taskEndMs) {
+          const entry = getEntry(task.label);
+          entry.flags.push("zero-slack");
+          entry.reasons.push("No buffer before '" + dep.label + "'");
+          break;
+        }
+      }
+    }
+  }
+
+  // Condition 4: Overloaded assignee (overlapping tasks, same person)
+  // Assignees can be comma-separated (e.g. "Alice, Bob"), so split and
+  // index each individual person to their tasks.
+  const splitAssignees = (raw) =>
+    String(raw || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+  const byAssignee = new Map();
+  for (const t of tasks) {
+    if (!t.assignee || t.isVertMarker || t.isMilestone) continue;
+    for (const person of splitAssignees(t.assignee)) {
+      if (!byAssignee.has(person)) byAssignee.set(person, []);
+      byAssignee.get(person).push(t);
+    }
+  }
+  for (const [person, group] of byAssignee) {
+    if (group.length < 2) continue;
+    for (let i = 0; i < group.length; i++) {
+      const a = group[i];
+      const aStart = isoToMs(a.startDate);
+      const aEnd = isoToMs(a.computedEnd);
+      if (aStart === null || aEnd === null) continue;
+      for (let j = i + 1; j < group.length; j++) {
+        const b = group[j];
+        const bStart = isoToMs(b.startDate);
+        const bEnd = isoToMs(b.computedEnd);
+        if (bStart === null || bEnd === null) continue;
+        if (aStart < bEnd && bStart < aEnd) {
+          const displayName = person.charAt(0).toUpperCase() + person.slice(1);
+          const entryA = getEntry(a.label);
+          if (!entryA.flags.includes("overloaded-assignee")) {
+            entryA.flags.push("overloaded-assignee");
+            entryA.reasons.push(displayName + " also on '" + b.label + "'");
+          }
+          const entryB = getEntry(b.label);
+          if (!entryB.flags.includes("overloaded-assignee")) {
+            entryB.flags.push("overloaded-assignee");
+            entryB.reasons.push(displayName + " also on '" + a.label + "'");
+          }
+        }
+      }
+    }
+  }
+
+  return result;
 }

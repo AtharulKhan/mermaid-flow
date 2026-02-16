@@ -11,6 +11,7 @@ import {
   updateGanttTask,
   toggleGanttStatus,
   clearGanttStatus,
+  toggleGanttMilestone,
   updateGanttAssignee,
   updateGanttNotes,
   updateGanttLink,
@@ -21,12 +22,17 @@ import {
   getGanttSections,
   moveGanttTaskToSection,
   renameGanttSection,
+  computeRiskFlags,
+  computeCriticalPath,
+  detectCycles,
+  detectConflicts,
+  updateGanttDependency,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
-import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError } from "./firebase/firestore";
+import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
@@ -82,6 +88,92 @@ function normalizeAssigneeList(value) {
     .map((part) => part.trim())
     .filter(Boolean)
     .join(", ");
+}
+
+function AssigneeTagInput({ value, onChange, suggestions }) {
+  const tags = String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const [inputVal, setInputVal] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const inputRef = useRef(null);
+
+  const filtered = suggestions.filter(
+    (s) => !tags.some((t) => t.toLowerCase() === s.toLowerCase()) &&
+      s.toLowerCase().includes(inputVal.toLowerCase())
+  );
+
+  const commit = (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (tags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) return;
+    const next = [...tags, trimmed].join(", ");
+    onChange(next);
+    setInputVal("");
+    setActiveIdx(-1);
+  };
+
+  const remove = (idx) => {
+    const next = tags.filter((_, i) => i !== idx).join(", ");
+    onChange(next);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      if (activeIdx >= 0 && activeIdx < filtered.length) {
+        commit(filtered[activeIdx]);
+      } else if (inputVal.trim()) {
+        commit(inputVal);
+      }
+    } else if (e.key === "Backspace" && !inputVal && tags.length) {
+      remove(tags.length - 1);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((prev) => Math.min(prev + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((prev) => Math.max(prev - 1, -1));
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+    }
+  };
+
+  return (
+    <div className="assignee-tag-wrap" onClick={() => inputRef.current?.focus()}>
+      {tags.map((tag, i) => (
+        <span key={tag + i} className="assignee-tag">
+          {tag}
+          <button type="button" className="assignee-tag-remove" onClick={(e) => { e.stopPropagation(); remove(i); }}>&times;</button>
+        </span>
+      ))}
+      <div style={{ position: "relative", flex: 1, minWidth: 80 }}>
+        <input
+          ref={inputRef}
+          className="assignee-tag-input"
+          value={inputVal}
+          onChange={(e) => { setInputVal(e.target.value); setActiveIdx(-1); setShowSuggestions(true); }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => { setTimeout(() => setShowSuggestions(false), 150); if (inputVal.trim()) commit(inputVal); }}
+          onKeyDown={onKeyDown}
+          placeholder={tags.length ? "" : "Add assignee..."}
+        />
+        {showSuggestions && inputVal && filtered.length > 0 && (
+          <div className="assignee-suggestions">
+            {filtered.map((s, i) => (
+              <button
+                key={s}
+                type="button"
+                className={`assignee-suggestion${i === activeIdx ? " active" : ""}`}
+                onMouseDown={(e) => { e.preventDefault(); commit(s); }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function isMobileViewport() {
@@ -364,7 +456,6 @@ function getIframeSrcDoc() {
         background: #ffffff;
         position: relative;
         box-sizing: border-box;
-        overflow: hidden;
       }
       .mf-gantt-track:nth-child(4n+1) {
         background: #fafbfd;
@@ -389,6 +480,7 @@ function getIframeSrcDoc() {
         overflow: visible;
         box-sizing: border-box;
         min-width: 18px;
+        z-index: 3;
         --outside-label-width: 0px;
       }
       .mf-gantt-bar:hover {
@@ -411,6 +503,16 @@ function getIframeSrcDoc() {
       .mf-bar-active  { background: #fef08a; }
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
+      .mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
+        z-index: 2;
+        outline: 2px solid #ef4444;
+        outline-offset: 1px;
+      }
+      .mf-gantt-milestone.mf-bar-critical-path::before {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
+      }
+      .mf-bar-dimmed { opacity: 0.3; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
       .mf-gantt-bar.mf-bar-active .bar-label {
         color: #1f2937;
@@ -493,6 +595,39 @@ function getIframeSrcDoc() {
       }
       .mf-bar-resize-handle.start { left: 0; }
       .mf-bar-resize-handle.end { right: 0; }
+      .mf-dep-connector {
+        position: absolute;
+        right: -6px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #94a3b8;
+        border: 2px solid #fff;
+        cursor: crosshair;
+        z-index: 5;
+        opacity: 0;
+        transition: opacity 0.15s;
+        pointer-events: auto;
+      }
+      .mf-gantt-bar:hover .mf-dep-connector,
+      .mf-gantt-milestone:hover .mf-dep-connector { opacity: 1; }
+      .mf-dep-connector:hover { background: #3b82f6; transform: translateY(-50%) scale(1.2); }
+      [data-theme="dark"] .mf-dep-connector { background: #6b7280; border-color: #1c1f2b; }
+      [data-theme="dark"] .mf-dep-connector:hover { background: #60a5fa; }
+      .mf-gantt-bar.mf-dep-drop-target,
+      .mf-gantt-milestone.mf-dep-drop-target {
+        outline: 2px solid #3b82f6;
+        outline-offset: 2px;
+      }
+      .mf-dep-drag-line {
+        pointer-events: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 10;
+      }
       .bar-link-icon {
         position: absolute;
         right: 11px;
@@ -619,15 +754,148 @@ function getIframeSrcDoc() {
         background: #dc2626;
         pointer-events: none;
       }
+      .mf-gantt-risk-badge {
+        position: absolute;
+        font-size: 11px;
+        line-height: 14px;
+        pointer-events: none;
+        z-index: 2;
+        color: #d97706;
+      }
+      .mf-bar-at-risk {
+        box-shadow: 0 0 0 2px #f59e0b, 0 0 8px rgba(245, 158, 11, 0.35);
+        border-radius: 8px;
+      }
+      .mf-bar-at-risk.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 0 5px #f59e0b, 0 0 12px rgba(239, 68, 68, 0.5);
+      }
+      /* ── Cycle warning banner ── */
+      .mf-gantt-cycle-banner {
+        grid-column: 1 / -1;
+        background: #fef3c7;
+        border: 1px solid #f59e0b;
+        border-radius: 6px;
+        padding: 7px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #92400e;
+        margin: 6px 8px;
+      }
+      .mf-gantt-cycle-banner::before { content: "\u26A0\uFE0F "; }
+
+      /* ── Conflict badge ── */
+      .mf-gantt-conflict-badge {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #f59e0b;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 7;
+        pointer-events: auto;
+        cursor: help;
+      }
+
+      /* ── Slack indicator bar ── */
+      .mf-gantt-slack {
+        position: absolute;
+        background: repeating-linear-gradient(45deg, #93c5fd, #93c5fd 3px, #dbeafe 3px, #dbeafe 6px);
+        border-radius: 2px;
+        opacity: 0.6;
+        pointer-events: auto;
+        cursor: help;
+      }
+
+      /* ── Ghost bars (drag ripple) ── */
+      .mf-gantt-ghost-bar {
+        position: absolute;
+        background: rgba(147,197,253,0.3);
+        border: 2px dashed #60a5fa;
+        border-radius: 6px;
+        pointer-events: none;
+        z-index: 5;
+        transition: left 0.08s ease;
+      }
+      .mf-gantt-ripple-summary {
+        position: fixed;
+        background: rgba(15,23,42,0.92);
+        color: #fff;
+        padding: 5px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        pointer-events: none;
+        z-index: 100;
+        white-space: nowrap;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      }
+
+      /* ── Dependency chain highlighting ── */
+      .mf-dep-line-upstream { stroke: #8b5cf6 !important; stroke-width: 2.5 !important; }
+      .mf-dep-line-downstream { stroke: #f97316 !important; stroke-width: 2.5 !important; }
+      .mf-dep-line-dimmed { opacity: 0.1 !important; }
+      .mf-gantt-bar.mf-dep-dimmed,
+      .mf-gantt-milestone.mf-dep-dimmed { opacity: 0.2; filter: grayscale(0.6); transition: opacity 0.15s, filter 0.15s; }
+      .mf-gantt-bar.mf-dep-upstream-bar { outline: 2px solid #8b5cf6; outline-offset: 1px; }
+      .mf-gantt-bar.mf-dep-downstream-bar { outline: 2px solid #f97316; outline-offset: 1px; }
+      .mf-gantt-milestone.mf-dep-upstream-bar { filter: drop-shadow(0 0 4px #8b5cf6); }
+      .mf-gantt-milestone.mf-dep-downstream-bar { filter: drop-shadow(0 0 4px #f97316); }
+
+      /* ── Baseline ghost bars ── */
+      .mf-gantt-baseline-bar {
+        position: absolute;
+        border-radius: 8px;
+        background: #94a3b8;
+        opacity: 0.22;
+        border: 1.5px dashed #64748b;
+        pointer-events: none;
+        box-sizing: border-box;
+        z-index: 0;
+      }
+      .mf-gantt-delta-badge {
+        position: absolute;
+        font-size: 9px;
+        font-weight: 700;
+        font-family: "Manrope", system-ui, sans-serif;
+        padding: 1px 4px;
+        border-radius: 4px;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 4;
+        line-height: 1.3;
+      }
+      .mf-gantt-delta-badge.mf-delta-late {
+        background: #fef2f2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+      }
+      .mf-gantt-delta-badge.mf-delta-early {
+        background: #f0fdf4;
+        color: #16a34a;
+        border: 1px solid #bbf7d0;
+      }
       /* ── Milestone diamond ── */
       .mf-gantt-milestone {
         position: absolute;
         cursor: grab;
         overflow: visible;
         box-sizing: border-box;
-        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-        transition: box-shadow 0.12s ease, filter 0.12s ease;
+        background: transparent !important;
+        transition: filter 0.12s ease;
         min-width: 0;
+        z-index: 3;
+      }
+      .mf-gantt-milestone::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: #22c55e;
+        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
       }
       .mf-gantt-milestone:hover {
         filter: brightness(1.1);
@@ -653,11 +921,25 @@ function getIframeSrcDoc() {
         right: calc(100% + 8px);
         text-align: right;
       }
-      .mf-gantt-milestone .bar-date-suffix { display: none; }
-      .mf-gantt-milestone.mf-selected {
-        outline: 2.5px solid #2563eb;
-        outline-offset: 2px;
-        box-shadow: 0 0 10px rgba(37, 99, 235, 0.3);
+      .mf-gantt-milestone .bar-date-suffix {
+        position: absolute;
+        left: calc(100% + 8px + var(--outside-label-width, 0px) + 6px);
+        top: 50%;
+        transform: translateY(-50%);
+        white-space: nowrap;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 400;
+        text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+        pointer-events: none;
+      }
+      .mf-gantt-milestone.mf-label-outside-left .bar-date-suffix {
+        left: auto;
+        right: calc(100% + 8px + var(--outside-label-width, 0px) + 6px);
+      }
+      .mf-gantt-milestone.mf-selected::before {
+        filter: brightness(0.85);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5);
       }
       /* ── Excluded day shading ── */
       .mf-gantt-excluded-day {
@@ -1142,6 +1424,38 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-gantt-progress-fill { background: rgba(255, 255, 255, 0.15); }
       [data-theme="dark"] .mf-bar-active .mf-gantt-progress-fill { background: rgba(0, 0, 0, 0.18); }
       [data-theme="dark"] .mf-bar-default { background: #3a3f52; }
+      [data-theme="dark"] .mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+        outline: 2px solid #f87171;
+        outline-offset: 1px;
+      }
+      [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path::before {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+      }
+      [data-theme="dark"] .mf-gantt-milestone::before {
+        background: #4ade80;
+      }
+      [data-theme="dark"] .mf-gantt-milestone .bar-label {
+        color: #e4e6ed;
+        text-shadow: 0 0 3px #0f1117, 0 0 3px #0f1117;
+      }
+      [data-theme="dark"] .mf-gantt-milestone .bar-date-suffix {
+        color: #9a9fb2;
+        text-shadow: 0 0 3px #0f1117, 0 0 3px #0f1117;
+      }
+      [data-theme="dark"] .mf-gantt-risk-badge { color: #fbbf24; }
+      [data-theme="dark"] .mf-bar-at-risk {
+        box-shadow: 0 0 0 2px #fbbf24, 0 0 8px rgba(251, 191, 36, 0.4);
+      }
+      [data-theme="dark"] .mf-bar-at-risk.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 0 5px #fbbf24, 0 0 12px rgba(248, 113, 113, 0.5);
+      }
+      [data-theme="dark"] .mf-dep-lines-svg path { stroke: #d1d5db; }
+      [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #d1d5db; }
+      [data-theme="dark"] .mf-gantt-cycle-banner { background: #451a03; border-color: #fbbf24; color: #fde68a; }
+      [data-theme="dark"] .mf-gantt-conflict-badge { background: #fbbf24; color: #000; }
+      [data-theme="dark"] .mf-gantt-slack { background: repeating-linear-gradient(45deg, #1e40af, #1e40af 3px, #1e3a8a 3px, #1e3a8a 6px); }
+      [data-theme="dark"] .mf-gantt-ghost-bar { background: rgba(59,130,246,0.2); border-color: #3b82f6; }
       [data-theme="dark"] .mf-gantt-excluded-day {
         background: rgba(255,255,255,0.03);
       }
@@ -1163,6 +1477,21 @@ function getIframeSrcDoc() {
       }
       [data-theme="dark"] .mf-gantt-vert-label {
         color: #60a5fa;
+      }
+      [data-theme="dark"] .mf-gantt-baseline-bar {
+        background: #64748b;
+        opacity: 0.18;
+        border-color: #94a3b8;
+      }
+      [data-theme="dark"] .mf-gantt-delta-badge.mf-delta-late {
+        background: #451a1a;
+        color: #f87171;
+        border-color: #7f1d1d;
+      }
+      [data-theme="dark"] .mf-gantt-delta-badge.mf-delta-early {
+        background: #14331c;
+        color: #4ade80;
+        border-color: #166534;
       }
       [data-theme="dark"] #mf-tooltip {
         background: #252838;
@@ -1208,6 +1537,83 @@ function getIframeSrcDoc() {
         background: #1c1f2b;
         border-color: #2a2e3d;
         color: #e4e6ed;
+      }
+      /* ── Executive view banner ── */
+      .mf-exec-banner {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .mf-exec-banner-inner {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+        font-weight: 500;
+        font-family: "Manrope", system-ui, sans-serif;
+      }
+      .mf-exec-progress {
+        flex: 0 0 120px;
+        height: 6px;
+        background: #e5e7eb;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .mf-exec-progress-bar {
+        height: 100%;
+        background: #22c55e;
+        border-radius: 3px;
+        transition: width 0.3s ease;
+      }
+      .mf-exec-pct {
+        font-weight: 700;
+        color: #1e293b;
+      }
+      .mf-exec-counts {
+        color: #64748b;
+      }
+      .mf-exec-status {
+        margin-left: auto;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .mf-exec-on-track {
+        background: rgba(34, 197, 94, 0.15);
+        color: #16a34a;
+      }
+      .mf-exec-at-risk {
+        background: rgba(234, 179, 8, 0.15);
+        color: #ca8a04;
+      }
+      .mf-exec-late {
+        background: rgba(239, 68, 68, 0.15);
+        color: #dc2626;
+      }
+      [data-theme="dark"] .mf-exec-banner {
+        border-color: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-exec-progress {
+        background: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-exec-pct {
+        color: #e4e6ed;
+      }
+      [data-theme="dark"] .mf-exec-counts {
+        color: #9a9fb2;
+      }
+      [data-theme="dark"] .mf-exec-on-track {
+        background: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+      }
+      [data-theme="dark"] .mf-exec-at-risk {
+        background: rgba(234, 179, 8, 0.2);
+        color: #facc15;
+      }
+      [data-theme="dark"] .mf-exec-late {
+        background: rgba(239, 68, 68, 0.2);
+        color: #f87171;
       }
     </style>
   </head>
@@ -1519,7 +1925,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags, cycles, baselineTasks) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1569,7 +1975,22 @@ function getIframeSrcDoc() {
 
         // Separate vert markers from regular tasks
         const vertTasks = tasks.filter((t) => t.isVertMarker);
-        const regularTasks = tasks.filter((t) => !t.isVertMarker);
+        const allRegularTasks = tasks.filter((t) => !t.isVertMarker);
+
+        // Executive view: filter to milestones, critical, and overdue tasks
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const regularTasks = executiveView
+          ? allRegularTasks.filter((t) => {
+              if (t.isMilestone) return true;
+              const statuses = t.statusTokens || [];
+              if (statuses.includes("crit")) return true;
+              // Overdue: not done and end date is in the past
+              const isDone = statuses.includes("done");
+              const end = t.computedEnd || t.endDate || "";
+              if (!isDone && end && end < todayIso) return true;
+              return false;
+            })
+          : allRegularTasks;
 
         // Enrich tasks with resolved end dates
         const enriched = regularTasks.map((t) => {
@@ -1582,10 +2003,29 @@ function getIframeSrcDoc() {
           return { ...t, resolvedEnd };
         });
 
+        // Build baseline task lookup by label
+        const baselineByLabel = new Map();
+        if (baselineTasks && baselineTasks.length) {
+          for (const bt of baselineTasks) {
+            if (bt.label && !bt.isVertMarker) {
+              baselineByLabel.set(bt.label.toLowerCase(), bt);
+            }
+          }
+        }
+
         // Date range (include vert markers in range calculation)
         const allItems = [...enriched, ...vertTasks.map((t) => ({ startDate: t.startDate, resolvedEnd: t.startDate }))];
         const allStartMs = allItems.map((t) => isoToMs(t.startDate)).filter(Number.isFinite);
         const allEndMs = allItems.map((t) => isoToMs(t.resolvedEnd) || isoToMs(t.startDate)).filter(Number.isFinite);
+        // Expand date range to include baseline tasks
+        if (baselineByLabel.size) {
+          for (const bt of baselineByLabel.values()) {
+            const bsMs = isoToMs(bt.startDate);
+            const beMs = isoToMs(bt.computedEnd) || bsMs;
+            if (Number.isFinite(bsMs)) allStartMs.push(bsMs);
+            if (Number.isFinite(beMs)) allEndMs.push(beMs);
+          }
+        }
         if (!allStartMs.length) {
           canvas.textContent = "No dated tasks found.";
           return;
@@ -1639,6 +2079,10 @@ function getIframeSrcDoc() {
         };
 
         // Build container
+        // Track bar positions for dependency arrows
+        const barPositions = new Map();
+        let cumulativeTop = 0;
+
         const container = document.createElement("div");
         container.className = "mf-gantt-container";
         container.style.gridTemplateColumns = roleColWidth + "px " + timelineWidth + "px";
@@ -1676,6 +2120,53 @@ function getIframeSrcDoc() {
           timelineHeader.appendChild(buildTimelineHeaderRow("week", paddedMin, totalDays, pxPerDay));
         }
         container.appendChild(timelineHeader);
+
+        cumulativeTop = headerHeight;
+
+        // === Circular dependency warning banner ===
+        cycles = cycles || [];
+        if (cycles.length > 0) {
+          const warnBanner = document.createElement("div");
+          warnBanner.className = "mf-gantt-cycle-banner";
+          warnBanner.textContent = "Circular dependency detected: " + cycles[0].join(" \u2192 ");
+          container.appendChild(warnBanner);
+          cumulativeTop += warnBanner.offsetHeight || 36;
+        }
+
+        // === Executive view: progress summary banner ===
+        if (executiveView) {
+          const totalCount = allRegularTasks.length;
+          const doneCount = allRegularTasks.filter((t) => (t.statusTokens || []).includes("done")).length;
+          const overdueCount = allRegularTasks.filter((t) => {
+            const isDone = (t.statusTokens || []).includes("done");
+            const end = t.computedEnd || t.endDate || "";
+            return !isDone && end && end < todayIso;
+          }).length;
+          const critCount = allRegularTasks.filter((t) => (t.statusTokens || []).includes("crit") && !(t.statusTokens || []).includes("done")).length;
+          const pct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+
+          let statusLabel = "On track";
+          let statusClass = "mf-exec-on-track";
+          if (overdueCount > 0) {
+            statusLabel = overdueCount + " overdue";
+            statusClass = "mf-exec-late";
+          } else if (critCount > 0) {
+            statusLabel = "At risk";
+            statusClass = "mf-exec-at-risk";
+          }
+
+          const banner = document.createElement("div");
+          banner.className = "mf-exec-banner";
+          banner.style.gridColumn = "1 / -1";
+          banner.innerHTML =
+            '<div class="mf-exec-banner-inner">' +
+              '<div class="mf-exec-progress"><div class="mf-exec-progress-bar" style="width:' + pct + '%"></div></div>' +
+              '<span class="mf-exec-pct">' + pct + '% complete</span>' +
+              '<span class="mf-exec-counts">' + doneCount + '/' + totalCount + ' tasks done</span>' +
+              '<span class="mf-exec-status ' + statusClass + '">' + statusLabel + '</span>' +
+            '</div>';
+          container.appendChild(banner);
+        }
 
         // === Body: Section rows ===
         for (const [section, sectionTasks] of sectionMap.entries()) {
@@ -1779,6 +2270,41 @@ function getIframeSrcDoc() {
             const width = Math.max(Math.round(pxPerDay), Math.round(((Math.max(endMs, startMs + dayMs) - startMs) / dayMs) * pxPerDay));
             const top = rowAssignments[idx] * rowHeight + barGap;
 
+            // Baseline ghost bar
+            const baselineTask = baselineByLabel.get((task.label || "").toLowerCase());
+            if (baselineTask && !task.isMilestone) {
+              const blStartMs = isoToMs(baselineTask.startDate);
+              const blEndMs = isoToMs(baselineTask.computedEnd) || blStartMs;
+              if (Number.isFinite(blStartMs)) {
+                const blLeft = Math.round(((blStartMs - paddedMin) / dayMs) * pxPerDay);
+                const blWidth = Math.max(Math.round(pxPerDay), Math.round(((Math.max(blEndMs, blStartMs + dayMs) - blStartMs) / dayMs) * pxPerDay));
+                const ghost = document.createElement("div");
+                ghost.className = "mf-gantt-baseline-bar";
+                ghost.style.left = blLeft + "px";
+                ghost.style.width = blWidth + "px";
+                ghost.style.top = top + "px";
+                ghost.style.height = barHeight + "px";
+                ghost.setAttribute("data-mf-tip", "Baseline: " + (baselineTask.startDate || "") + " – " + (baselineTask.computedEnd || ""));
+                track.appendChild(ghost);
+              }
+            }
+
+            // Delta badge (baseline vs current start date)
+            if (baselineTask && task.startDate && baselineTask.startDate) {
+              const baselineStartMs = isoToMs(baselineTask.startDate);
+              if (Number.isFinite(startMs) && Number.isFinite(baselineStartMs)) {
+                const deltaDays = Math.round((startMs - baselineStartMs) / dayMs);
+                if (deltaDays !== 0) {
+                  const badge = document.createElement("div");
+                  badge.className = "mf-gantt-delta-badge" + (deltaDays > 0 ? " mf-delta-late" : " mf-delta-early");
+                  badge.textContent = (deltaDays > 0 ? "+" : "") + deltaDays + "d";
+                  badge.style.top = (top - 12) + "px";
+                  badge.style.left = left + "px";
+                  track.appendChild(badge);
+                }
+              }
+            }
+
             // Status-based color
             const statuses = task.statusTokens || [];
             let barClass = "mf-bar-default";
@@ -1788,9 +2314,15 @@ function getIframeSrcDoc() {
             else if (statuses.includes("crit")) barClass = "mf-bar-crit";
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
+            // Critical path highlighting — dim ALL non-critical tasks
+            let cpClass = "";
+            if (showCriticalPath) {
+              cpClass = task.isCriticalPath ? " mf-bar-critical-path" : " mf-bar-dimmed";
+            }
+
             const bar = document.createElement("div");
             const isNarrow = width < 70;
-            const showsMetaSuffix = !task.isMilestone && showDates && !!task.startDate;
+            const showsMetaSuffix = showDates && !!task.startDate;
             let barLeft = left;
             let barPixelWidth = width;
 
@@ -1800,13 +2332,13 @@ function getIframeSrcDoc() {
               const milestoneLeft = left + Math.floor(width / 2) - Math.floor(diamondSize / 2);
               barLeft = milestoneLeft;
               barPixelWidth = diamondSize;
-              bar.className = "mf-gantt-milestone " + barClass;
+              bar.className = "mf-gantt-milestone " + barClass + cpClass;
               bar.style.left = milestoneLeft + "px";
               bar.style.width = diamondSize + "px";
               bar.style.height = diamondSize + "px";
               bar.style.top = top + "px";
             } else {
-              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "");
+              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "") + cpClass;
               bar.style.left = left + "px";
               bar.style.width = width + "px";
               bar.style.top = top + "px";
@@ -1835,6 +2367,92 @@ function getIframeSrcDoc() {
               progressFill.style.width = Math.min(100, task.progress) + "%";
               bar.appendChild(progressFill);
             }
+
+            // Dependency connector handle (drag from this to create a dependency)
+            const depConn = document.createElement("div");
+            depConn.className = "mf-dep-connector";
+            bar.appendChild(depConn);
+
+            depConn.addEventListener("pointerdown", (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              // Hide any visible tooltip during drag
+              tooltipEl.style.display = "none";
+              // Capture pointer so events keep firing even outside the element
+              depConn.setPointerCapture(e.pointerId);
+
+              const fromId = task.idToken || task.label || "";
+              const fromLabel = task.label || "";
+              const canvasRect = canvas.getBoundingClientRect();
+              // Look up bar position from the map (populated at render time)
+              const barKey = (task.idToken || task.label || "").toLowerCase();
+              const pos = barPositions.get(barKey);
+              const startX = pos ? pos.right + 2 : 0;
+              const startY = pos ? pos.centerY : 0;
+
+              // Create temporary SVG drag line
+              const svgNS = "http://www.w3.org/2000/svg";
+              const dragSvg = document.createElementNS(svgNS, "svg");
+              dragSvg.className = "mf-dep-drag-line";
+              dragSvg.style.width = canvas.scrollWidth + "px";
+              dragSvg.style.height = canvas.scrollHeight + "px";
+              const dragLine = document.createElementNS(svgNS, "line");
+              dragLine.setAttribute("x1", startX);
+              dragLine.setAttribute("y1", startY);
+              dragLine.setAttribute("x2", startX);
+              dragLine.setAttribute("y2", startY);
+              dragLine.setAttribute("stroke", "#3b82f6");
+              dragLine.setAttribute("stroke-width", "2");
+              dragLine.setAttribute("stroke-dasharray", "6 3");
+              dragSvg.appendChild(dragLine);
+              const ganttContainer = canvas.querySelector(".mf-gantt-container");
+              ganttContainer.appendChild(dragSvg);
+
+              let currentTarget = null;
+              let dragging = false;
+
+              const onMove = (ev) => {
+                dragging = true;
+                tooltipEl.style.display = "none";
+                const mx = ev.clientX - canvasRect.left + canvas.scrollLeft;
+                const my = ev.clientY - canvasRect.top + canvas.scrollTop;
+                dragLine.setAttribute("x2", mx);
+                dragLine.setAttribute("y2", my);
+
+                // Temporarily hide drag SVG to find element underneath
+                dragSvg.style.display = "none";
+                const el = document.elementFromPoint(ev.clientX, ev.clientY);
+                dragSvg.style.display = "";
+                const targetBar = el?.closest(".mf-gantt-bar, .mf-gantt-milestone");
+                if (currentTarget && currentTarget !== targetBar) {
+                  currentTarget.classList.remove("mf-dep-drop-target");
+                }
+                if (targetBar && targetBar !== bar) {
+                  targetBar.classList.add("mf-dep-drop-target");
+                  currentTarget = targetBar;
+                } else {
+                  currentTarget = null;
+                }
+              };
+
+              const onUp = (ev) => {
+                depConn.removeEventListener("pointermove", onMove);
+                depConn.removeEventListener("pointerup", onUp);
+                try { depConn.releasePointerCapture(ev.pointerId); } catch (_) {}
+                dragSvg.remove();
+                if (!dragging) return;
+                if (currentTarget) {
+                  currentTarget.classList.remove("mf-dep-drop-target");
+                  const targetLabel = currentTarget.getAttribute("data-label") || "";
+                  if (targetLabel && targetLabel !== fromLabel) {
+                    send("gantt:dep-created", { fromId, fromLabel, targetLabel });
+                  }
+                }
+              };
+
+              depConn.addEventListener("pointermove", onMove);
+              depConn.addEventListener("pointerup", onUp);
+            });
 
             // Bar label
             const labelSpan = document.createElement("span");
@@ -1942,7 +2560,34 @@ function getIframeSrcDoc() {
             if (task.notes) tip += "\\nNotes: " + task.notes;
             if (task.progress != null) tip += "\\nProgress: " + task.progress + "%";
             if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
+            // Dependency info in tooltip
+            if (task.afterDeps && task.afterDeps.length) {
+              tip += "\\nDepends on: " + task.afterDeps.join(", ");
+            }
+            if (task.conflicts && task.conflicts.length) {
+              tip += "\\n\\u26a0 Conflict: starts before " + task.conflicts.map(function(c) { return '"' + c.depLabel + '"'; }).join(", ") + " finishes";
+            }
+            if (typeof task.slackDays === "number" && task.slackDays > 0) {
+              tip += "\\nSlack: " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "");
+            }
+            if (task.isCriticalPath) tip += "\\n\\u2b50 Critical path";
+            const taskRisk = showRisks && riskFlags[task.label];
+            if (taskRisk && taskRisk.reasons.length > 0) {
+              tip += "\\n--- Risks ---";
+              for (const r of taskRisk.reasons) tip += "\\n\\u26A0 " + r;
+            }
             bar.setAttribute("data-mf-tip", tip);
+            bar.setAttribute("data-label", (task.idToken || task.label || "").toLowerCase());
+
+            // Record bar position for dependency arrows
+            const barKey = (task.idToken || task.label || "").toLowerCase();
+            if (barKey) {
+              barPositions.set(barKey, {
+                left: roleColWidth + barLeft,
+                right: roleColWidth + barLeft + barPixelWidth,
+                centerY: cumulativeTop + top + barHeight / 2,
+              });
+            }
 
             // Overdue dot
             if (isOverdue && !task.isMilestone) {
@@ -1953,13 +2598,118 @@ function getIframeSrcDoc() {
               track.appendChild(dot);
             }
 
-            // Click handler: select task
+            // Risk badge
+            if (taskRisk && taskRisk.flags.length > 0 && !task.isMilestone) {
+              const riskBadge = document.createElement("div");
+              riskBadge.className = "mf-gantt-risk-badge";
+              riskBadge.style.left = (left - 12) + "px";
+              riskBadge.style.top = isOverdue ? (top + barHeight / 2 + 6) + "px" : (top + barHeight / 2 - 6) + "px";
+              riskBadge.textContent = "\\u26A0";
+              track.appendChild(riskBadge);
+              bar.classList.add("mf-bar-at-risk");
+            }
+
+            // Conflict badge
+            if (task.conflicts && task.conflicts.length > 0 && !task.isMilestone) {
+              var conflictBadge = document.createElement("div");
+              conflictBadge.className = "mf-gantt-conflict-badge";
+              conflictBadge.textContent = "!";
+              conflictBadge.style.left = (barLeft - 14) + "px";
+              conflictBadge.style.top = (top - 2) + "px";
+              conflictBadge.setAttribute("data-mf-tip",
+                "Scheduling conflict:\\n" +
+                task.conflicts.map(function(c) { return 'Starts before "' + c.depLabel + '" ends (' + c.overlapDays + "d overlap)"; }).join("\\n")
+              );
+              track.appendChild(conflictBadge);
+            }
+
+            // Slack indicator bar
+            if (typeof task.slackDays === "number" && task.slackDays > 0 && !task.isMilestone && showCriticalPath) {
+              var slackPx = Math.round(task.slackDays * pxPerDay);
+              var slackBar = document.createElement("div");
+              slackBar.className = "mf-gantt-slack";
+              slackBar.style.left = (barLeft + barPixelWidth) + "px";
+              slackBar.style.width = Math.min(slackPx, timelineWidth - barLeft - barPixelWidth) + "px";
+              slackBar.style.top = (top + barHeight / 2 - 2) + "px";
+              slackBar.style.height = "4px";
+              slackBar.setAttribute("data-mf-tip", "Slack: " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "") + "\\nCan slip without delaying project");
+              track.appendChild(slackBar);
+            }
+
+            // Click handler: select task + highlight dependency chain
             bar.addEventListener("click", (e) => {
               e.stopPropagation();
-              // Clear previous selection
+              // Clear previous selection & dep highlighting
               canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              canvas.querySelectorAll(".mf-dep-upstream-bar,.mf-dep-downstream-bar,.mf-dep-dimmed,.mf-dep-line-upstream,.mf-dep-line-downstream,.mf-dep-line-dimmed").forEach((el) => {
+                el.classList.remove("mf-dep-upstream-bar","mf-dep-downstream-bar","mf-dep-dimmed","mf-dep-line-upstream","mf-dep-line-downstream","mf-dep-line-dimmed");
+              });
               bar.classList.add("mf-selected");
               send("element:selected", { label: task.label, id: "", elementType: "node" });
+
+              // Build forward/reverse dependency maps
+              const depFwd = {};
+              const depRev = {};
+              for (const t of enriched) {
+                const k = (t.idToken || t.label || "").toLowerCase();
+                depFwd[k] = depFwd[k] || [];
+                depRev[k] = depRev[k] || [];
+                for (const d of t.afterDeps || []) {
+                  const dk = d.toLowerCase();
+                  depFwd[dk] = depFwd[dk] || [];
+                  depFwd[dk].push(k);
+                  depRev[k].push(dk);
+                }
+              }
+
+              const thisKey = (task.idToken || task.label || "").toLowerCase();
+
+              // BFS upstream
+              const upstream = new Set();
+              let q = [...(depRev[thisKey] || [])];
+              for (const k of q) upstream.add(k);
+              let qi = 0;
+              while (qi < q.length) {
+                const cur = q[qi++];
+                for (const dep of (depRev[cur] || [])) {
+                  if (!upstream.has(dep)) { upstream.add(dep); q.push(dep); }
+                }
+              }
+
+              // BFS downstream
+              const downstream = new Set();
+              q = [...(depFwd[thisKey] || [])];
+              for (const k of q) downstream.add(k);
+              qi = 0;
+              while (qi < q.length) {
+                const cur = q[qi++];
+                for (const dep of (depFwd[cur] || [])) {
+                  if (!downstream.has(dep)) { downstream.add(dep); q.push(dep); }
+                }
+              }
+
+              const hasChain = upstream.size > 0 || downstream.size > 0;
+              if (hasChain) {
+                // Highlight bars
+                canvas.querySelectorAll(".mf-gantt-bar, .mf-gantt-milestone").forEach((b) => {
+                  const lbl = b.getAttribute("data-label");
+                  if (!lbl) return;
+                  if (upstream.has(lbl)) b.classList.add("mf-dep-upstream-bar");
+                  else if (downstream.has(lbl)) b.classList.add("mf-dep-downstream-bar");
+                  else if (lbl !== thisKey) b.classList.add("mf-dep-dimmed");
+                });
+                // Highlight dep lines
+                const svg = canvas.querySelector(".mf-dep-lines-svg");
+                if (svg) {
+                  svg.querySelectorAll("path[data-from]").forEach((p) => {
+                    const f = p.getAttribute("data-from");
+                    const t = p.getAttribute("data-to");
+                    if ((upstream.has(f) || f === thisKey) && (upstream.has(t) || t === thisKey)) p.classList.add("mf-dep-line-upstream");
+                    else if ((downstream.has(f) || f === thisKey) && (downstream.has(t) || t === thisKey)) p.classList.add("mf-dep-line-downstream");
+                    else p.classList.add("mf-dep-line-dimmed");
+                  });
+                }
+              }
             });
 
             // Context menu
@@ -1982,6 +2732,7 @@ function getIframeSrcDoc() {
             bar.addEventListener("pointerdown", (e) => {
               if (e.button !== 0) return;
               if (e.target.closest(".bar-link-icon")) return;
+              if (e.target.closest(".mf-dep-connector")) return;
               e.preventDefault();
               const rect = bar.getBoundingClientRect();
               const relX = e.clientX - rect.left;
@@ -2018,6 +2769,65 @@ function getIframeSrcDoc() {
                 bar.style.width = Math.max(4, dragInfo.origWidth - dx) + "px";
               } else {
                 bar.style.left = (dragInfo.origLeft + dx) + "px";
+
+                // Ghost bars: show ripple effect on downstream tasks
+                if (task.durationDays && barPositions.size > 0) {
+                  const pxDay = dragInfo.origWidth / task.durationDays;
+                  const tentShift = Math.round(dx / pxDay);
+                  // Build downstream set via BFS
+                  const fwd = {};
+                  for (const t of enriched) {
+                    const k = (t.idToken || t.label || "").toLowerCase();
+                    for (const d of t.afterDeps || []) {
+                      const dk = d.toLowerCase();
+                      fwd[dk] = fwd[dk] || [];
+                      fwd[dk].push(k);
+                    }
+                  }
+                  const dsSet = new Set();
+                  const dsQ = [...(fwd[(task.idToken || task.label || "").toLowerCase()] || [])];
+                  for (const k of dsQ) dsSet.add(k);
+                  let dsi = 0;
+                  while (dsi < dsQ.length) {
+                    const cur = dsQ[dsi++];
+                    for (const dep of (fwd[cur] || [])) {
+                      if (!dsSet.has(dep)) { dsSet.add(dep); dsQ.push(dep); }
+                    }
+                  }
+                  // Remove old ghosts
+                  canvas.querySelectorAll(".mf-gantt-ghost-bar").forEach(function(g) { g.remove(); });
+                  var oldRipple = document.querySelector(".mf-gantt-ripple-summary");
+                  if (oldRipple) oldRipple.remove();
+                  if (dsSet.size > 0 && tentShift !== 0) {
+                    var shiftPx = tentShift * pxDay;
+                    for (var dKey of dsSet) {
+                      var dPos = barPositions.get(dKey);
+                      if (!dPos) continue;
+                      var parentTrack = bar.closest(".mf-gantt-track");
+                      // Find the actual track for this bar (search all tracks)
+                      var allTracks = container.querySelectorAll(".mf-gantt-track");
+                      for (var trk of allTracks) {
+                        var match = trk.querySelector('[data-label="' + dKey + '"]');
+                        if (match) {
+                          var ghost = document.createElement("div");
+                          ghost.className = "mf-gantt-ghost-bar";
+                          ghost.style.left = (parseFloat(match.style.left) + shiftPx) + "px";
+                          ghost.style.top = match.style.top;
+                          ghost.style.width = match.style.width;
+                          ghost.style.height = match.style.height || (barHeight + "px");
+                          trk.appendChild(ghost);
+                          break;
+                        }
+                      }
+                    }
+                    var ripple = document.createElement("div");
+                    ripple.className = "mf-gantt-ripple-summary";
+                    ripple.textContent = "Affects " + dsSet.size + " task" + (dsSet.size !== 1 ? "s" : "") + ", shifts by " + Math.abs(tentShift) + "d";
+                    ripple.style.left = (e.clientX + 16) + "px";
+                    ripple.style.top = (e.clientY - 30) + "px";
+                    document.body.appendChild(ripple);
+                  }
+                }
               }
             });
 
@@ -2026,14 +2836,48 @@ function getIframeSrcDoc() {
               const dx = e.clientX - dragInfo.startX;
               bar.releasePointerCapture(e.pointerId);
 
+              // Send downstream labels for rescheduling prompt
+              const downstreamLabels = [];
+              if (dragInfo.mode === "shift" && task.durationDays) {
+                const fwd = {};
+                for (const t of enriched) {
+                  const k = (t.idToken || t.label || "").toLowerCase();
+                  for (const d of t.afterDeps || []) {
+                    const dk = d.toLowerCase();
+                    fwd[dk] = fwd[dk] || [];
+                    fwd[dk].push(k);
+                  }
+                }
+                const dsSet = new Set();
+                const dsQ = [...(fwd[(task.idToken || task.label || "").toLowerCase()] || [])];
+                for (const k of dsQ) dsSet.add(k);
+                let dsi = 0;
+                while (dsi < dsQ.length) {
+                  const cur = dsQ[dsi++];
+                  for (const dep of (fwd[cur] || [])) {
+                    if (!dsSet.has(dep)) { dsSet.add(dep); dsQ.push(dep); }
+                  }
+                }
+                for (const t of enriched) {
+                  const k = (t.idToken || t.label || "").toLowerCase();
+                  if (dsSet.has(k)) downstreamLabels.push(t.label);
+                }
+              }
+
               if (dragInfo.moved && Math.abs(dx) > 4) {
                 send("gantt:dragged", {
                   label: task.label,
                   deltaX: dx,
                   barWidth: dragInfo.origWidth,
                   dragMode: dragInfo.mode,
+                  downstreamLabels,
                 });
               }
+
+              // Clean up ghosts and ripple summary
+              canvas.querySelectorAll(".mf-gantt-ghost-bar").forEach(function(g) { g.remove(); });
+              var oldRipple = document.querySelector(".mf-gantt-ripple-summary");
+              if (oldRipple) oldRipple.remove();
 
               // Reset bar (re-render will come from code update)
               bar.style.left = dragInfo.origLeft + "px";
@@ -2048,7 +2892,17 @@ function getIframeSrcDoc() {
           // (Insert buttons moved to role cell)
 
           container.appendChild(track);
+          cumulativeTop += trackHeight;
         }
+
+        // Click on empty canvas area to clear dependency highlighting
+        container.addEventListener("click", (e) => {
+          if (e.target === container || e.target.classList.contains("mf-gantt-track")) {
+            container.querySelectorAll(".mf-dep-upstream-bar,.mf-dep-downstream-bar,.mf-dep-dimmed,.mf-dep-line-upstream,.mf-dep-line-downstream,.mf-dep-line-dimmed").forEach((el) => {
+              el.classList.remove("mf-dep-upstream-bar","mf-dep-downstream-bar","mf-dep-dimmed","mf-dep-line-upstream","mf-dep-line-downstream","mf-dep-line-dimmed");
+            });
+          }
+        });
 
         // Vertical markers (vert)
         for (const vt of vertTasks) {
@@ -2063,6 +2917,93 @@ function getIframeSrcDoc() {
           vtLabel.textContent = vt.label || "";
           vtLine.appendChild(vtLabel);
           container.appendChild(vtLine);
+        }
+
+        // Dependency arrows
+        if (showDepLines) {
+          const svgNS = "http://www.w3.org/2000/svg";
+          const totalHeight = cumulativeTop;
+          const totalWidth = roleColWidth + timelineWidth;
+          const svg = document.createElementNS(svgNS, "svg");
+          svg.setAttribute("class", "mf-dep-lines-svg");
+          svg.setAttribute("width", totalWidth);
+          svg.setAttribute("height", totalHeight);
+          svg.setAttribute("viewBox", "0 0 " + totalWidth + " " + totalHeight);
+          svg.style.position = "absolute";
+          svg.style.top = "0";
+          svg.style.left = "0";
+          svg.style.pointerEvents = "none";
+          svg.style.zIndex = "2";
+
+          // Arrowhead markers
+          const defs = document.createElementNS(svgNS, "defs");
+          const makeMarker = (id, color) => {
+            const m = document.createElementNS(svgNS, "marker");
+            m.setAttribute("id", id);
+            m.setAttribute("viewBox", "0 0 10 10");
+            m.setAttribute("refX", "9");
+            m.setAttribute("refY", "5");
+            m.setAttribute("markerWidth", "6");
+            m.setAttribute("markerHeight", "6");
+            m.setAttribute("orient", "auto-start-reverse");
+            const p = document.createElementNS(svgNS, "path");
+            p.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+            p.setAttribute("fill", color);
+            m.appendChild(p);
+            return m;
+          };
+          defs.appendChild(makeMarker("dep-arrow", "#374151"));
+          defs.appendChild(makeMarker("dep-arrow-cp", "#ef4444"));
+          svg.appendChild(defs);
+
+          // Build critical path set for coloring arrows
+          const cpSet = new Set();
+          if (showCriticalPath) {
+            for (const t of enriched) {
+              if (t.isCriticalPath) cpSet.add((t.idToken || t.label || "").toLowerCase());
+            }
+          }
+
+          const allRegularTasks = enriched;
+          for (const task of allRegularTasks) {
+            if (!task.afterDeps || !task.afterDeps.length) continue;
+            const toKey = (task.idToken || task.label || "").toLowerCase();
+            const toPos = barPositions.get(toKey);
+            if (!toPos) continue;
+
+            for (const depId of task.afterDeps) {
+              const fromKey = depId.toLowerCase();
+              const fromPos = barPositions.get(fromKey);
+              if (!fromPos) continue;
+
+              const x1 = fromPos.right + 2;
+              const y1 = fromPos.centerY;
+              const x2 = toPos.left - 2;
+              const y2 = toPos.centerY;
+              const isCpEdge = showCriticalPath && cpSet.has(fromKey) && cpSet.has(toKey);
+
+              const path = document.createElementNS(svgNS, "path");
+              if (Math.abs(y1 - y2) < 2) {
+                // Same row: straight horizontal line
+                path.setAttribute("d", "M " + x1 + " " + y1 + " L " + x2 + " " + y2);
+              } else {
+                // Smooth S-curve from predecessor right → dependent left
+                const gapX = x2 - x1;
+                const cx1 = x1 + Math.max(gapX * 0.4, 20);
+                const cx2 = x2 - Math.max(gapX * 0.4, 20);
+                path.setAttribute("d", "M " + x1 + " " + y1 + " C " + cx1 + " " + y1 + " " + cx2 + " " + y2 + " " + x2 + " " + y2);
+              }
+              path.setAttribute("stroke", isCpEdge ? "#ef4444" : "#374151");
+              path.setAttribute("stroke-width", isCpEdge ? "2" : "1.5");
+              path.setAttribute("fill", "none");
+              path.setAttribute("marker-end", isCpEdge ? "url(#dep-arrow-cp)" : "url(#dep-arrow)");
+              path.setAttribute("data-from", fromKey);
+              path.setAttribute("data-to", toKey);
+              svg.appendChild(path);
+            }
+          }
+
+          container.appendChild(svg);
         }
 
         // Today line (respect todayMarker directive)
@@ -2745,6 +3686,11 @@ function getIframeSrcDoc() {
       };
 
       canvas.addEventListener("mouseover", (e) => {
+        // Hide tooltip when hovering dependency connector
+        if (e.target.closest(".mf-dep-connector")) {
+          tooltipEl.style.display = "none";
+          return;
+        }
         // Support both SVG elements (rect/text) and HTML elements (div with data-mf-tip)
         const tipEl = e.target.closest("[data-mf-tip]");
         const tip = tipEl ? tipEl.getAttribute("data-mf-tip") : "";
@@ -4373,7 +5319,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {}, gd.cycles || [], gd.baselineTasks || null);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4494,6 +5440,8 @@ function App() {
   const exportMenuRef = useRef(null);
   const mobileActionsRef = useRef(null);
   const mobileViewMenuRef = useRef(null);
+  const ganttViewMenuRef = useRef(null);
+  const ganttAnalysisMenuRef = useRef(null);
 
   // Router integration
   const params = useParams();
@@ -4563,11 +5511,13 @@ function App() {
     startDate: "",
     endDate: "",
     status: [],
+    isMilestone: false,
     assignee: "",
     notes: "",
     link: "",
     section: "",
     progress: "",
+    dependsOn: [],
   });
 
   // UI state
@@ -4589,6 +5539,16 @@ function App() {
   const [compactMode, setCompactMode] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
   const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
+  const [showDepLines, setShowDepLines] = useState(false);
+  const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
+  const [showRisks, setShowRisks] = useState(false);
+  const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis"
+  const [showChainView, setShowChainView] = useState(false);
+  const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
+  const [baselineCode, setBaselineCode] = useState(null);
+  const [baselineSetAt, setBaselineSetAt] = useState(null);
+  const [showBaseline, setShowBaseline] = useState(true);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -4608,6 +5568,61 @@ function App() {
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
   const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
+  const criticalPathLabels = useMemo(() => {
+    if (toolsetKey !== "gantt") return [];
+    const resolved = resolveDependencies(ganttTasks.map((t) => ({ ...t })));
+    const { criticalSet } = computeCriticalPath(resolved);
+    // Order critical tasks by dependency chain
+    const cpTasks = resolved.filter((t) => criticalSet.has(t.idToken || t.label || ""));
+    const remaining = new Set(cpTasks.map((t) => t.label));
+    const byLabel = new Map(cpTasks.map((t) => [t.label, t]));
+    const ordered = [];
+    while (remaining.size > 0) {
+      let found = false;
+      for (const label of remaining) {
+        const task = byLabel.get(label);
+        const depsInCp = (task.afterDeps || []).filter((d) => remaining.has(d) || ordered.includes(d));
+        if (depsInCp.every((d) => ordered.includes(d))) {
+          ordered.push(label);
+          remaining.delete(label);
+          found = true;
+          break;
+        }
+      }
+      if (!found && remaining.size > 0) {
+        const label = Array.from(remaining)[0];
+        ordered.push(label);
+        remaining.delete(label);
+      }
+    }
+    return ordered;
+  }, [code, ganttTasks, toolsetKey]);
+  const baselineTasks = useMemo(() => {
+    if (!baselineCode) return null;
+    const dirs = parseGanttDirectives(baselineCode);
+    const raw = resolveDependencies(parseGanttTasks(baselineCode));
+    return raw.map((t) => {
+      const effectiveStart = t.startDate || t.resolvedStartDate || "";
+      let computedEnd = t.endDate || t.resolvedEndDate || "";
+      if (!computedEnd && effectiveStart && t.durationDays) {
+        computedEnd = dirs.excludes.length
+          ? addWorkingDays(effectiveStart, t.durationDays, dirs.excludes, dirs.weekend)
+          : (() => {
+              const d = new Date(effectiveStart + "T00:00:00Z");
+              d.setUTCDate(d.getUTCDate() + t.durationDays);
+              return d.toISOString().slice(0, 10);
+            })();
+      }
+      return {
+        label: t.label,
+        startDate: effectiveStart,
+        computedEnd,
+        section: t.section || "",
+        isMilestone: t.isMilestone || false,
+        isVertMarker: t.isVertMarker || false,
+      };
+    });
+  }, [baselineCode]);
   const ganttSections = useMemo(() => {
     const ordered = [];
     const seen = new Set();
@@ -4640,6 +5655,17 @@ function App() {
     }
     return options;
   }, [ganttSections, ganttDraft.section]);
+  const allAssignees = useMemo(() => {
+    const set = new Set();
+    for (const t of ganttTasks) {
+      if (!t.assignee) continue;
+      for (const name of t.assignee.split(",")) {
+        const trimmed = name.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [ganttTasks]);
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
     return { direction: "TD", nodes: [], edges: [], subgraphs: [] };
@@ -4799,37 +5825,51 @@ function App() {
     // Pre-compute gantt data so the iframe can render custom HTML gantt
     const directives = parseGanttDirectives(code);
     const tasks = resolveDependencies(parseGanttTasks(code));
+    const { criticalSet, connectedSet, slackByTask } = computeCriticalPath(tasks);
+    const cycles = detectCycles(tasks);
+    const allConflicts = detectConflicts(tasks);
+    const conflictsByTask = new Map();
+    for (const c of allConflicts) {
+      if (!conflictsByTask.has(c.taskLabel)) conflictsByTask.set(c.taskLabel, []);
+      conflictsByTask.get(c.taskLabel).push(c);
+    }
+    const enrichedTasks = tasks.map((t) => {
+      const effectiveStart = t.startDate || t.resolvedStartDate || "";
+      let computedEnd = t.endDate || t.resolvedEndDate || "";
+      if (!computedEnd && effectiveStart && t.durationDays) {
+        computedEnd = directives.excludes.length
+          ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
+          : (() => {
+              const d = new Date(effectiveStart + "T00:00:00Z");
+              d.setUTCDate(d.getUTCDate() + t.durationDays);
+              return d.toISOString().slice(0, 10);
+            })();
+      }
+      const taskKey = t.idToken || t.label || "";
+      return {
+        label: t.label,
+        startDate: effectiveStart,
+        endDate: t.endDate,
+        durationDays: t.durationDays,
+        computedEnd,
+        assignee: t.assignee || "",
+        statusTokens: t.statusTokens || [],
+        notes: t.notes || "",
+        link: t.link || "",
+        section: t.section || "",
+        isMilestone: t.isMilestone || false,
+        isVertMarker: t.isVertMarker || false,
+        afterDeps: t.afterDeps || [],
+        idToken: t.idToken || "",
+        hasExplicitDate: t.hasExplicitDate,
+        isCriticalPath: criticalSet.has(taskKey),
+        isConnected: connectedSet ? connectedSet.has(taskKey) : false,
+        slackDays: slackByTask.get(taskKey) || 0,
+        conflicts: conflictsByTask.get(t.label) || [],
+      };
+    });
     const ganttData = {
-      tasks: tasks.map((t) => {
-        const effectiveStart = t.startDate || t.resolvedStartDate || "";
-        let computedEnd = t.endDate || t.resolvedEndDate || "";
-        if (!computedEnd && effectiveStart && t.durationDays) {
-          computedEnd = directives.excludes.length
-            ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
-            : (() => {
-                const d = new Date(effectiveStart + "T00:00:00Z");
-                d.setUTCDate(d.getUTCDate() + t.durationDays);
-                return d.toISOString().slice(0, 10);
-              })();
-        }
-        return {
-          label: t.label,
-          startDate: effectiveStart,
-          endDate: t.endDate,
-          durationDays: t.durationDays,
-          computedEnd,
-          assignee: t.assignee || "",
-          statusTokens: t.statusTokens || [],
-          notes: t.notes || "",
-          link: t.link || "",
-          section: t.section || "",
-          isMilestone: t.isMilestone || false,
-          isVertMarker: t.isVertMarker || false,
-          afterDeps: t.afterDeps || [],
-          idToken: t.idToken || "",
-          hasExplicitDate: t.hasExplicitDate,
-        };
-      }),
+      tasks: enrichedTasks,
       directives,
       scale: ganttScale,
       showDates,
@@ -4837,6 +5877,13 @@ function App() {
       compact: compactMode || directives.displayMode === "compact",
       ganttZoom,
       pinCategories,
+      showCriticalPath,
+      showDepLines,
+      executiveView,
+      showRisks,
+      riskFlags: showRisks ? computeRiskFlags(enrichedTasks) : {},
+      cycles,
+      baselineTasks: showBaseline ? baselineTasks : null,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -4868,7 +5915,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
-  }, [code, autoRender, mermaidRenderConfig]);
+  }, [code, autoRender, mermaidRenderConfig, showCriticalPath, showDepLines]);
 
   /* ── Sync app theme to iframe ─────────────────────────── */
   useEffect(() => {
@@ -4907,6 +5954,8 @@ function App() {
           setCode(flow.code || DEFAULT_CODE);
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
+          setBaselineCode(flow.baselineCode || null);
+          setBaselineSetAt(flow.baselineSetAt || null);
           // Delay marking loaded so the auto-save doesn't fire on initial load
           window.setTimeout(() => { flowLoadedRef.current = true; }, 3000);
         } else {
@@ -4992,7 +6041,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "", section: "", progress: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", progress: "", dependsOn: [] });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -5006,11 +6055,13 @@ function App() {
       startDate: selectedGanttTask.startDate || "",
       endDate: computedEnd,
       status: selectedGanttTask.statusTokens || [],
+      isMilestone: selectedGanttTask.isMilestone || false,
       assignee: selectedGanttTask.assignee || "",
       notes: selectedGanttTask.notes || "",
       link: selectedGanttTask.link || "",
       section: selectedGanttTask.section || "",
       progress: selectedGanttTask.progress !== null && selectedGanttTask.progress !== undefined ? String(selectedGanttTask.progress) : "",
+      dependsOn: selectedGanttTask.afterDeps || [],
     });
   }, [selectedGanttTask]);
 
@@ -5298,6 +6349,35 @@ function App() {
         setHighlightLine(task.lineIndex + 1);
       }
 
+      if (data.type === "gantt:dep-created") {
+        const { fromId, fromLabel, targetLabel } = data.payload || {};
+        if (!fromLabel || !targetLabel) return;
+        // Find the target task (the one that will depend on fromId)
+        const targetTask = findTaskByLabel(ganttTasks, targetLabel);
+        if (!targetTask) {
+          setRenderMessage("Could not find target task");
+          return;
+        }
+        // Resolve the fromId: use idToken if available, otherwise label
+        const fromTask = findTaskByLabel(ganttTasks, fromLabel);
+        const resolvedFromId = fromTask ? (fromTask.idToken || fromTask.label) : fromId;
+        // Add the dependency: target task now depends on from task
+        const existingDeps = targetTask.afterDeps || [];
+        if (existingDeps.map((d) => d.toLowerCase()).includes(resolvedFromId.toLowerCase())) {
+          setRenderMessage(`"${targetLabel}" already depends on "${fromLabel}"`);
+          return;
+        }
+        const newDeps = [...existingDeps, resolvedFromId];
+        setCode((prev) => {
+          const freshTasks = parseGanttTasks(prev);
+          const freshTarget = findTaskByLabel(freshTasks, targetLabel);
+          if (!freshTarget) return prev;
+          return updateGanttDependency(prev, freshTarget, newDeps);
+        });
+        setRenderMessage(`Added dependency: "${targetLabel}" now depends on "${fromLabel}"`);
+        setHighlightLine(targetTask.lineIndex + 1);
+      }
+
       if (data.type === "gantt:add-between") {
         const afterLabel = (data.payload?.afterLabel || "").trim();
         const afterTask = findTaskByLabel(ganttTasks, afterLabel);
@@ -5361,7 +6441,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, toolsetKey, showBaseline, baselineTasks]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -5392,7 +6472,7 @@ function App() {
 
   /* ── Outside click for top/view dropdowns ────────────── */
   useEffect(() => {
-    if (!exportMenuOpen && !mobileActionsOpen && !mobileViewMenuOpen) return;
+    if (!exportMenuOpen && !mobileActionsOpen && !mobileViewMenuOpen && !ganttDropdown) return;
     const handler = (e) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
         setExportMenuOpen(false);
@@ -5403,15 +6483,27 @@ function App() {
       if (mobileViewMenuRef.current && !mobileViewMenuRef.current.contains(e.target)) {
         setMobileViewMenuOpen(false);
       }
+      if (ganttDropdown) {
+        const inView = ganttViewMenuRef.current?.contains(e.target);
+        const inAnalysis = ganttAnalysisMenuRef.current?.contains(e.target);
+        if (!inView && !inAnalysis) setGanttDropdown(null);
+      }
     };
     document.addEventListener("pointerdown", handler);
     return () => document.removeEventListener("pointerdown", handler);
-  }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen]);
+  }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, ganttDropdown]);
 
   /* ── Escape key handler ──────────────────────────────── */
   useEffect(() => {
     const handler = (e) => {
+      // Ctrl+D: toggle chain view
+      if (e.key === "d" && (e.ctrlKey || e.metaKey) && !e.shiftKey && toolsetKey === "gantt") {
+        e.preventDefault();
+        setShowChainView((prev) => !prev);
+        return;
+      }
       if (e.key === "Escape") {
+        if (showChainView) { setShowChainView(false); return; }
         if (connectMode) {
           setConnectMode(null);
           const frame = iframeRef.current;
@@ -5429,6 +6521,7 @@ function App() {
         if (presentMode) { setPresentMode(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (drawerOpen) { setDrawerOpen(false); return; }
+        if (ganttDropdown) { setGanttDropdown(null); return; }
         if (mobileViewMenuOpen) { setMobileViewMenuOpen(false); return; }
         if (mobileActionsOpen) { setMobileActionsOpen(false); return; }
         if (exportMenuOpen) { setExportMenuOpen(false); return; }
@@ -5436,7 +6529,7 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, ganttDropdown, showChainView, toolsetKey]);
 
   /* ── Style Toolbar ──────────────────────────────────── */
   const applyToolbarStyle = (nodeId, stylePatch) => {
@@ -5510,6 +6603,13 @@ function App() {
       }
     }
 
+    // Apply milestone toggle
+    const msTasks = parseGanttTasks(updated);
+    const msTask = findTaskByLabel(msTasks, nextLabel);
+    if (msTask) {
+      updated = toggleGanttMilestone(updated, msTask, ganttDraft.isMilestone);
+    }
+
     // Apply assignee
     const assigneeTasks = parseGanttTasks(updated);
     const assigneeTask = findTaskByLabel(assigneeTasks, nextLabel);
@@ -5536,6 +6636,13 @@ function App() {
     const progressTask = findTaskByLabel(progressTasks, nextLabel);
     if (progressTask) {
       updated = updateGanttProgress(updated, progressTask, ganttDraft.progress);
+    }
+
+    // Apply dependency changes
+    const depTasks = parseGanttTasks(updated);
+    const depTask = findTaskByLabel(depTasks, nextLabel);
+    if (depTask) {
+      updated = updateGanttDependency(updated, depTask, ganttDraft.dependsOn);
     }
 
     // Move task to a different category / phase when changed
@@ -6093,54 +7200,184 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setGanttScale("month"); setMobileViewMenuOpen(false); }}>
                     Month view
                   </button>
-                  <button className="dropdown-item" onClick={() => { setCompactMode((prev) => !prev); setMobileViewMenuOpen(false); }}>
-                    {compactMode ? "Expanded" : "Compact"}
-                  </button>
                   <button className="dropdown-item" onClick={() => { setPinCategories((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {pinCategories ? "Unpin labels" : "Pin labels"}
                   </button>
+                  <button className="dropdown-item" onClick={() => { setShowCriticalPath((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showCriticalPath ? "Hide critical path" : "Critical path"}
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setShowDepLines((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showDepLines ? "Hide dep lines" : "Dep lines"}
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setShowRisks((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showRisks ? "Hide risks" : "Show risks"}
+                  </button>
+                  <div className="dropdown-sep" />
+                  <button className="dropdown-item" onClick={() => { setExecutiveView((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {executiveView ? "All tasks" : "Executive"}
+                  </button>
+                  {flowId && baselineCode && (
+                    <button className="dropdown-item" onClick={() => { setShowBaseline((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                      {showBaseline ? "Hide baseline" : "Show baseline"}
+                    </button>
+                  )}
+                  {flowId && canEditCurrentFlow && (
+                    <button className="dropdown-item" onClick={async () => {
+                      try {
+                        await setFlowBaseline(flowId, code);
+                        setBaselineCode(code);
+                        setBaselineSetAt(new Date());
+                        setShowBaseline(true);
+                      } catch (err) {
+                        console.warn("Set baseline failed:", formatFirestoreError(err));
+                      }
+                      setMobileViewMenuOpen(false);
+                    }}>
+                      {baselineCode ? "Update baseline" : "Set baseline"}
+                    </button>
+                  )}
+                  {flowId && canEditCurrentFlow && baselineCode && (
+                    <button className="dropdown-item" onClick={async () => {
+                      try {
+                        await clearFlowBaseline(flowId);
+                        setBaselineCode(null);
+                        setBaselineSetAt(null);
+                        setShowBaseline(false);
+                      } catch (err) {
+                        console.warn("Clear baseline failed:", formatFirestoreError(err));
+                      }
+                      setMobileViewMenuOpen(false);
+                    }}>
+                      Clear baseline
+                    </button>
+                  )}
                 </div>
               </div>
             )}
             <span className="preview-hint desktop-only">
               {toolsetKey === "gantt" && (
                 <>
+                  <div className="dropdown-wrap" ref={ganttViewMenuRef}>
+                    <button
+                      className={`date-toggle-btn${ganttDropdown === "view" ? " active" : ""}`}
+                      onClick={() => toggleGanttDropdown("view")}
+                    >
+                      View &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu${ganttDropdown === "view" ? " open" : ""}`}>
+                      <button className="dropdown-item" onClick={() => setGanttScale("week")}>
+                        <span className="dropdown-item-check">{ganttScale === "week" ? "\u2713" : ""}</span>Week view
+                      </button>
+                      <button className="dropdown-item" onClick={() => setGanttScale("month")}>
+                        <span className="dropdown-item-check">{ganttScale === "month" ? "\u2713" : ""}</span>Month view
+                      </button>
+                      <div className="dropdown-sep" />
+                      <button className="dropdown-item" onClick={() => setShowGrid((p) => !p)}>
+                        <span className="dropdown-item-check">{showGrid ? "\u2713" : ""}</span>Show grid
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowDates((p) => !p)}>
+                        <span className="dropdown-item-check">{showDates ? "\u2713" : ""}</span>Show dates
+                      </button>
+                      <button className="dropdown-item" onClick={() => setPinCategories((p) => !p)}>
+                        <span className="dropdown-item-check">{pinCategories ? "\u2713" : ""}</span>Pin labels
+                      </button>
+                    </div>
+                  </div>
+                  <div className="dropdown-wrap" ref={ganttAnalysisMenuRef}>
+                    <button
+                      className={`date-toggle-btn${ganttDropdown === "analysis" ? " active" : ""}`}
+                      onClick={() => toggleGanttDropdown("analysis")}
+                    >
+                      Analysis &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu${ganttDropdown === "analysis" ? " open" : ""}`}>
+                      <button className="dropdown-item" onClick={() => setShowCriticalPath((p) => !p)}>
+                        <span className="dropdown-item-check">{showCriticalPath ? "\u2713" : ""}</span>Critical path
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowDepLines((p) => !p)}>
+                        <span className="dropdown-item-check">{showDepLines ? "\u2713" : ""}</span>Dep lines
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowRisks((p) => !p)}>
+                        <span className="dropdown-item-check">{showRisks ? "\u2713" : ""}</span>Risk flags
+                      </button>
+                      <button className="dropdown-item" onClick={() => { setShowChainView((p) => !p); setGanttDropdown(null); }}>
+                        <span className="dropdown-item-check">{showChainView ? "\u2713" : ""}</span>Chain view
+                      </button>
+                    </div>
+                  </div>
                   <button
-                    className="date-toggle-btn"
-                    onClick={() => setShowGrid((prev) => !prev)}
+                    className={`date-toggle-btn${executiveView ? " active" : ""}`}
+                    onClick={() => setExecutiveView((prev) => !prev)}
                   >
-                    {showGrid ? "Hide grid" : "Show grid"}
+                    {executiveView ? "All tasks" : "Executive"}
                   </button>
-                  <button
-                    className="date-toggle-btn"
-                    onClick={() => setShowDates((prev) => !prev)}
-                  >
-                    {showDates ? "Hide dates" : "Show dates"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${ganttScale === "week" ? " active" : ""}`}
-                    onClick={() => setGanttScale("week")}
-                  >
-                    Week view
-                  </button>
-                  <button
-                    className={`date-toggle-btn${ganttScale === "month" ? " active" : ""}`}
-                    onClick={() => setGanttScale("month")}
-                  >
-                    Month view
-                  </button>
-                  <button
-                    className={`date-toggle-btn${compactMode ? " active" : ""}`}
-                    onClick={() => setCompactMode((prev) => !prev)}
-                  >
-                    {compactMode ? "Expanded" : "Compact"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${pinCategories ? " active" : ""}`}
-                    onClick={() => setPinCategories((prev) => !prev)}
-                  >
-                    {pinCategories ? "Unpin labels" : "Pin labels"}
-                  </button>
+                  {flowId && (
+                    <>
+                      <span style={{ display: "inline-block", width: 1, height: 16, background: "var(--line)", margin: "0 4px", verticalAlign: "middle" }} />
+                      {baselineCode ? (
+                        <>
+                          <button
+                            className={`date-toggle-btn${showBaseline ? " active" : ""}`}
+                            onClick={() => setShowBaseline((prev) => !prev)}
+                          >
+                            {showBaseline ? "Hide baseline" : "Show baseline"}
+                          </button>
+                          {canEditCurrentFlow && (
+                            <>
+                              <button
+                                className="date-toggle-btn"
+                                onClick={async () => {
+                                  try {
+                                    await setFlowBaseline(flowId, code);
+                                    setBaselineCode(code);
+                                    setBaselineSetAt(new Date());
+                                    setShowBaseline(true);
+                                  } catch (err) {
+                                    console.warn("Set baseline failed:", formatFirestoreError(err));
+                                  }
+                                }}
+                              >
+                                Update baseline
+                              </button>
+                              <button
+                                className="date-toggle-btn"
+                                onClick={async () => {
+                                  try {
+                                    await clearFlowBaseline(flowId);
+                                    setBaselineCode(null);
+                                    setBaselineSetAt(null);
+                                    setShowBaseline(false);
+                                  } catch (err) {
+                                    console.warn("Clear baseline failed:", formatFirestoreError(err));
+                                  }
+                                }}
+                              >
+                                Clear baseline
+                              </button>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        canEditCurrentFlow && (
+                          <button
+                            className="date-toggle-btn"
+                            onClick={async () => {
+                              try {
+                                await setFlowBaseline(flowId, code);
+                                setBaselineCode(code);
+                                setBaselineSetAt(new Date());
+                                setShowBaseline(true);
+                              } catch (err) {
+                                console.warn("Set baseline failed:", formatFirestoreError(err));
+                              }
+                            }}
+                          >
+                            Set baseline
+                          </button>
+                        )
+                      )}
+                    </>
+                  )}
                 </>
               )}
               Click, right-click, and drag to edit
@@ -6154,6 +7391,33 @@ function App() {
             srcDoc={srcDoc}
             className="preview-frame"
           />
+          {showChainView && toolsetKey === "gantt" && criticalPathLabels.length > 0 && (
+            <div className="chain-view-panel">
+              <div className="chain-view-header">
+                <span className="chain-view-title">Critical Path</span>
+                <button className="chain-view-close" onClick={() => setShowChainView(false)} title="Close">&times;</button>
+              </div>
+              <div className="chain-view-body">
+                {criticalPathLabels.map((label, idx) => (
+                  <div key={label} className="chain-view-node">
+                    <div
+                      className="chain-view-card"
+                      onClick={() => {
+                        setSelectedElement({ label, id: "", elementType: "node" });
+                        setHighlightLine(getMatchingLine(code, label));
+                      }}
+                      title={label}
+                    >
+                      {label}
+                    </div>
+                    {idx < criticalPathLabels.length - 1 && (
+                      <div className="chain-view-arrow">&darr;</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="zoom-controls">
             <button title="Zoom out" onClick={() => {
               if (toolsetKey === "gantt") {
@@ -6275,14 +7539,12 @@ function App() {
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
                   />
                 </label>
-                <label>
-                  Assignee
-                  <input
-                    value={ganttDraft.assignee}
-                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
-                    placeholder="e.g. Mohammed, John"
-                  />
-                </label>
+                <label>Assignee</label>
+                <AssigneeTagInput
+                  value={ganttDraft.assignee}
+                  onChange={(val) => setGanttDraft((prev) => ({ ...prev, assignee: val }))}
+                  suggestions={allAssignees}
+                />
                 <label>
                   Link
                   <input
@@ -6448,14 +7710,24 @@ function App() {
                   })}
                 </div>
 
-                <label>
-                  Assignee
-                  <input
-                    value={ganttDraft.assignee}
-                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
-                    placeholder="e.g. Mohammed, John"
-                  />
-                </label>
+                <div className="milestone-toggle-row">
+                  <label className="milestone-toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={ganttDraft.isMilestone}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, isMilestone: e.target.checked }))}
+                    />
+                    <span className="milestone-diamond" />
+                    Milestone
+                  </label>
+                </div>
+
+                <label>Assignee</label>
+                <AssigneeTagInput
+                  value={ganttDraft.assignee}
+                  onChange={(val) => setGanttDraft((prev) => ({ ...prev, assignee: val }))}
+                  suggestions={allAssignees}
+                />
 
                 <label>
                   Link
@@ -6508,6 +7780,73 @@ function App() {
                     />
                   </label>
                 </div>
+
+                <label>
+                  Depends on
+                  <div className="dep-picker">
+                    {ganttDraft.dependsOn.map((depId) => {
+                      const depTask = ganttTasks.find((t) => (t.idToken || "").toLowerCase() === depId.toLowerCase() || (t.label || "").toLowerCase() === depId.toLowerCase());
+                      return (
+                        <span className="dep-pill" key={depId}>
+                          {depTask ? depTask.label : depId}
+                          <button
+                            type="button"
+                            onClick={() => setGanttDraft((prev) => ({ ...prev, dependsOn: prev.dependsOn.filter((d) => d !== depId) }))}
+                          >
+                            &times;
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {(() => {
+                      const currentLabel = task?.label || contextMenu.label;
+                      const available = ganttTasks.filter((t) => !t.isVertMarker && t.label !== currentLabel && !ganttDraft.dependsOn.includes(t.idToken || t.label));
+                      return (
+                        <div className="dep-search-wrap">
+                          <input
+                            className="dep-search-input"
+                            type="text"
+                            placeholder="Search tasks..."
+                            value={ganttDraft._depSearch || ""}
+                            onChange={(e) => setGanttDraft((prev) => ({ ...prev, _depSearch: e.target.value }))}
+                            onFocus={() => setGanttDraft((prev) => ({ ...prev, _depOpen: true }))}
+                            onBlur={() => setTimeout(() => setGanttDraft((prev) => ({ ...prev, _depOpen: false })), 150)}
+                          />
+                          {ganttDraft._depOpen && (() => {
+                            const query = (ganttDraft._depSearch || "").toLowerCase();
+                            const filtered = query ? available.filter((t) => t.label.toLowerCase().includes(query) || (t.idToken || "").toLowerCase().includes(query)) : available;
+                            if (!filtered.length) return <div className="dep-dropdown"><div className="dep-dropdown-empty">No matching tasks</div></div>;
+                            return (
+                              <div className="dep-dropdown">
+                                {filtered.map((t) => {
+                                  const id = t.idToken || t.label;
+                                  return (
+                                    <button
+                                      key={id}
+                                      type="button"
+                                      className="dep-dropdown-item"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setGanttDraft((prev) => ({
+                                          ...prev,
+                                          dependsOn: prev.dependsOn.includes(id) ? prev.dependsOn : [...prev.dependsOn, id],
+                                          _depSearch: "",
+                                          _depOpen: false,
+                                        }));
+                                      }}
+                                    >
+                                      {t.label}{t.idToken && t.idToken !== t.label ? <span className="dep-dropdown-id"> ({t.idToken})</span> : ""}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </label>
 
                 <label>
                   Notes
