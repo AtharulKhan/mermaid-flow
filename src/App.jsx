@@ -20,6 +20,8 @@ import {
   getGanttSections,
   moveGanttTaskToSection,
   renameGanttSection,
+  computeCriticalPath,
+  updateGanttDependency,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
@@ -363,7 +365,6 @@ function getIframeSrcDoc() {
         background: #ffffff;
         position: relative;
         box-sizing: border-box;
-        overflow: hidden;
       }
       .mf-gantt-track:nth-child(4n+1) {
         background: #fafbfd;
@@ -388,6 +389,7 @@ function getIframeSrcDoc() {
         overflow: visible;
         box-sizing: border-box;
         min-width: 18px;
+        z-index: 3;
         --outside-label-width: 0px;
       }
       .mf-gantt-bar:hover {
@@ -401,6 +403,18 @@ function getIframeSrcDoc() {
       .mf-bar-active  { background: #fef08a; }
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
+      .mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
+        z-index: 2;
+        outline: 2px solid #ef4444;
+        outline-offset: 1px;
+      }
+      .mf-gantt-milestone.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
+        outline: 2px solid #ef4444;
+        outline-offset: 1px;
+      }
+      .mf-bar-dimmed { opacity: 0.3; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
       .mf-gantt-bar.mf-bar-active .bar-label {
         color: #1f2937;
@@ -483,6 +497,39 @@ function getIframeSrcDoc() {
       }
       .mf-bar-resize-handle.start { left: 0; }
       .mf-bar-resize-handle.end { right: 0; }
+      .mf-dep-connector {
+        position: absolute;
+        right: -6px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #94a3b8;
+        border: 2px solid #fff;
+        cursor: crosshair;
+        z-index: 5;
+        opacity: 0;
+        transition: opacity 0.15s;
+        pointer-events: auto;
+      }
+      .mf-gantt-bar:hover .mf-dep-connector,
+      .mf-gantt-milestone:hover .mf-dep-connector { opacity: 1; }
+      .mf-dep-connector:hover { background: #3b82f6; transform: translateY(-50%) scale(1.2); }
+      [data-theme="dark"] .mf-dep-connector { background: #6b7280; border-color: #1c1f2b; }
+      [data-theme="dark"] .mf-dep-connector:hover { background: #60a5fa; }
+      .mf-gantt-bar.mf-dep-drop-target,
+      .mf-gantt-milestone.mf-dep-drop-target {
+        outline: 2px solid #3b82f6;
+        outline-offset: 2px;
+      }
+      .mf-dep-drag-line {
+        pointer-events: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 10;
+      }
       .bar-link-icon {
         position: absolute;
         right: 11px;
@@ -618,6 +665,7 @@ function getIframeSrcDoc() {
         clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
         transition: box-shadow 0.12s ease, filter 0.12s ease;
         min-width: 0;
+        z-index: 3;
       }
       .mf-gantt-milestone:hover {
         filter: brightness(1.1);
@@ -1130,6 +1178,18 @@ function getIframeSrcDoc() {
         color: #e4e6ed;
       }
       [data-theme="dark"] .mf-bar-default { background: #3a3f52; }
+      [data-theme="dark"] .mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+        outline: 2px solid #f87171;
+        outline-offset: 1px;
+      }
+      [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+        outline: 2px solid #f87171;
+        outline-offset: 1px;
+      }
+      [data-theme="dark"] .mf-dep-lines-svg path { stroke: #d1d5db; }
+      [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #d1d5db; }
       [data-theme="dark"] .mf-gantt-excluded-day {
         background: rgba(255,255,255,0.03);
       }
@@ -1584,7 +1644,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, executiveView) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1719,6 +1779,10 @@ function getIframeSrcDoc() {
         };
 
         // Build container
+        // Track bar positions for dependency arrows
+        const barPositions = new Map();
+        let cumulativeTop = 0;
+
         const container = document.createElement("div");
         container.className = "mf-gantt-container";
         container.style.gridTemplateColumns = roleColWidth + "px " + timelineWidth + "px";
@@ -1756,6 +1820,8 @@ function getIframeSrcDoc() {
           timelineHeader.appendChild(buildTimelineHeaderRow("week", paddedMin, totalDays, pxPerDay));
         }
         container.appendChild(timelineHeader);
+
+        cumulativeTop = headerHeight;
 
         // === Executive view: progress summary banner ===
         if (executiveView) {
@@ -1903,6 +1969,12 @@ function getIframeSrcDoc() {
             else if (statuses.includes("crit")) barClass = "mf-bar-crit";
             else if (statuses.includes("active")) barClass = "mf-bar-active";
 
+            // Critical path highlighting — dim ALL non-critical tasks
+            let cpClass = "";
+            if (showCriticalPath) {
+              cpClass = task.isCriticalPath ? " mf-bar-critical-path" : " mf-bar-dimmed";
+            }
+
             const bar = document.createElement("div");
             const isNarrow = width < 70;
             const showsMetaSuffix = !task.isMilestone && showDates && !!task.startDate;
@@ -1915,13 +1987,13 @@ function getIframeSrcDoc() {
               const milestoneLeft = left + Math.floor(width / 2) - Math.floor(diamondSize / 2);
               barLeft = milestoneLeft;
               barPixelWidth = diamondSize;
-              bar.className = "mf-gantt-milestone " + barClass;
+              bar.className = "mf-gantt-milestone " + barClass + cpClass;
               bar.style.left = milestoneLeft + "px";
               bar.style.width = diamondSize + "px";
               bar.style.height = diamondSize + "px";
               bar.style.top = top + "px";
             } else {
-              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "");
+              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "") + cpClass;
               bar.style.left = left + "px";
               bar.style.width = width + "px";
               bar.style.top = top + "px";
@@ -1942,6 +2014,92 @@ function getIframeSrcDoc() {
               endHandle.setAttribute("data-drag-mode", "resize-end");
               bar.append(startHandle, endHandle);
             }
+
+            // Dependency connector handle (drag from this to create a dependency)
+            const depConn = document.createElement("div");
+            depConn.className = "mf-dep-connector";
+            bar.appendChild(depConn);
+
+            depConn.addEventListener("pointerdown", (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              // Hide any visible tooltip during drag
+              tooltipEl.style.display = "none";
+              // Capture pointer so events keep firing even outside the element
+              depConn.setPointerCapture(e.pointerId);
+
+              const fromId = task.idToken || task.label || "";
+              const fromLabel = task.label || "";
+              const canvasRect = canvas.getBoundingClientRect();
+              // Look up bar position from the map (populated at render time)
+              const barKey = (task.idToken || task.label || "").toLowerCase();
+              const pos = barPositions.get(barKey);
+              const startX = pos ? pos.right + 2 : 0;
+              const startY = pos ? pos.centerY : 0;
+
+              // Create temporary SVG drag line
+              const svgNS = "http://www.w3.org/2000/svg";
+              const dragSvg = document.createElementNS(svgNS, "svg");
+              dragSvg.className = "mf-dep-drag-line";
+              dragSvg.style.width = canvas.scrollWidth + "px";
+              dragSvg.style.height = canvas.scrollHeight + "px";
+              const dragLine = document.createElementNS(svgNS, "line");
+              dragLine.setAttribute("x1", startX);
+              dragLine.setAttribute("y1", startY);
+              dragLine.setAttribute("x2", startX);
+              dragLine.setAttribute("y2", startY);
+              dragLine.setAttribute("stroke", "#3b82f6");
+              dragLine.setAttribute("stroke-width", "2");
+              dragLine.setAttribute("stroke-dasharray", "6 3");
+              dragSvg.appendChild(dragLine);
+              const ganttContainer = canvas.querySelector(".mf-gantt-container");
+              ganttContainer.appendChild(dragSvg);
+
+              let currentTarget = null;
+              let dragging = false;
+
+              const onMove = (ev) => {
+                dragging = true;
+                tooltipEl.style.display = "none";
+                const mx = ev.clientX - canvasRect.left + canvas.scrollLeft;
+                const my = ev.clientY - canvasRect.top + canvas.scrollTop;
+                dragLine.setAttribute("x2", mx);
+                dragLine.setAttribute("y2", my);
+
+                // Temporarily hide drag SVG to find element underneath
+                dragSvg.style.display = "none";
+                const el = document.elementFromPoint(ev.clientX, ev.clientY);
+                dragSvg.style.display = "";
+                const targetBar = el?.closest(".mf-gantt-bar, .mf-gantt-milestone");
+                if (currentTarget && currentTarget !== targetBar) {
+                  currentTarget.classList.remove("mf-dep-drop-target");
+                }
+                if (targetBar && targetBar !== bar) {
+                  targetBar.classList.add("mf-dep-drop-target");
+                  currentTarget = targetBar;
+                } else {
+                  currentTarget = null;
+                }
+              };
+
+              const onUp = (ev) => {
+                depConn.removeEventListener("pointermove", onMove);
+                depConn.removeEventListener("pointerup", onUp);
+                try { depConn.releasePointerCapture(ev.pointerId); } catch (_) {}
+                dragSvg.remove();
+                if (!dragging) return;
+                if (currentTarget) {
+                  currentTarget.classList.remove("mf-dep-drop-target");
+                  const targetLabel = currentTarget.getAttribute("data-label") || "";
+                  if (targetLabel && targetLabel !== fromLabel) {
+                    send("gantt:dep-created", { fromId, fromLabel, targetLabel });
+                  }
+                }
+              };
+
+              depConn.addEventListener("pointermove", onMove);
+              depConn.addEventListener("pointerup", onUp);
+            });
 
             // Bar label
             const labelSpan = document.createElement("span");
@@ -2050,6 +2208,16 @@ function getIframeSrcDoc() {
             if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
             bar.setAttribute("data-mf-tip", tip);
 
+            // Record bar position for dependency arrows
+            const barKey = (task.idToken || task.label || "").toLowerCase();
+            if (barKey) {
+              barPositions.set(barKey, {
+                left: roleColWidth + barLeft,
+                right: roleColWidth + barLeft + barPixelWidth,
+                centerY: cumulativeTop + top + barHeight / 2,
+              });
+            }
+
             // Overdue dot
             if (isOverdue && !task.isMilestone) {
               const dot = document.createElement("div");
@@ -2088,6 +2256,7 @@ function getIframeSrcDoc() {
             bar.addEventListener("pointerdown", (e) => {
               if (e.button !== 0) return;
               if (e.target.closest(".bar-link-icon")) return;
+              if (e.target.closest(".mf-dep-connector")) return;
               e.preventDefault();
               const rect = bar.getBoundingClientRect();
               const relX = e.clientX - rect.left;
@@ -2154,6 +2323,7 @@ function getIframeSrcDoc() {
           // (Insert buttons moved to role cell)
 
           container.appendChild(track);
+          cumulativeTop += trackHeight;
         }
 
         // Vertical markers (vert)
@@ -2169,6 +2339,91 @@ function getIframeSrcDoc() {
           vtLabel.textContent = vt.label || "";
           vtLine.appendChild(vtLabel);
           container.appendChild(vtLine);
+        }
+
+        // Dependency arrows
+        if (showDepLines) {
+          const svgNS = "http://www.w3.org/2000/svg";
+          const totalHeight = cumulativeTop;
+          const totalWidth = roleColWidth + timelineWidth;
+          const svg = document.createElementNS(svgNS, "svg");
+          svg.setAttribute("class", "mf-dep-lines-svg");
+          svg.setAttribute("width", totalWidth);
+          svg.setAttribute("height", totalHeight);
+          svg.setAttribute("viewBox", "0 0 " + totalWidth + " " + totalHeight);
+          svg.style.position = "absolute";
+          svg.style.top = "0";
+          svg.style.left = "0";
+          svg.style.pointerEvents = "none";
+          svg.style.zIndex = "2";
+
+          // Arrowhead markers
+          const defs = document.createElementNS(svgNS, "defs");
+          const makeMarker = (id, color) => {
+            const m = document.createElementNS(svgNS, "marker");
+            m.setAttribute("id", id);
+            m.setAttribute("viewBox", "0 0 10 10");
+            m.setAttribute("refX", "9");
+            m.setAttribute("refY", "5");
+            m.setAttribute("markerWidth", "6");
+            m.setAttribute("markerHeight", "6");
+            m.setAttribute("orient", "auto-start-reverse");
+            const p = document.createElementNS(svgNS, "path");
+            p.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+            p.setAttribute("fill", color);
+            m.appendChild(p);
+            return m;
+          };
+          defs.appendChild(makeMarker("dep-arrow", "#374151"));
+          defs.appendChild(makeMarker("dep-arrow-cp", "#ef4444"));
+          svg.appendChild(defs);
+
+          // Build critical path set for coloring arrows
+          const cpSet = new Set();
+          if (showCriticalPath) {
+            for (const t of enriched) {
+              if (t.isCriticalPath) cpSet.add((t.idToken || t.label || "").toLowerCase());
+            }
+          }
+
+          const allRegularTasks = enriched;
+          for (const task of allRegularTasks) {
+            if (!task.afterDeps || !task.afterDeps.length) continue;
+            const toKey = (task.idToken || task.label || "").toLowerCase();
+            const toPos = barPositions.get(toKey);
+            if (!toPos) continue;
+
+            for (const depId of task.afterDeps) {
+              const fromKey = depId.toLowerCase();
+              const fromPos = barPositions.get(fromKey);
+              if (!fromPos) continue;
+
+              const x1 = fromPos.right + 2;
+              const y1 = fromPos.centerY;
+              const x2 = toPos.left - 2;
+              const y2 = toPos.centerY;
+              const isCpEdge = showCriticalPath && cpSet.has(fromKey) && cpSet.has(toKey);
+
+              const path = document.createElementNS(svgNS, "path");
+              if (Math.abs(y1 - y2) < 2) {
+                // Same row: straight horizontal line
+                path.setAttribute("d", "M " + x1 + " " + y1 + " L " + x2 + " " + y2);
+              } else {
+                // Smooth S-curve from predecessor right → dependent left
+                const gapX = x2 - x1;
+                const cx1 = x1 + Math.max(gapX * 0.4, 20);
+                const cx2 = x2 - Math.max(gapX * 0.4, 20);
+                path.setAttribute("d", "M " + x1 + " " + y1 + " C " + cx1 + " " + y1 + " " + cx2 + " " + y2 + " " + x2 + " " + y2);
+              }
+              path.setAttribute("stroke", isCpEdge ? "#ef4444" : "#374151");
+              path.setAttribute("stroke-width", isCpEdge ? "2" : "1.5");
+              path.setAttribute("fill", "none");
+              path.setAttribute("marker-end", isCpEdge ? "url(#dep-arrow-cp)" : "url(#dep-arrow)");
+              svg.appendChild(path);
+            }
+          }
+
+          container.appendChild(svg);
         }
 
         // Today line (respect todayMarker directive)
@@ -2851,6 +3106,11 @@ function getIframeSrcDoc() {
       };
 
       canvas.addEventListener("mouseover", (e) => {
+        // Hide tooltip when hovering dependency connector
+        if (e.target.closest(".mf-dep-connector")) {
+          tooltipEl.style.display = "none";
+          return;
+        }
         // Support both SVG elements (rect/text) and HTML elements (div with data-mf-tip)
         const tipEl = e.target.closest("[data-mf-tip]");
         const tip = tipEl ? tipEl.getAttribute("data-mf-tip") : "";
@@ -4479,7 +4739,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.executiveView || false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4673,6 +4933,7 @@ function App() {
     notes: "",
     link: "",
     section: "",
+    dependsOn: [],
   });
 
   // UI state
@@ -4694,6 +4955,8 @@ function App() {
   const [compactMode, setCompactMode] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
   const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
+  const [showDepLines, setShowDepLines] = useState(false);
   const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
 
   // Interactive diagram state
@@ -4905,6 +5168,7 @@ function App() {
     // Pre-compute gantt data so the iframe can render custom HTML gantt
     const directives = parseGanttDirectives(code);
     const tasks = resolveDependencies(parseGanttTasks(code));
+    const { criticalSet, connectedSet, slackByTask } = computeCriticalPath(tasks);
     const ganttData = {
       tasks: tasks.map((t) => {
         const effectiveStart = t.startDate || t.resolvedStartDate || "";
@@ -4918,6 +5182,7 @@ function App() {
                 return d.toISOString().slice(0, 10);
               })();
         }
+        const taskKey = t.idToken || t.label || "";
         return {
           label: t.label,
           startDate: effectiveStart,
@@ -4934,6 +5199,9 @@ function App() {
           afterDeps: t.afterDeps || [],
           idToken: t.idToken || "",
           hasExplicitDate: t.hasExplicitDate,
+          isCriticalPath: criticalSet.has(taskKey),
+          isConnected: connectedSet ? connectedSet.has(taskKey) : false,
+          slackDays: slackByTask.get(taskKey) || 0,
         };
       }),
       directives,
@@ -4943,6 +5211,8 @@ function App() {
       compact: compactMode || directives.displayMode === "compact",
       ganttZoom,
       pinCategories,
+      showCriticalPath,
+      showDepLines,
       executiveView,
     };
 
@@ -4975,7 +5245,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
-  }, [code, autoRender, mermaidRenderConfig]);
+  }, [code, autoRender, mermaidRenderConfig, showCriticalPath, showDepLines]);
 
   /* ── Sync app theme to iframe ─────────────────────────── */
   useEffect(() => {
@@ -5099,7 +5369,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "", section: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "", section: "", dependsOn: [] });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -5117,6 +5387,7 @@ function App() {
       notes: selectedGanttTask.notes || "",
       link: selectedGanttTask.link || "",
       section: selectedGanttTask.section || "",
+      dependsOn: selectedGanttTask.afterDeps || [],
     });
   }, [selectedGanttTask]);
 
@@ -5404,6 +5675,35 @@ function App() {
         setHighlightLine(task.lineIndex + 1);
       }
 
+      if (data.type === "gantt:dep-created") {
+        const { fromId, fromLabel, targetLabel } = data.payload || {};
+        if (!fromLabel || !targetLabel) return;
+        // Find the target task (the one that will depend on fromId)
+        const targetTask = findTaskByLabel(ganttTasks, targetLabel);
+        if (!targetTask) {
+          setRenderMessage("Could not find target task");
+          return;
+        }
+        // Resolve the fromId: use idToken if available, otherwise label
+        const fromTask = findTaskByLabel(ganttTasks, fromLabel);
+        const resolvedFromId = fromTask ? (fromTask.idToken || fromTask.label) : fromId;
+        // Add the dependency: target task now depends on from task
+        const existingDeps = targetTask.afterDeps || [];
+        if (existingDeps.map((d) => d.toLowerCase()).includes(resolvedFromId.toLowerCase())) {
+          setRenderMessage(`"${targetLabel}" already depends on "${fromLabel}"`);
+          return;
+        }
+        const newDeps = [...existingDeps, resolvedFromId];
+        setCode((prev) => {
+          const freshTasks = parseGanttTasks(prev);
+          const freshTarget = findTaskByLabel(freshTasks, targetLabel);
+          if (!freshTarget) return prev;
+          return updateGanttDependency(prev, freshTarget, newDeps);
+        });
+        setRenderMessage(`Added dependency: "${targetLabel}" now depends on "${fromLabel}"`);
+        setHighlightLine(targetTask.lineIndex + 1);
+      }
+
       if (data.type === "gantt:add-between") {
         const afterLabel = (data.payload?.afterLabel || "").trim();
         const afterTask = findTaskByLabel(ganttTasks, afterLabel);
@@ -5467,7 +5767,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, executiveView, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -5635,6 +5935,13 @@ function App() {
     const linkTask = findTaskByLabel(linkTasks, nextLabel);
     if (linkTask) {
       updated = updateGanttLink(updated, linkTask, ganttDraft.link.trim());
+    }
+
+    // Apply dependency changes
+    const depTasks = parseGanttTasks(updated);
+    const depTask = findTaskByLabel(depTasks, nextLabel);
+    if (depTask) {
+      updated = updateGanttDependency(updated, depTask, ganttDraft.dependsOn);
     }
 
     // Move task to a different category / phase when changed
@@ -6198,6 +6505,12 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setPinCategories((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {pinCategories ? "Unpin labels" : "Pin labels"}
                   </button>
+                  <button className="dropdown-item" onClick={() => { setShowCriticalPath((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showCriticalPath ? "Hide critical path" : "Critical path"}
+                  </button>
+                  <button className="dropdown-item" onClick={() => { setShowDepLines((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showDepLines ? "Hide dep lines" : "Dep lines"}
+                  </button>
                   <div className="dropdown-sep" />
                   <button className="dropdown-item" onClick={() => { setExecutiveView((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {executiveView ? "All tasks" : "Executive"}
@@ -6243,6 +6556,18 @@ function App() {
                     onClick={() => setPinCategories((prev) => !prev)}
                   >
                     {pinCategories ? "Unpin labels" : "Pin labels"}
+                  </button>
+                  <button
+                    className={`date-toggle-btn${showCriticalPath ? " active" : ""}`}
+                    onClick={() => setShowCriticalPath((prev) => !prev)}
+                  >
+                    {showCriticalPath ? "Hide critical path" : "Critical path"}
+                  </button>
+                  <button
+                    className={`date-toggle-btn${showDepLines ? " active" : ""}`}
+                    onClick={() => setShowDepLines((prev) => !prev)}
+                  >
+                    {showDepLines ? "Hide dep lines" : "Dep lines"}
                   </button>
                   <button
                     className={`date-toggle-btn${executiveView ? " active" : ""}`}
@@ -6600,6 +6925,73 @@ function App() {
                     />
                   </label>
                 </div>
+
+                <label>
+                  Depends on
+                  <div className="dep-picker">
+                    {ganttDraft.dependsOn.map((depId) => {
+                      const depTask = ganttTasks.find((t) => (t.idToken || "").toLowerCase() === depId.toLowerCase() || (t.label || "").toLowerCase() === depId.toLowerCase());
+                      return (
+                        <span className="dep-pill" key={depId}>
+                          {depTask ? depTask.label : depId}
+                          <button
+                            type="button"
+                            onClick={() => setGanttDraft((prev) => ({ ...prev, dependsOn: prev.dependsOn.filter((d) => d !== depId) }))}
+                          >
+                            &times;
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {(() => {
+                      const currentLabel = task?.label || contextMenu.label;
+                      const available = ganttTasks.filter((t) => !t.isVertMarker && t.label !== currentLabel && !ganttDraft.dependsOn.includes(t.idToken || t.label));
+                      return (
+                        <div className="dep-search-wrap">
+                          <input
+                            className="dep-search-input"
+                            type="text"
+                            placeholder="Search tasks..."
+                            value={ganttDraft._depSearch || ""}
+                            onChange={(e) => setGanttDraft((prev) => ({ ...prev, _depSearch: e.target.value }))}
+                            onFocus={() => setGanttDraft((prev) => ({ ...prev, _depOpen: true }))}
+                            onBlur={() => setTimeout(() => setGanttDraft((prev) => ({ ...prev, _depOpen: false })), 150)}
+                          />
+                          {ganttDraft._depOpen && (() => {
+                            const query = (ganttDraft._depSearch || "").toLowerCase();
+                            const filtered = query ? available.filter((t) => t.label.toLowerCase().includes(query) || (t.idToken || "").toLowerCase().includes(query)) : available;
+                            if (!filtered.length) return <div className="dep-dropdown"><div className="dep-dropdown-empty">No matching tasks</div></div>;
+                            return (
+                              <div className="dep-dropdown">
+                                {filtered.map((t) => {
+                                  const id = t.idToken || t.label;
+                                  return (
+                                    <button
+                                      key={id}
+                                      type="button"
+                                      className="dep-dropdown-item"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setGanttDraft((prev) => ({
+                                          ...prev,
+                                          dependsOn: prev.dependsOn.includes(id) ? prev.dependsOn : [...prev.dependsOn, id],
+                                          _depSearch: "",
+                                          _depOpen: false,
+                                        }));
+                                      }}
+                                    >
+                                      {t.label}{t.idToken && t.idToken !== t.label ? <span className="dep-dropdown-id"> ({t.idToken})</span> : ""}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </label>
 
                 <label>
                   Notes

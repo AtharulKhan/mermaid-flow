@@ -418,6 +418,239 @@ export function resolveDependencies(tasks) {
   return tasks;
 }
 
+/* ── Critical Path Method (CPM) ──────────────────────── */
+
+export function computeCriticalPath(tasks) {
+  const dayMs = 86400000;
+  const taskKey = (t) => (t.idToken || t.label || "").toLowerCase();
+
+  const getStartMs = (t) => {
+    const iso = t.resolvedStartDate || t.startDate;
+    return iso ? Date.parse(iso + "T00:00:00Z") : null;
+  };
+  const getEndMs = (t) => {
+    const iso = t.resolvedEndDate || t.endDate;
+    if (iso) return Date.parse(iso + "T00:00:00Z");
+    const s = getStartMs(t);
+    if (s !== null && t.durationDays) return s + t.durationDays * dayMs;
+    return s;
+  };
+  const getDurationMs = (t) => {
+    const s = getStartMs(t);
+    const e = getEndMs(t);
+    if (s !== null && e !== null) return Math.max(0, e - s);
+    return (t.durationDays || 0) * dayMs;
+  };
+
+  // Build lookup and adjacency
+  const byKey = new Map();
+  const successors = new Map();
+  const predecessors = new Map();
+
+  for (const t of tasks) {
+    if (t.isVertMarker) continue;
+    const k = taskKey(t);
+    if (!k) continue;
+    byKey.set(k, t);
+    if (!successors.has(k)) successors.set(k, []);
+    if (!predecessors.has(k)) predecessors.set(k, []);
+  }
+
+  // Label-based lookup for resolving afterDeps by label
+  const byLabel = new Map();
+  for (const t of tasks) {
+    const k = taskKey(t);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), k);
+    }
+  }
+
+  // Add explicit "after" dependencies
+  let hasExplicitDeps = false;
+  for (const t of tasks) {
+    const k = taskKey(t);
+    if (!k || !byKey.has(k)) continue;
+    for (const dep of t.afterDeps || []) {
+      const depKey = byKey.has(dep.toLowerCase()) ? dep.toLowerCase() : byLabel.get(dep.toLowerCase());
+      if (!depKey || !byKey.has(depKey)) continue;
+      hasExplicitDeps = true;
+      successors.get(depKey).push(k);
+      predecessors.get(k).push(depKey);
+    }
+  }
+
+  // When no explicit deps, infer sequential dependencies within each section.
+  // If task B starts within 3 days of task A ending (same section, A listed before B),
+  // treat A → B as an implicit dependency.
+  if (!hasExplicitDeps) {
+    const sectionTasks = new Map();
+    for (const t of tasks) {
+      if (t.isVertMarker) continue;
+      const k = taskKey(t);
+      if (!k || !byKey.has(k)) continue;
+      const sec = t.section || "";
+      if (!sectionTasks.has(sec)) sectionTasks.set(sec, []);
+      sectionTasks.get(sec).push(t);
+    }
+
+    const gapTolerance = 3 * dayMs;
+    for (const secList of sectionTasks.values()) {
+      for (let i = 0; i < secList.length - 1; i++) {
+        const a = secList[i];
+        const b = secList[i + 1];
+        const aEnd = getEndMs(a);
+        const bStart = getStartMs(b);
+        if (aEnd === null || bStart === null) continue;
+        // B starts within gapTolerance after A ends (sequential or small gap)
+        const gap = bStart - aEnd;
+        if (gap >= 0 && gap <= gapTolerance) {
+          const aKey = taskKey(a);
+          const bKey = taskKey(b);
+          successors.get(aKey).push(bKey);
+          predecessors.get(bKey).push(aKey);
+        }
+      }
+    }
+
+    // Also infer cross-section dependencies: if the last task in section X ends
+    // within tolerance of the first task in section Y, link them.
+    const secEntries = [...sectionTasks.entries()];
+    for (let i = 0; i < secEntries.length - 1; i++) {
+      const prevList = secEntries[i][1];
+      const nextList = secEntries[i + 1][1];
+      if (!prevList.length || !nextList.length) continue;
+      const lastOfPrev = prevList[prevList.length - 1];
+      const firstOfNext = nextList[0];
+      const prevEnd = getEndMs(lastOfPrev);
+      const nextStart = getStartMs(firstOfNext);
+      if (prevEnd === null || nextStart === null) continue;
+      const gap = nextStart - prevEnd;
+      if (gap >= 0 && gap <= gapTolerance) {
+        const pKey = taskKey(lastOfPrev);
+        const nKey = taskKey(firstOfNext);
+        successors.get(pKey).push(nKey);
+        predecessors.get(nKey).push(pKey);
+      }
+    }
+  }
+
+  // Check if we have any edges at all
+  let hasEdges = false;
+  for (const succs of successors.values()) {
+    if (succs.length > 0) { hasEdges = true; break; }
+  }
+  if (!hasEdges) return { criticalSet: new Set(), slackByTask: new Map() };
+
+  // Topological order via Kahn's algorithm
+  const inDegree = new Map();
+  for (const k of byKey.keys()) inDegree.set(k, 0);
+  for (const k of byKey.keys()) {
+    for (const succ of successors.get(k) || []) {
+      inDegree.set(succ, (inDegree.get(succ) || 0) + 1);
+    }
+  }
+
+  const queue = [];
+  for (const [k, deg] of inDegree) {
+    if (deg === 0) queue.push(k);
+  }
+
+  const topoOrder = [];
+  while (queue.length) {
+    const k = queue.shift();
+    topoOrder.push(k);
+    for (const succ of successors.get(k) || []) {
+      const newDeg = inDegree.get(succ) - 1;
+      inDegree.set(succ, newDeg);
+      if (newDeg === 0) queue.push(succ);
+    }
+  }
+
+  // Forward pass: Earliest Start (ES) and Earliest Finish (EF)
+  const ES = new Map();
+  const EF = new Map();
+
+  for (const k of topoOrder) {
+    const t = byKey.get(k);
+    const preds = predecessors.get(k) || [];
+    if (preds.length === 0) {
+      ES.set(k, getStartMs(t) || 0);
+    } else {
+      let maxPredEF = -Infinity;
+      for (const p of preds) {
+        const pef = EF.get(p);
+        if (pef !== undefined && pef > maxPredEF) maxPredEF = pef;
+      }
+      ES.set(k, maxPredEF === -Infinity ? (getStartMs(t) || 0) : maxPredEF);
+    }
+    EF.set(k, ES.get(k) + getDurationMs(t));
+  }
+
+  // Project end — only consider tasks that participate in the dependency graph
+  // (have at least one predecessor or successor). Disconnected tasks shouldn't
+  // inflate projectEnd, which would give chained tasks false slack.
+  let projectEnd = -Infinity;
+  for (const k of topoOrder) {
+    const hasPreds = (predecessors.get(k) || []).length > 0;
+    const hasSuccs = (successors.get(k) || []).length > 0;
+    if (hasPreds || hasSuccs) {
+      const ef = EF.get(k);
+      if (ef > projectEnd) projectEnd = ef;
+    }
+  }
+  // Fallback: if no connected tasks, use global max
+  if (projectEnd === -Infinity) {
+    for (const ef of EF.values()) {
+      if (ef > projectEnd) projectEnd = ef;
+    }
+  }
+
+  // Backward pass: Latest Start (LS) and Latest Finish (LF)
+  const LS = new Map();
+  const LF = new Map();
+
+  for (let i = topoOrder.length - 1; i >= 0; i--) {
+    const k = topoOrder[i];
+    const t = byKey.get(k);
+    const succs = successors.get(k) || [];
+    if (succs.length === 0) {
+      LF.set(k, projectEnd);
+    } else {
+      let minSuccLS = Infinity;
+      for (const s of succs) {
+        const sls = LS.get(s);
+        if (sls !== undefined && sls < minSuccLS) minSuccLS = sls;
+      }
+      LF.set(k, minSuccLS === Infinity ? projectEnd : minSuccLS);
+    }
+    LS.set(k, LF.get(k) - getDurationMs(t));
+  }
+
+  // Compute slack and critical set
+  const criticalSet = new Set();
+  const connectedSet = new Set(); // tasks with at least one edge
+  const slackByTask = new Map();
+  const slackThreshold = dayMs * 0.5;
+
+  for (const k of topoOrder) {
+    const slack = LS.get(k) - ES.get(k);
+    const slackDays = Math.round(slack / dayMs);
+    const t = byKey.get(k);
+    const origKey = t.idToken || t.label || "";
+    slackByTask.set(origKey, slackDays);
+    const hasPreds = (predecessors.get(k) || []).length > 0;
+    const hasSuccs = (successors.get(k) || []).length > 0;
+    if (hasPreds || hasSuccs) {
+      connectedSet.add(origKey);
+      if (Math.abs(slack) <= slackThreshold) {
+        criticalSet.add(origKey);
+      }
+    }
+  }
+
+  return { criticalSet, connectedSet, slackByTask };
+}
+
 /* ── Existing utilities ───────────────────────────────── */
 
 export function findTaskByLabel(tasks, label) {
@@ -462,6 +695,32 @@ export function updateGanttTask(code, task, updates) {
   }
 
   lines[task.lineIndex] = `${task.indent}${nextLabel} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
+export function updateGanttDependency(code, task, depIds) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const nextTokens = [...task.tokens];
+
+  // Remove existing "after ..." token if present
+  if (task.afterTokenIndex >= 0) {
+    nextTokens.splice(task.afterTokenIndex, 1);
+  }
+
+  if (depIds.length > 0) {
+    const afterToken = "after " + depIds.join(" ");
+    // Insert before duration token if one exists, otherwise append
+    // Recalculate duration index after possible splice
+    const durIdx = nextTokens.findIndex((t) => /^\d+[dwmy]$/i.test(t.trim()));
+    if (durIdx >= 0) {
+      nextTokens.splice(durIdx, 0, afterToken);
+    } else {
+      nextTokens.push(afterToken);
+    }
+  }
+
+  lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
   return lines.join("\n");
 }
 
