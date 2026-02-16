@@ -453,7 +453,7 @@ function getIframeSrcDoc() {
         text-overflow: clip;
       }
       .bar-date-suffix {
-        color: rgba(148, 163, 184, 0.58);
+        color: rgba(100, 116, 139, 0.72);
         font-size: 9.5px;
         font-weight: 400;
         position: absolute;
