@@ -977,8 +977,10 @@ function getIframeSrcDoc() {
         border: 1px solid rgba(0,0,0,0.1);
         pointer-events: none;
         z-index: 1000;
-        max-width: 280px;
-        white-space: pre-line;
+        max-width: min(520px, calc(100vw - 48px));
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
         display: none;
         box-shadow: 0 4px 16px rgba(0,0,0,0.1);
       }
@@ -5158,7 +5160,7 @@ function App() {
     const embedDoc = `<!doctype html><html><body><div id="root"></div><script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";const code=${JSON.stringify(
       code
     )};mermaid.initialize({startOnLoad:false});const {svg}=await mermaid.render("embed",code);document.getElementById("root").innerHTML=svg;<\\/script></body></html>`;
-    const embed = `<iframe title="Mermaid Flow Embed" style="width:100%;height:500px;border:0;" sandbox="allow-scripts" srcdoc="${escapeHtml(embedDoc)}"></iframe>`;
+    const embed = `<iframe title="Mermaid Flow Embed" style="width:100%;height:500px;border:0;" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" srcdoc="${escapeHtml(embedDoc)}"></iframe>`;
     await navigator.clipboard.writeText(embed);
     setRenderMessage("Iframe embed snippet copied");
   };
@@ -5386,7 +5388,7 @@ function App() {
         <div className="embed-preview">
           <iframe
             title="Mermaid embed preview"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
             srcDoc={srcDoc}
             ref={iframeRef}
             style={{ width: "100%", height: "100%", border: "none" }}
@@ -5601,7 +5603,7 @@ function App() {
           <iframe
             ref={iframeRef}
             title="Mermaid preview"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
             srcDoc={srcDoc}
             className="preview-frame"
           />
@@ -6683,7 +6685,7 @@ function App() {
           </div>
           <iframe
             title="Mermaid present"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
             srcDoc={srcDoc}
             ref={(el) => {
               if (!el) return;
