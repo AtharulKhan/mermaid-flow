@@ -1613,9 +1613,85 @@ input:focus {
     gap: 8px;
   }
 
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .brand h1 {
+    font-size: 0.98rem;
+  }
+
   .toolbar {
     width: 100%;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toolbar > * {
+    flex: 0 0 auto;
+  }
+
+  /* Mobile-first preview mode: hide code editor completely */
+  .workspace {
+    padding: 4px;
+  }
+
+  .editor-panel,
+  .resize-divider {
+    display: none !important;
+  }
+
+  .top-strip .icon-btn {
+    display: none;
+  }
+
+  .preview-panel {
+    min-width: 0;
+    width: 100%;
+    min-height: calc(100vh - 122px);
+    border-radius: 10px;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .preview-hint {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .preview-hint::-webkit-scrollbar {
+    display: none;
+  }
+
+  .preview-hint > * {
+    flex: 0 0 auto;
+  }
+
+  .zoom-controls {
+    right: 8px;
+    bottom: 8px;
+    transform: scale(0.94);
+    transform-origin: right bottom;
   }
 }
 
