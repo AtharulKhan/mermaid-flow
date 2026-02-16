@@ -21,6 +21,7 @@ import {
   getGanttSections,
   moveGanttTaskToSection,
   renameGanttSection,
+  computeRiskFlags,
   computeCriticalPath,
   updateGanttDependency,
 } from "./ganttUtils";
@@ -84,6 +85,92 @@ function normalizeAssigneeList(value) {
     .map((part) => part.trim())
     .filter(Boolean)
     .join(", ");
+}
+
+function AssigneeTagInput({ value, onChange, suggestions }) {
+  const tags = String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const [inputVal, setInputVal] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const inputRef = useRef(null);
+
+  const filtered = suggestions.filter(
+    (s) => !tags.some((t) => t.toLowerCase() === s.toLowerCase()) &&
+      s.toLowerCase().includes(inputVal.toLowerCase())
+  );
+
+  const commit = (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (tags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) return;
+    const next = [...tags, trimmed].join(", ");
+    onChange(next);
+    setInputVal("");
+    setActiveIdx(-1);
+  };
+
+  const remove = (idx) => {
+    const next = tags.filter((_, i) => i !== idx).join(", ");
+    onChange(next);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      if (activeIdx >= 0 && activeIdx < filtered.length) {
+        commit(filtered[activeIdx]);
+      } else if (inputVal.trim()) {
+        commit(inputVal);
+      }
+    } else if (e.key === "Backspace" && !inputVal && tags.length) {
+      remove(tags.length - 1);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((prev) => Math.min(prev + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((prev) => Math.max(prev - 1, -1));
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+    }
+  };
+
+  return (
+    <div className="assignee-tag-wrap" onClick={() => inputRef.current?.focus()}>
+      {tags.map((tag, i) => (
+        <span key={tag + i} className="assignee-tag">
+          {tag}
+          <button type="button" className="assignee-tag-remove" onClick={(e) => { e.stopPropagation(); remove(i); }}>&times;</button>
+        </span>
+      ))}
+      <div style={{ position: "relative", flex: 1, minWidth: 80 }}>
+        <input
+          ref={inputRef}
+          className="assignee-tag-input"
+          value={inputVal}
+          onChange={(e) => { setInputVal(e.target.value); setActiveIdx(-1); setShowSuggestions(true); }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => { setTimeout(() => setShowSuggestions(false), 150); if (inputVal.trim()) commit(inputVal); }}
+          onKeyDown={onKeyDown}
+          placeholder={tags.length ? "" : "Add assignee..."}
+        />
+        {showSuggestions && inputVal && filtered.length > 0 && (
+          <div className="assignee-suggestions">
+            {filtered.map((s, i) => (
+              <button
+                key={s}
+                type="button"
+                className={`assignee-suggestion${i === activeIdx ? " active" : ""}`}
+                onMouseDown={(e) => { e.preventDefault(); commit(s); }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function isMobileViewport() {
@@ -654,6 +741,21 @@ function getIframeSrcDoc() {
         border-radius: 50%;
         background: #dc2626;
         pointer-events: none;
+      }
+      .mf-gantt-risk-badge {
+        position: absolute;
+        font-size: 11px;
+        line-height: 14px;
+        pointer-events: none;
+        z-index: 2;
+        color: #d97706;
+      }
+      .mf-bar-at-risk {
+        box-shadow: 0 0 0 2px #f59e0b, 0 0 8px rgba(245, 158, 11, 0.35);
+        border-radius: 8px;
+      }
+      .mf-bar-at-risk.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 0 5px #f59e0b, 0 0 12px rgba(239, 68, 68, 0.5);
       }
       /* ── Milestone diamond ── */
       .mf-gantt-milestone {
@@ -1673,7 +1775,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -2235,6 +2337,11 @@ function getIframeSrcDoc() {
             if (task.assignee) tip += "\\nAssignee: " + task.assignee;
             if (task.notes) tip += "\\nNotes: " + task.notes;
             if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
+            const taskRisk = showRisks && riskFlags[task.label];
+            if (taskRisk && taskRisk.reasons.length > 0) {
+              tip += "\\n--- Risks ---";
+              for (const r of taskRisk.reasons) tip += "\\n\\u26A0 " + r;
+            }
             bar.setAttribute("data-mf-tip", tip);
 
             // Record bar position for dependency arrows
@@ -2254,6 +2361,17 @@ function getIframeSrcDoc() {
               dot.style.left = (left - 12) + "px";
               dot.style.top = (top + barHeight / 2 - 4) + "px";
               track.appendChild(dot);
+            }
+
+            // Risk badge
+            if (taskRisk && taskRisk.flags.length > 0 && !task.isMilestone) {
+              const riskBadge = document.createElement("div");
+              riskBadge.className = "mf-gantt-risk-badge";
+              riskBadge.style.left = (left - 12) + "px";
+              riskBadge.style.top = isOverdue ? (top + barHeight / 2 + 6) + "px" : (top + barHeight / 2 - 6) + "px";
+              riskBadge.textContent = "\\u26A0";
+              track.appendChild(riskBadge);
+              bar.classList.add("mf-bar-at-risk");
             }
 
             // Click handler: select task
@@ -4768,7 +4886,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {});
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -4988,6 +5106,7 @@ function App() {
   const [showCriticalPath, setShowCriticalPath] = useState(false);
   const [showDepLines, setShowDepLines] = useState(false);
   const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
+  const [showRisks, setShowRisks] = useState(false);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -5039,6 +5158,17 @@ function App() {
     }
     return options;
   }, [ganttSections, ganttDraft.section]);
+  const allAssignees = useMemo(() => {
+    const set = new Set();
+    for (const t of ganttTasks) {
+      if (!t.assignee) continue;
+      for (const name of t.assignee.split(",")) {
+        const trimmed = name.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [ganttTasks]);
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
     return { direction: "TD", nodes: [], edges: [], subgraphs: [] };
@@ -5199,41 +5329,42 @@ function App() {
     const directives = parseGanttDirectives(code);
     const tasks = resolveDependencies(parseGanttTasks(code));
     const { criticalSet, connectedSet, slackByTask } = computeCriticalPath(tasks);
+    const enrichedTasks = tasks.map((t) => {
+      const effectiveStart = t.startDate || t.resolvedStartDate || "";
+      let computedEnd = t.endDate || t.resolvedEndDate || "";
+      if (!computedEnd && effectiveStart && t.durationDays) {
+        computedEnd = directives.excludes.length
+          ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
+          : (() => {
+              const d = new Date(effectiveStart + "T00:00:00Z");
+              d.setUTCDate(d.getUTCDate() + t.durationDays);
+              return d.toISOString().slice(0, 10);
+            })();
+      }
+      const taskKey = t.idToken || t.label || "";
+      return {
+        label: t.label,
+        startDate: effectiveStart,
+        endDate: t.endDate,
+        durationDays: t.durationDays,
+        computedEnd,
+        assignee: t.assignee || "",
+        statusTokens: t.statusTokens || [],
+        notes: t.notes || "",
+        link: t.link || "",
+        section: t.section || "",
+        isMilestone: t.isMilestone || false,
+        isVertMarker: t.isVertMarker || false,
+        afterDeps: t.afterDeps || [],
+        idToken: t.idToken || "",
+        hasExplicitDate: t.hasExplicitDate,
+        isCriticalPath: criticalSet.has(taskKey),
+        isConnected: connectedSet ? connectedSet.has(taskKey) : false,
+        slackDays: slackByTask.get(taskKey) || 0,
+      };
+    });
     const ganttData = {
-      tasks: tasks.map((t) => {
-        const effectiveStart = t.startDate || t.resolvedStartDate || "";
-        let computedEnd = t.endDate || t.resolvedEndDate || "";
-        if (!computedEnd && effectiveStart && t.durationDays) {
-          computedEnd = directives.excludes.length
-            ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
-            : (() => {
-                const d = new Date(effectiveStart + "T00:00:00Z");
-                d.setUTCDate(d.getUTCDate() + t.durationDays);
-                return d.toISOString().slice(0, 10);
-              })();
-        }
-        const taskKey = t.idToken || t.label || "";
-        return {
-          label: t.label,
-          startDate: effectiveStart,
-          endDate: t.endDate,
-          durationDays: t.durationDays,
-          computedEnd,
-          assignee: t.assignee || "",
-          statusTokens: t.statusTokens || [],
-          notes: t.notes || "",
-          link: t.link || "",
-          section: t.section || "",
-          isMilestone: t.isMilestone || false,
-          isVertMarker: t.isVertMarker || false,
-          afterDeps: t.afterDeps || [],
-          idToken: t.idToken || "",
-          hasExplicitDate: t.hasExplicitDate,
-          isCriticalPath: criticalSet.has(taskKey),
-          isConnected: connectedSet ? connectedSet.has(taskKey) : false,
-          slackDays: slackByTask.get(taskKey) || 0,
-        };
-      }),
+      tasks: enrichedTasks,
       directives,
       scale: ganttScale,
       showDates,
@@ -5244,6 +5375,8 @@ function App() {
       showCriticalPath,
       showDepLines,
       executiveView,
+      showRisks,
+      riskFlags: showRisks ? computeRiskFlags(enrichedTasks) : {},
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -5798,7 +5931,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, toolsetKey]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -6549,6 +6682,9 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setShowDepLines((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {showDepLines ? "Hide dep lines" : "Dep lines"}
                   </button>
+                  <button className="dropdown-item" onClick={() => { setShowRisks((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                    {showRisks ? "Hide risks" : "Show risks"}
+                  </button>
                   <div className="dropdown-sep" />
                   <button className="dropdown-item" onClick={() => { setExecutiveView((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {executiveView ? "All tasks" : "Executive"}
@@ -6606,6 +6742,12 @@ function App() {
                     onClick={() => setShowDepLines((prev) => !prev)}
                   >
                     {showDepLines ? "Hide dep lines" : "Dep lines"}
+                  </button>
+                  <button
+                    className={`date-toggle-btn${showRisks ? " active" : ""}`}
+                    onClick={() => setShowRisks((prev) => !prev)}
+                  >
+                    {showRisks ? "Hide risks" : "Show risks"}
                   </button>
                   <button
                     className={`date-toggle-btn${executiveView ? " active" : ""}`}
@@ -6747,14 +6889,12 @@ function App() {
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, endDate: e.target.value }))}
                   />
                 </label>
-                <label>
-                  Assignee
-                  <input
-                    value={ganttDraft.assignee}
-                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
-                    placeholder="e.g. Mohammed, John"
-                  />
-                </label>
+                <label>Assignee</label>
+                <AssigneeTagInput
+                  value={ganttDraft.assignee}
+                  onChange={(val) => setGanttDraft((prev) => ({ ...prev, assignee: val }))}
+                  suggestions={allAssignees}
+                />
                 <label>
                   Link
                   <input
@@ -6915,14 +7055,12 @@ function App() {
                   </label>
                 </div>
 
-                <label>
-                  Assignee
-                  <input
-                    value={ganttDraft.assignee}
-                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, assignee: e.target.value }))}
-                    placeholder="e.g. Mohammed, John"
-                  />
-                </label>
+                <label>Assignee</label>
+                <AssigneeTagInput
+                  value={ganttDraft.assignee}
+                  onChange={(val) => setGanttDraft((prev) => ({ ...prev, assignee: val }))}
+                  suggestions={allAssignees}
+                />
 
                 <label>
                   Link

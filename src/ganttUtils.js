@@ -963,3 +963,129 @@ export function moveGanttTaskToSection(code, task, targetSection) {
   lines.splice(insertAt, 0, ...taskBlock);
   return lines.join("\n");
 }
+
+/* ── Risk flag computation ──────────────────────────── */
+
+export function computeRiskFlags(tasks) {
+  const MANY_DEPS_THRESHOLD = 3;
+  const result = {};
+
+  const byId = new Map();
+  const byLabel = new Map();
+  for (const t of tasks) {
+    if (t.idToken) byId.set(t.idToken.toLowerCase(), t);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), t);
+    }
+  }
+
+  const isoToMs = (iso) => {
+    if (!iso) return null;
+    const val = Date.parse(iso + "T00:00:00Z");
+    return Number.isFinite(val) ? val : null;
+  };
+
+  const getEntry = (label) => {
+    if (!result[label]) result[label] = { flags: [], reasons: [] };
+    return result[label];
+  };
+
+  // Reverse dep map: depKey -> [tasks that depend on it]
+  const reverseDeps = new Map();
+  for (const t of tasks) {
+    for (const depId of t.afterDeps || []) {
+      const key = depId.toLowerCase();
+      if (!reverseDeps.has(key)) reverseDeps.set(key, []);
+      reverseDeps.get(key).push(t);
+    }
+  }
+
+  for (const task of tasks) {
+    if (task.isVertMarker) continue;
+
+    const deps = task.afterDeps || [];
+
+    // Condition 1: Many dependencies
+    if (deps.length >= MANY_DEPS_THRESHOLD) {
+      const entry = getEntry(task.label);
+      entry.flags.push("many-deps");
+      entry.reasons.push("Has " + deps.length + " dependencies");
+    }
+
+    // Condition 2: Broken dependency (starts before dep ends)
+    const taskStartMs = isoToMs(task.startDate);
+    if (taskStartMs !== null) {
+      for (const depId of deps) {
+        const dep = byId.get(depId.toLowerCase()) || byLabel.get(depId.toLowerCase());
+        if (!dep) continue;
+        const depEndMs = isoToMs(dep.computedEnd);
+        if (depEndMs !== null && taskStartMs < depEndMs) {
+          const entry = getEntry(task.label);
+          entry.flags.push("broken-dep");
+          entry.reasons.push("Starts before '" + (dep.label || depId) + "' ends");
+        }
+      }
+    }
+
+    // Condition 3: Zero slack
+    const taskEndMs = isoToMs(task.computedEnd);
+    if (taskEndMs !== null) {
+      const key = (task.idToken || "").toLowerCase() || task.label.toLowerCase();
+      const dependents = reverseDeps.get(key) || [];
+      for (const dep of dependents) {
+        const depStartMs = isoToMs(dep.startDate);
+        if (depStartMs !== null && depStartMs === taskEndMs) {
+          const entry = getEntry(task.label);
+          entry.flags.push("zero-slack");
+          entry.reasons.push("No buffer before '" + dep.label + "'");
+          break;
+        }
+      }
+    }
+  }
+
+  // Condition 4: Overloaded assignee (overlapping tasks, same person)
+  // Assignees can be comma-separated (e.g. "Alice, Bob"), so split and
+  // index each individual person to their tasks.
+  const splitAssignees = (raw) =>
+    String(raw || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+  const byAssignee = new Map();
+  for (const t of tasks) {
+    if (!t.assignee || t.isVertMarker || t.isMilestone) continue;
+    for (const person of splitAssignees(t.assignee)) {
+      if (!byAssignee.has(person)) byAssignee.set(person, []);
+      byAssignee.get(person).push(t);
+    }
+  }
+  for (const [person, group] of byAssignee) {
+    if (group.length < 2) continue;
+    for (let i = 0; i < group.length; i++) {
+      const a = group[i];
+      const aStart = isoToMs(a.startDate);
+      const aEnd = isoToMs(a.computedEnd);
+      if (aStart === null || aEnd === null) continue;
+      for (let j = i + 1; j < group.length; j++) {
+        const b = group[j];
+        const bStart = isoToMs(b.startDate);
+        const bEnd = isoToMs(b.computedEnd);
+        if (bStart === null || bEnd === null) continue;
+        if (aStart < bEnd && bStart < aEnd) {
+          const displayName = person.charAt(0).toUpperCase() + person.slice(1);
+          const entryA = getEntry(a.label);
+          if (!entryA.flags.includes("overloaded-assignee")) {
+            entryA.flags.push("overloaded-assignee");
+            entryA.reasons.push(displayName + " also on '" + b.label + "'");
+          }
+          const entryB = getEntry(b.label);
+          if (!entryB.flags.includes("overloaded-assignee")) {
+            entryB.flags.push("overloaded-assignee");
+            entryB.reasons.push(displayName + " also on '" + a.label + "'");
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
