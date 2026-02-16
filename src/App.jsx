@@ -661,6 +661,7 @@ function getIframeSrcDoc() {
         cursor: grab;
         overflow: visible;
         box-sizing: border-box;
+        background: transparent !important;
         transition: filter 0.12s ease;
         min-width: 0;
         z-index: 3;
@@ -669,9 +670,8 @@ function getIframeSrcDoc() {
         content: "";
         position: absolute;
         inset: 0;
-        background: inherit;
+        background: #22c55e;
         clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-        border-radius: inherit;
       }
       .mf-gantt-milestone:hover {
         filter: brightness(1.1);
@@ -1205,6 +1205,9 @@ function getIframeSrcDoc() {
       }
       [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path::before {
         box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+      }
+      [data-theme="dark"] .mf-gantt-milestone::before {
+        background: #4ade80;
       }
       [data-theme="dark"] .mf-gantt-milestone .bar-label {
         color: #e4e6ed;
