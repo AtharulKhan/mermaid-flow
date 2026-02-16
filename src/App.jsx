@@ -23,6 +23,8 @@ import {
   renameGanttSection,
   computeRiskFlags,
   computeCriticalPath,
+  detectCycles,
+  detectConflicts,
   updateGanttDependency,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
@@ -757,6 +759,83 @@ function getIframeSrcDoc() {
       .mf-bar-at-risk.mf-bar-critical-path {
         box-shadow: 0 0 0 2.5px #ef4444, 0 0 0 5px #f59e0b, 0 0 12px rgba(239, 68, 68, 0.5);
       }
+      /* ── Cycle warning banner ── */
+      .mf-gantt-cycle-banner {
+        grid-column: 1 / -1;
+        background: #fef3c7;
+        border: 1px solid #f59e0b;
+        border-radius: 6px;
+        padding: 7px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #92400e;
+        margin: 6px 8px;
+      }
+      .mf-gantt-cycle-banner::before { content: "\u26A0\uFE0F "; }
+
+      /* ── Conflict badge ── */
+      .mf-gantt-conflict-badge {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #f59e0b;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 7;
+        pointer-events: auto;
+        cursor: help;
+      }
+
+      /* ── Slack indicator bar ── */
+      .mf-gantt-slack {
+        position: absolute;
+        background: repeating-linear-gradient(45deg, #93c5fd, #93c5fd 3px, #dbeafe 3px, #dbeafe 6px);
+        border-radius: 2px;
+        opacity: 0.6;
+        pointer-events: auto;
+        cursor: help;
+      }
+
+      /* ── Ghost bars (drag ripple) ── */
+      .mf-gantt-ghost-bar {
+        position: absolute;
+        background: rgba(147,197,253,0.3);
+        border: 2px dashed #60a5fa;
+        border-radius: 6px;
+        pointer-events: none;
+        z-index: 5;
+        transition: left 0.08s ease;
+      }
+      .mf-gantt-ripple-summary {
+        position: fixed;
+        background: rgba(15,23,42,0.92);
+        color: #fff;
+        padding: 5px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        pointer-events: none;
+        z-index: 100;
+        white-space: nowrap;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      }
+
+      /* ── Dependency chain highlighting ── */
+      .mf-dep-line-upstream { stroke: #8b5cf6 !important; stroke-width: 2.5 !important; }
+      .mf-dep-line-downstream { stroke: #f97316 !important; stroke-width: 2.5 !important; }
+      .mf-dep-line-dimmed { opacity: 0.1 !important; }
+      .mf-gantt-bar.mf-dep-dimmed,
+      .mf-gantt-milestone.mf-dep-dimmed { opacity: 0.2; filter: grayscale(0.6); transition: opacity 0.15s, filter 0.15s; }
+      .mf-gantt-bar.mf-dep-upstream-bar { outline: 2px solid #8b5cf6; outline-offset: 1px; }
+      .mf-gantt-bar.mf-dep-downstream-bar { outline: 2px solid #f97316; outline-offset: 1px; }
+      .mf-gantt-milestone.mf-dep-upstream-bar { filter: drop-shadow(0 0 4px #8b5cf6); }
+      .mf-gantt-milestone.mf-dep-downstream-bar { filter: drop-shadow(0 0 4px #f97316); }
+
       /* ── Milestone diamond ── */
       .mf-gantt-milestone {
         position: absolute;
@@ -1328,6 +1407,10 @@ function getIframeSrcDoc() {
       }
       [data-theme="dark"] .mf-dep-lines-svg path { stroke: #d1d5db; }
       [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #d1d5db; }
+      [data-theme="dark"] .mf-gantt-cycle-banner { background: #451a03; border-color: #fbbf24; color: #fde68a; }
+      [data-theme="dark"] .mf-gantt-conflict-badge { background: #fbbf24; color: #000; }
+      [data-theme="dark"] .mf-gantt-slack { background: repeating-linear-gradient(45deg, #1e40af, #1e40af 3px, #1e3a8a 3px, #1e3a8a 6px); }
+      [data-theme="dark"] .mf-gantt-ghost-bar { background: rgba(59,130,246,0.2); border-color: #3b82f6; }
       [data-theme="dark"] .mf-gantt-excluded-day {
         background: rgba(255,255,255,0.03);
       }
@@ -1782,7 +1865,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags, cycles) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1960,6 +2043,16 @@ function getIframeSrcDoc() {
         container.appendChild(timelineHeader);
 
         cumulativeTop = headerHeight;
+
+        // === Circular dependency warning banner ===
+        cycles = cycles || [];
+        if (cycles.length > 0) {
+          const warnBanner = document.createElement("div");
+          warnBanner.className = "mf-gantt-cycle-banner";
+          warnBanner.textContent = "Circular dependency detected: " + cycles[0].join(" \u2192 ");
+          container.appendChild(warnBanner);
+          cumulativeTop += warnBanner.offsetHeight || 36;
+        }
 
         // === Executive view: progress summary banner ===
         if (executiveView) {
@@ -2344,12 +2437,24 @@ function getIframeSrcDoc() {
             if (task.assignee) tip += "\\nAssignee: " + task.assignee;
             if (task.notes) tip += "\\nNotes: " + task.notes;
             if (rawTaskLink) tip += "\\nLink: " + rawTaskLink;
+            // Dependency info in tooltip
+            if (task.afterDeps && task.afterDeps.length) {
+              tip += "\\nDepends on: " + task.afterDeps.join(", ");
+            }
+            if (task.conflicts && task.conflicts.length) {
+              tip += "\\n\\u26a0 Conflict: starts before " + task.conflicts.map(function(c) { return '"' + c.depLabel + '"'; }).join(", ") + " finishes";
+            }
+            if (typeof task.slackDays === "number" && task.slackDays > 0) {
+              tip += "\\nSlack: " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "");
+            }
+            if (task.isCriticalPath) tip += "\\n\\u2b50 Critical path";
             const taskRisk = showRisks && riskFlags[task.label];
             if (taskRisk && taskRisk.reasons.length > 0) {
               tip += "\\n--- Risks ---";
               for (const r of taskRisk.reasons) tip += "\\n\\u26A0 " + r;
             }
             bar.setAttribute("data-mf-tip", tip);
+            bar.setAttribute("data-label", (task.idToken || task.label || "").toLowerCase());
 
             // Record bar position for dependency arrows
             const barKey = (task.idToken || task.label || "").toLowerCase();
@@ -2381,13 +2486,107 @@ function getIframeSrcDoc() {
               bar.classList.add("mf-bar-at-risk");
             }
 
-            // Click handler: select task
+            // Conflict badge
+            if (task.conflicts && task.conflicts.length > 0 && !task.isMilestone) {
+              var conflictBadge = document.createElement("div");
+              conflictBadge.className = "mf-gantt-conflict-badge";
+              conflictBadge.textContent = "!";
+              conflictBadge.style.left = (barLeft - 14) + "px";
+              conflictBadge.style.top = (top - 2) + "px";
+              conflictBadge.setAttribute("data-mf-tip",
+                "Scheduling conflict:\\n" +
+                task.conflicts.map(function(c) { return 'Starts before "' + c.depLabel + '" ends (' + c.overlapDays + "d overlap)"; }).join("\\n")
+              );
+              track.appendChild(conflictBadge);
+            }
+
+            // Slack indicator bar
+            if (typeof task.slackDays === "number" && task.slackDays > 0 && !task.isMilestone && showCriticalPath) {
+              var slackPx = Math.round(task.slackDays * pxPerDay);
+              var slackBar = document.createElement("div");
+              slackBar.className = "mf-gantt-slack";
+              slackBar.style.left = (barLeft + barPixelWidth) + "px";
+              slackBar.style.width = Math.min(slackPx, timelineWidth - barLeft - barPixelWidth) + "px";
+              slackBar.style.top = (top + barHeight / 2 - 2) + "px";
+              slackBar.style.height = "4px";
+              slackBar.setAttribute("data-mf-tip", "Slack: " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "") + "\\nCan slip without delaying project");
+              track.appendChild(slackBar);
+            }
+
+            // Click handler: select task + highlight dependency chain
             bar.addEventListener("click", (e) => {
               e.stopPropagation();
-              // Clear previous selection
+              // Clear previous selection & dep highlighting
               canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              canvas.querySelectorAll(".mf-dep-upstream-bar,.mf-dep-downstream-bar,.mf-dep-dimmed,.mf-dep-line-upstream,.mf-dep-line-downstream,.mf-dep-line-dimmed").forEach((el) => {
+                el.classList.remove("mf-dep-upstream-bar","mf-dep-downstream-bar","mf-dep-dimmed","mf-dep-line-upstream","mf-dep-line-downstream","mf-dep-line-dimmed");
+              });
               bar.classList.add("mf-selected");
               send("element:selected", { label: task.label, id: "", elementType: "node" });
+
+              // Build forward/reverse dependency maps
+              const depFwd = {};
+              const depRev = {};
+              for (const t of enriched) {
+                const k = (t.idToken || t.label || "").toLowerCase();
+                depFwd[k] = depFwd[k] || [];
+                depRev[k] = depRev[k] || [];
+                for (const d of t.afterDeps || []) {
+                  const dk = d.toLowerCase();
+                  depFwd[dk] = depFwd[dk] || [];
+                  depFwd[dk].push(k);
+                  depRev[k].push(dk);
+                }
+              }
+
+              const thisKey = (task.idToken || task.label || "").toLowerCase();
+
+              // BFS upstream
+              const upstream = new Set();
+              let q = [...(depRev[thisKey] || [])];
+              for (const k of q) upstream.add(k);
+              let qi = 0;
+              while (qi < q.length) {
+                const cur = q[qi++];
+                for (const dep of (depRev[cur] || [])) {
+                  if (!upstream.has(dep)) { upstream.add(dep); q.push(dep); }
+                }
+              }
+
+              // BFS downstream
+              const downstream = new Set();
+              q = [...(depFwd[thisKey] || [])];
+              for (const k of q) downstream.add(k);
+              qi = 0;
+              while (qi < q.length) {
+                const cur = q[qi++];
+                for (const dep of (depFwd[cur] || [])) {
+                  if (!downstream.has(dep)) { downstream.add(dep); q.push(dep); }
+                }
+              }
+
+              const hasChain = upstream.size > 0 || downstream.size > 0;
+              if (hasChain) {
+                // Highlight bars
+                canvas.querySelectorAll(".mf-gantt-bar, .mf-gantt-milestone").forEach((b) => {
+                  const lbl = b.getAttribute("data-label");
+                  if (!lbl) return;
+                  if (upstream.has(lbl)) b.classList.add("mf-dep-upstream-bar");
+                  else if (downstream.has(lbl)) b.classList.add("mf-dep-downstream-bar");
+                  else if (lbl !== thisKey) b.classList.add("mf-dep-dimmed");
+                });
+                // Highlight dep lines
+                const svg = canvas.querySelector(".mf-dep-lines-svg");
+                if (svg) {
+                  svg.querySelectorAll("path[data-from]").forEach((p) => {
+                    const f = p.getAttribute("data-from");
+                    const t = p.getAttribute("data-to");
+                    if ((upstream.has(f) || f === thisKey) && (upstream.has(t) || t === thisKey)) p.classList.add("mf-dep-line-upstream");
+                    else if ((downstream.has(f) || f === thisKey) && (downstream.has(t) || t === thisKey)) p.classList.add("mf-dep-line-downstream");
+                    else p.classList.add("mf-dep-line-dimmed");
+                  });
+                }
+              }
             });
 
             // Context menu
@@ -2447,6 +2646,65 @@ function getIframeSrcDoc() {
                 bar.style.width = Math.max(4, dragInfo.origWidth - dx) + "px";
               } else {
                 bar.style.left = (dragInfo.origLeft + dx) + "px";
+
+                // Ghost bars: show ripple effect on downstream tasks
+                if (task.durationDays && barPositions.size > 0) {
+                  const pxDay = dragInfo.origWidth / task.durationDays;
+                  const tentShift = Math.round(dx / pxDay);
+                  // Build downstream set via BFS
+                  const fwd = {};
+                  for (const t of enriched) {
+                    const k = (t.idToken || t.label || "").toLowerCase();
+                    for (const d of t.afterDeps || []) {
+                      const dk = d.toLowerCase();
+                      fwd[dk] = fwd[dk] || [];
+                      fwd[dk].push(k);
+                    }
+                  }
+                  const dsSet = new Set();
+                  const dsQ = [...(fwd[(task.idToken || task.label || "").toLowerCase()] || [])];
+                  for (const k of dsQ) dsSet.add(k);
+                  let dsi = 0;
+                  while (dsi < dsQ.length) {
+                    const cur = dsQ[dsi++];
+                    for (const dep of (fwd[cur] || [])) {
+                      if (!dsSet.has(dep)) { dsSet.add(dep); dsQ.push(dep); }
+                    }
+                  }
+                  // Remove old ghosts
+                  canvas.querySelectorAll(".mf-gantt-ghost-bar").forEach(function(g) { g.remove(); });
+                  var oldRipple = document.querySelector(".mf-gantt-ripple-summary");
+                  if (oldRipple) oldRipple.remove();
+                  if (dsSet.size > 0 && tentShift !== 0) {
+                    var shiftPx = tentShift * pxDay;
+                    for (var dKey of dsSet) {
+                      var dPos = barPositions.get(dKey);
+                      if (!dPos) continue;
+                      var parentTrack = bar.closest(".mf-gantt-track");
+                      // Find the actual track for this bar (search all tracks)
+                      var allTracks = container.querySelectorAll(".mf-gantt-track");
+                      for (var trk of allTracks) {
+                        var match = trk.querySelector('[data-label="' + dKey + '"]');
+                        if (match) {
+                          var ghost = document.createElement("div");
+                          ghost.className = "mf-gantt-ghost-bar";
+                          ghost.style.left = (parseFloat(match.style.left) + shiftPx) + "px";
+                          ghost.style.top = match.style.top;
+                          ghost.style.width = match.style.width;
+                          ghost.style.height = match.style.height || (barHeight + "px");
+                          trk.appendChild(ghost);
+                          break;
+                        }
+                      }
+                    }
+                    var ripple = document.createElement("div");
+                    ripple.className = "mf-gantt-ripple-summary";
+                    ripple.textContent = "Affects " + dsSet.size + " task" + (dsSet.size !== 1 ? "s" : "") + ", shifts by " + Math.abs(tentShift) + "d";
+                    ripple.style.left = (e.clientX + 16) + "px";
+                    ripple.style.top = (e.clientY - 30) + "px";
+                    document.body.appendChild(ripple);
+                  }
+                }
               }
             });
 
@@ -2455,14 +2713,48 @@ function getIframeSrcDoc() {
               const dx = e.clientX - dragInfo.startX;
               bar.releasePointerCapture(e.pointerId);
 
+              // Send downstream labels for rescheduling prompt
+              const downstreamLabels = [];
+              if (dragInfo.mode === "shift" && task.durationDays) {
+                const fwd = {};
+                for (const t of enriched) {
+                  const k = (t.idToken || t.label || "").toLowerCase();
+                  for (const d of t.afterDeps || []) {
+                    const dk = d.toLowerCase();
+                    fwd[dk] = fwd[dk] || [];
+                    fwd[dk].push(k);
+                  }
+                }
+                const dsSet = new Set();
+                const dsQ = [...(fwd[(task.idToken || task.label || "").toLowerCase()] || [])];
+                for (const k of dsQ) dsSet.add(k);
+                let dsi = 0;
+                while (dsi < dsQ.length) {
+                  const cur = dsQ[dsi++];
+                  for (const dep of (fwd[cur] || [])) {
+                    if (!dsSet.has(dep)) { dsSet.add(dep); dsQ.push(dep); }
+                  }
+                }
+                for (const t of enriched) {
+                  const k = (t.idToken || t.label || "").toLowerCase();
+                  if (dsSet.has(k)) downstreamLabels.push(t.label);
+                }
+              }
+
               if (dragInfo.moved && Math.abs(dx) > 4) {
                 send("gantt:dragged", {
                   label: task.label,
                   deltaX: dx,
                   barWidth: dragInfo.origWidth,
                   dragMode: dragInfo.mode,
+                  downstreamLabels,
                 });
               }
+
+              // Clean up ghosts and ripple summary
+              canvas.querySelectorAll(".mf-gantt-ghost-bar").forEach(function(g) { g.remove(); });
+              var oldRipple = document.querySelector(".mf-gantt-ripple-summary");
+              if (oldRipple) oldRipple.remove();
 
               // Reset bar (re-render will come from code update)
               bar.style.left = dragInfo.origLeft + "px";
@@ -2479,6 +2771,15 @@ function getIframeSrcDoc() {
           container.appendChild(track);
           cumulativeTop += trackHeight;
         }
+
+        // Click on empty canvas area to clear dependency highlighting
+        container.addEventListener("click", (e) => {
+          if (e.target === container || e.target.classList.contains("mf-gantt-track")) {
+            container.querySelectorAll(".mf-dep-upstream-bar,.mf-dep-downstream-bar,.mf-dep-dimmed,.mf-dep-line-upstream,.mf-dep-line-downstream,.mf-dep-line-dimmed").forEach((el) => {
+              el.classList.remove("mf-dep-upstream-bar","mf-dep-downstream-bar","mf-dep-dimmed","mf-dep-line-upstream","mf-dep-line-downstream","mf-dep-line-dimmed");
+            });
+          }
+        });
 
         // Vertical markers (vert)
         for (const vt of vertTasks) {
@@ -2573,6 +2874,8 @@ function getIframeSrcDoc() {
               path.setAttribute("stroke-width", isCpEdge ? "2" : "1.5");
               path.setAttribute("fill", "none");
               path.setAttribute("marker-end", isCpEdge ? "url(#dep-arrow-cp)" : "url(#dep-arrow)");
+              path.setAttribute("data-from", fromKey);
+              path.setAttribute("data-to", toKey);
               svg.appendChild(path);
             }
           }
@@ -4893,7 +5196,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {});
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {}, gd.cycles || []);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -5117,6 +5420,7 @@ function App() {
   const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
   const [showRisks, setShowRisks] = useState(false);
   const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis"
+  const [showChainView, setShowChainView] = useState(false);
   const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
 
   // Interactive diagram state
@@ -5137,6 +5441,35 @@ function App() {
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
   const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
+  const criticalPathLabels = useMemo(() => {
+    if (toolsetKey !== "gantt") return [];
+    const resolved = resolveDependencies(ganttTasks.map((t) => ({ ...t })));
+    const { criticalSet } = computeCriticalPath(resolved);
+    // Order critical tasks by dependency chain
+    const cpTasks = resolved.filter((t) => criticalSet.has(t.idToken || t.label || ""));
+    const remaining = new Set(cpTasks.map((t) => t.label));
+    const byLabel = new Map(cpTasks.map((t) => [t.label, t]));
+    const ordered = [];
+    while (remaining.size > 0) {
+      let found = false;
+      for (const label of remaining) {
+        const task = byLabel.get(label);
+        const depsInCp = (task.afterDeps || []).filter((d) => remaining.has(d) || ordered.includes(d));
+        if (depsInCp.every((d) => ordered.includes(d))) {
+          ordered.push(label);
+          remaining.delete(label);
+          found = true;
+          break;
+        }
+      }
+      if (!found && remaining.size > 0) {
+        const label = Array.from(remaining)[0];
+        ordered.push(label);
+        remaining.delete(label);
+      }
+    }
+    return ordered;
+  }, [code, ganttTasks, toolsetKey]);
   const ganttSections = useMemo(() => {
     const ordered = [];
     const seen = new Set();
@@ -5340,6 +5673,13 @@ function App() {
     const directives = parseGanttDirectives(code);
     const tasks = resolveDependencies(parseGanttTasks(code));
     const { criticalSet, connectedSet, slackByTask } = computeCriticalPath(tasks);
+    const cycles = detectCycles(tasks);
+    const allConflicts = detectConflicts(tasks);
+    const conflictsByTask = new Map();
+    for (const c of allConflicts) {
+      if (!conflictsByTask.has(c.taskLabel)) conflictsByTask.set(c.taskLabel, []);
+      conflictsByTask.get(c.taskLabel).push(c);
+    }
     const enrichedTasks = tasks.map((t) => {
       const effectiveStart = t.startDate || t.resolvedStartDate || "";
       let computedEnd = t.endDate || t.resolvedEndDate || "";
@@ -5372,6 +5712,7 @@ function App() {
         isCriticalPath: criticalSet.has(taskKey),
         isConnected: connectedSet ? connectedSet.has(taskKey) : false,
         slackDays: slackByTask.get(taskKey) || 0,
+        conflicts: conflictsByTask.get(t.label) || [],
       };
     });
     const ganttData = {
@@ -5388,6 +5729,7 @@ function App() {
       executiveView,
       showRisks,
       riskFlags: showRisks ? computeRiskFlags(enrichedTasks) : {},
+      cycles,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -5997,7 +6339,14 @@ function App() {
   /* ── Escape key handler ──────────────────────────────── */
   useEffect(() => {
     const handler = (e) => {
+      // Ctrl+D: toggle chain view
+      if (e.key === "d" && (e.ctrlKey || e.metaKey) && !e.shiftKey && toolsetKey === "gantt") {
+        e.preventDefault();
+        setShowChainView((prev) => !prev);
+        return;
+      }
       if (e.key === "Escape") {
+        if (showChainView) { setShowChainView(false); return; }
         if (connectMode) {
           setConnectMode(null);
           const frame = iframeRef.current;
@@ -6023,7 +6372,7 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, ganttDropdown]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, ganttDropdown, showChainView, toolsetKey]);
 
   /* ── Style Toolbar ──────────────────────────────────── */
   const applyToolbarStyle = (nodeId, stylePatch) => {
@@ -6752,6 +7101,9 @@ function App() {
                       <button className="dropdown-item" onClick={() => setShowRisks((p) => !p)}>
                         <span className="dropdown-item-check">{showRisks ? "\u2713" : ""}</span>Risk flags
                       </button>
+                      <button className="dropdown-item" onClick={() => { setShowChainView((p) => !p); setGanttDropdown(null); }}>
+                        <span className="dropdown-item-check">{showChainView ? "\u2713" : ""}</span>Chain view
+                      </button>
                     </div>
                   </div>
                   <button
@@ -6773,6 +7125,33 @@ function App() {
             srcDoc={srcDoc}
             className="preview-frame"
           />
+          {showChainView && toolsetKey === "gantt" && criticalPathLabels.length > 0 && (
+            <div className="chain-view-panel">
+              <div className="chain-view-header">
+                <span className="chain-view-title">Critical Path</span>
+                <button className="chain-view-close" onClick={() => setShowChainView(false)} title="Close">&times;</button>
+              </div>
+              <div className="chain-view-body">
+                {criticalPathLabels.map((label, idx) => (
+                  <div key={label} className="chain-view-node">
+                    <div
+                      className="chain-view-card"
+                      onClick={() => {
+                        setSelectedElement({ label, id: "", elementType: "node" });
+                        setHighlightLine(getMatchingLine(code, label));
+                      }}
+                      title={label}
+                    >
+                      {label}
+                    </div>
+                    {idx < criticalPathLabels.length - 1 && (
+                      <div className="chain-view-arrow">&darr;</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="zoom-controls">
             <button title="Zoom out" onClick={() => {
               if (toolsetKey === "gantt") {
