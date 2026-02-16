@@ -399,20 +399,13 @@ function getIframeSrcDoc() {
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
-      .mf-gantt-bar:not(.mf-bar-default) .bar-date-suffix { color: rgba(255,255,255,0.72); }
       .mf-gantt-bar.mf-bar-active .bar-label {
         color: #1f2937;
         font-weight: 700;
       }
-      .mf-gantt-bar.mf-bar-active .bar-date-suffix {
-        color: #475569;
-      }
       .mf-gantt-bar.mf-bar-default .bar-label {
         color: #1f2937;
         font-weight: 700;
-      }
-      .mf-gantt-bar.mf-bar-default .bar-date-suffix {
-        color: #475569;
       }
       .bar-label {
         font-size: 11.5px;
@@ -461,7 +454,7 @@ function getIframeSrcDoc() {
       .mf-gantt-bar.mf-label-outside .bar-date-suffix,
       .mf-gantt-bar.mf-label-outside-left .bar-date-suffix { display: none; }
       .bar-date-suffix {
-        color: rgba(255,255,255,0.72);
+        color: #cbd5e1;
         font-size: 10px;
         font-weight: 400;
         position: absolute;
@@ -470,6 +463,7 @@ function getIframeSrcDoc() {
         transform: translateY(-50%);
         white-space: nowrap;
         pointer-events: none;
+        text-shadow: 0 1px 1px rgba(15, 23, 42, 0.42);
       }
       .mf-bar-resize-handle {
         position: absolute;
