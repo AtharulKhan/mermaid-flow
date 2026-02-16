@@ -1890,18 +1890,24 @@ function getIframeSrcDoc() {
             // Dependency connector handle (drag from this to create a dependency)
             const depConn = document.createElement("div");
             depConn.className = "mf-dep-connector";
-            depConn.setAttribute("title", "Drag to create dependency");
             bar.appendChild(depConn);
 
             depConn.addEventListener("pointerdown", (e) => {
               e.stopPropagation();
               e.preventDefault();
+              // Hide any visible tooltip during drag
+              tooltipEl.style.display = "none";
+              // Capture pointer so events keep firing even outside the element
+              depConn.setPointerCapture(e.pointerId);
+
               const fromId = task.idToken || task.label || "";
               const fromLabel = task.label || "";
-              const connRect = depConn.getBoundingClientRect();
               const canvasRect = canvas.getBoundingClientRect();
-              const startX = connRect.left + connRect.width / 2 - canvasRect.left + canvas.scrollLeft;
-              const startY = connRect.top + connRect.height / 2 - canvasRect.top + canvas.scrollTop;
+              // Look up bar position from the map (populated at render time)
+              const barKey = (task.idToken || task.label || "").toLowerCase();
+              const pos = barPositions.get(barKey);
+              const startX = pos ? pos.right + 2 : 0;
+              const startY = pos ? pos.centerY : 0;
 
               // Create temporary SVG drag line
               const svgNS = "http://www.w3.org/2000/svg";
@@ -1918,18 +1924,24 @@ function getIframeSrcDoc() {
               dragLine.setAttribute("stroke-width", "2");
               dragLine.setAttribute("stroke-dasharray", "6 3");
               dragSvg.appendChild(dragLine);
-              canvas.querySelector(".mf-gantt-container").appendChild(dragSvg);
+              const ganttContainer = canvas.querySelector(".mf-gantt-container");
+              ganttContainer.appendChild(dragSvg);
 
               let currentTarget = null;
+              let dragging = false;
 
               const onMove = (ev) => {
+                dragging = true;
+                tooltipEl.style.display = "none";
                 const mx = ev.clientX - canvasRect.left + canvas.scrollLeft;
                 const my = ev.clientY - canvasRect.top + canvas.scrollTop;
                 dragLine.setAttribute("x2", mx);
                 dragLine.setAttribute("y2", my);
 
-                // Highlight drop target
+                // Temporarily hide drag SVG to find element underneath
+                dragSvg.style.display = "none";
                 const el = document.elementFromPoint(ev.clientX, ev.clientY);
+                dragSvg.style.display = "";
                 const targetBar = el?.closest(".mf-gantt-bar, .mf-gantt-milestone");
                 if (currentTarget && currentTarget !== targetBar) {
                   currentTarget.classList.remove("mf-dep-drop-target");
@@ -1943,9 +1955,11 @@ function getIframeSrcDoc() {
               };
 
               const onUp = (ev) => {
-                document.removeEventListener("pointermove", onMove);
-                document.removeEventListener("pointerup", onUp);
+                depConn.removeEventListener("pointermove", onMove);
+                depConn.removeEventListener("pointerup", onUp);
+                try { depConn.releasePointerCapture(ev.pointerId); } catch (_) {}
                 dragSvg.remove();
+                if (!dragging) return;
                 if (currentTarget) {
                   currentTarget.classList.remove("mf-dep-drop-target");
                   const targetLabel = currentTarget.getAttribute("data-label") || "";
@@ -1955,8 +1969,8 @@ function getIframeSrcDoc() {
                 }
               };
 
-              document.addEventListener("pointermove", onMove);
-              document.addEventListener("pointerup", onUp);
+              depConn.addEventListener("pointermove", onMove);
+              depConn.addEventListener("pointerup", onUp);
             });
 
             // Bar label
@@ -3001,6 +3015,11 @@ function getIframeSrcDoc() {
       };
 
       canvas.addEventListener("mouseover", (e) => {
+        // Hide tooltip when hovering dependency connector
+        if (e.target.closest(".mf-dep-connector")) {
+          tooltipEl.style.display = "none";
+          return;
+        }
         // Support both SVG elements (rect/text) and HTML elements (div with data-mf-tip)
         const tipEl = e.target.closest("[data-mf-tip]");
         const tip = tipEl ? tipEl.getAttribute("data-mf-tip") : "";
