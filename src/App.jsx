@@ -37,6 +37,7 @@ import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notio
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 import VersionHistoryPanel from "./components/VersionHistoryPanel";
+import ResourceLoadPanel from "./components/ResourceLoadPanel";
 import { getStoredTheme, getResolvedTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "./themeUtils";
 
 const CHANNEL = "mermaid-flow";
@@ -5491,6 +5492,7 @@ function App() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
+  const [resourcePanelOpen, setResourcePanelOpen] = useState(false);
   const [notionSyncOpen, setNotionSyncOpen] = useState(false);
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
@@ -5597,6 +5599,31 @@ function App() {
     }
     return ordered;
   }, [code, ganttTasks, toolsetKey]);
+  const resolvedGanttTasks = useMemo(() => {
+    if (toolsetKey !== "gantt") return [];
+    const directives = parseGanttDirectives(code);
+    const tasks = resolveDependencies(parseGanttTasks(code));
+    return tasks.map((t) => {
+      const effectiveStart = t.startDate || t.resolvedStartDate || "";
+      let computedEnd = t.endDate || t.resolvedEndDate || "";
+      if (!computedEnd && effectiveStart && t.durationDays) {
+        computedEnd = directives.excludes.length
+          ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
+          : (() => {
+              const d = new Date(effectiveStart + "T00:00:00Z");
+              d.setUTCDate(d.getUTCDate() + t.durationDays);
+              return d.toISOString().slice(0, 10);
+            })();
+      }
+      return {
+        label: t.label,
+        startDate: effectiveStart,
+        computedEnd,
+        assignee: t.assignee || "",
+        section: t.section || "",
+      };
+    });
+  }, [code, toolsetKey]);
   const baselineTasks = useMemo(() => {
     if (!baselineCode) return null;
     const dirs = parseGanttDirectives(baselineCode);
@@ -7059,6 +7086,16 @@ function App() {
               onClick={() => setNotionSyncOpen(!notionSyncOpen)}
             >
               Notion
+            </button>
+          )}
+
+          {toolsetKey === "gantt" && (
+            <button
+              className="soft-btn small desktop-only"
+              onClick={() => setResourcePanelOpen(!resourcePanelOpen)}
+              style={resourcePanelOpen ? { background: "var(--accent-soft)" } : undefined}
+            >
+              Resources
             </button>
           )}
 
@@ -8724,6 +8761,14 @@ function App() {
             setRenderMessage("Version restored");
           }}
           onClose={() => setVersionPanelOpen(false)}
+        />
+      )}
+
+      {/* ── Resource Load Panel ─────────────────────────── */}
+      {resourcePanelOpen && toolsetKey === "gantt" && (
+        <ResourceLoadPanel
+          tasks={resolvedGanttTasks}
+          onClose={() => setResourcePanelOpen(false)}
         />
       )}
 
