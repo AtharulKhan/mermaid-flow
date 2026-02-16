@@ -418,6 +418,151 @@ export function resolveDependencies(tasks) {
   return tasks;
 }
 
+/* ── Critical Path Method (CPM) ──────────────────────── */
+
+export function computeCriticalPath(tasks) {
+  const dayMs = 86400000;
+  const taskKey = (t) => (t.idToken || t.label || "").toLowerCase();
+
+  // Build lookup and adjacency
+  const byKey = new Map();
+  const successors = new Map(); // key → [keys that depend on it]
+  const predecessors = new Map(); // key → [keys it depends on]
+  let hasDeps = false;
+
+  for (const t of tasks) {
+    if (t.isMilestone && !t.afterDeps?.length) continue;
+    const k = taskKey(t);
+    if (!k) continue;
+    byKey.set(k, t);
+    if (!successors.has(k)) successors.set(k, []);
+    if (!predecessors.has(k)) predecessors.set(k, []);
+  }
+
+  // Also build a label-based lookup for resolving afterDeps by label
+  const byLabel = new Map();
+  for (const t of tasks) {
+    const k = taskKey(t);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), k);
+    }
+  }
+
+  for (const t of tasks) {
+    const k = taskKey(t);
+    if (!k || !byKey.has(k)) continue;
+    for (const dep of t.afterDeps || []) {
+      const depKey = byKey.has(dep.toLowerCase()) ? dep.toLowerCase() : byLabel.get(dep.toLowerCase());
+      if (!depKey || !byKey.has(depKey)) continue;
+      hasDeps = true;
+      if (!successors.has(depKey)) successors.set(depKey, []);
+      successors.get(depKey).push(k);
+      if (!predecessors.has(k)) predecessors.set(k, []);
+      predecessors.get(k).push(depKey);
+    }
+  }
+
+  // If no dependency chains exist, return empty (no critical path to show)
+  if (!hasDeps) return { criticalSet: new Set(), slackByTask: new Map() };
+
+  const getStartMs = (t) => {
+    const iso = t.resolvedStartDate || t.startDate;
+    return iso ? Date.parse(iso + "T00:00:00Z") : null;
+  };
+  const getDurationMs = (t) => (t.durationDays || 0) * dayMs;
+
+  // Forward pass: Earliest Start (ES) and Earliest Finish (EF)
+  const ES = new Map();
+  const EF = new Map();
+
+  // Topological order via Kahn's algorithm
+  const inDegree = new Map();
+  for (const k of byKey.keys()) inDegree.set(k, 0);
+  for (const k of byKey.keys()) {
+    for (const succ of successors.get(k) || []) {
+      inDegree.set(succ, (inDegree.get(succ) || 0) + 1);
+    }
+  }
+
+  const queue = [];
+  for (const [k, deg] of inDegree) {
+    if (deg === 0) queue.push(k);
+  }
+
+  const topoOrder = [];
+  while (queue.length) {
+    const k = queue.shift();
+    topoOrder.push(k);
+    for (const succ of successors.get(k) || []) {
+      const newDeg = inDegree.get(succ) - 1;
+      inDegree.set(succ, newDeg);
+      if (newDeg === 0) queue.push(succ);
+    }
+  }
+
+  // Forward pass
+  for (const k of topoOrder) {
+    const t = byKey.get(k);
+    const preds = predecessors.get(k) || [];
+    if (preds.length === 0) {
+      ES.set(k, getStartMs(t) || 0);
+    } else {
+      let maxPredEF = -Infinity;
+      for (const p of preds) {
+        const pef = EF.get(p);
+        if (pef !== undefined && pef > maxPredEF) maxPredEF = pef;
+      }
+      ES.set(k, maxPredEF === -Infinity ? (getStartMs(t) || 0) : maxPredEF);
+    }
+    EF.set(k, ES.get(k) + getDurationMs(t));
+  }
+
+  // Project end
+  let projectEnd = -Infinity;
+  for (const ef of EF.values()) {
+    if (ef > projectEnd) projectEnd = ef;
+  }
+
+  // Backward pass: Latest Start (LS) and Latest Finish (LF)
+  const LS = new Map();
+  const LF = new Map();
+
+  for (let i = topoOrder.length - 1; i >= 0; i--) {
+    const k = topoOrder[i];
+    const t = byKey.get(k);
+    const succs = successors.get(k) || [];
+    if (succs.length === 0) {
+      LF.set(k, projectEnd);
+    } else {
+      let minSuccLS = Infinity;
+      for (const s of succs) {
+        const sls = LS.get(s);
+        if (sls !== undefined && sls < minSuccLS) minSuccLS = sls;
+      }
+      LF.set(k, minSuccLS === Infinity ? projectEnd : minSuccLS);
+    }
+    LS.set(k, LF.get(k) - getDurationMs(t));
+  }
+
+  // Compute slack and critical set
+  const criticalSet = new Set();
+  const slackByTask = new Map();
+  const slackThreshold = dayMs * 0.5; // half-day tolerance for rounding
+
+  for (const k of topoOrder) {
+    const slack = LS.get(k) - ES.get(k);
+    const slackDays = Math.round(slack / dayMs);
+    const t = byKey.get(k);
+    const origKey = t.idToken || t.label || "";
+    slackByTask.set(origKey, slackDays);
+    if (Math.abs(slack) <= slackThreshold) {
+      criticalSet.add(origKey);
+    }
+  }
+
+  return { criticalSet, slackByTask };
+}
+
 /* ── Existing utilities ───────────────────────────────── */
 
 export function findTaskByLabel(tasks, label) {
