@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../firebase/AuthContext";
 import { logOut } from "../firebase/auth";
 import { getUserSettings, updateUserSettings } from "../firebase/firestore";
+import { getStoredTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "../themeUtils";
 
 const ENABLE_NOTION_INTEGRATION = false; // Temporarily disabled.
 
@@ -10,6 +11,7 @@ export default function UserSettings() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const [themeMode, setThemeMode] = useState(getStoredTheme);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -74,6 +76,13 @@ export default function UserSettings() {
           <h1>Mermaid Flow</h1>
         </div>
         <div className="dash-header-actions">
+          <button
+            className="icon-btn"
+            title={THEME_LABELS[themeMode]}
+            onClick={() => setThemeMode(cycleTheme())}
+          >
+            {themeMode === "dark" ? <IconMoon /> : themeMode === "light" ? <IconSun /> : <IconMonitor />}
+          </button>
           <span className="dash-user">{user?.displayName || user?.email}</span>
           <button className="soft-btn small" onClick={() => logOut()}>
             Sign Out

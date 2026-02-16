@@ -30,6 +30,7 @@ import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notio
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 import VersionHistoryPanel from "./components/VersionHistoryPanel";
+import { getStoredTheme, getResolvedTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "./themeUtils";
 
 const CHANNEL = "mermaid-flow";
 const ENABLE_NOTION_INTEGRATION = false; // Temporarily disabled.
@@ -88,8 +89,9 @@ function isMobileViewport() {
 }
 
 function getIframeSrcDoc() {
+  const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="${currentTheme}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -1062,6 +1064,138 @@ function getIframeSrcDoc() {
         word-break: break-word;
         display: none;
         box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      }
+
+      /* ── Dark Theme ── */
+      [data-theme="dark"] body,
+      [data-theme="dark"] html {
+        background: #14161e;
+        background-image: radial-gradient(circle, #2a2e3d 0.75px, transparent 0.75px);
+        color: #e4e6ed;
+      }
+      [data-theme="dark"] .mf-gantt-container {
+        border-color: #2a2e3d;
+        color: #e4e6ed;
+      }
+      [data-theme="dark"] .mf-gantt-corner {
+        background: #1c1f2b;
+        border-color: #2a2e3d;
+        color: #e4e6ed;
+        box-shadow: 10px 0 12px -12px rgba(0, 0, 0, 0.5);
+      }
+      [data-theme="dark"] .mf-gantt-add-section-btn {
+        border-color: #3a3f52;
+        background: rgba(28, 31, 43, 0.92);
+        color: #6b7088;
+      }
+      [data-theme="dark"] .mf-gantt-add-section-btn:hover {
+        background: #252838;
+        border-color: #4a5068;
+        color: #9a9fb2;
+      }
+      [data-theme="dark"] .mf-gantt-role-cell {
+        background: #1c1f2b;
+        border-color: #2a2e3d;
+        color: #e4e6ed;
+        box-shadow: 10px 0 12px -12px rgba(0, 0, 0, 0.5);
+      }
+      [data-theme="dark"] .mf-gantt-section-edit-btn {
+        border-color: #3a3f52;
+        background: #252838;
+        color: #6b7088;
+      }
+      [data-theme="dark"] .mf-gantt-section-edit-btn:hover {
+        background: #2a2e3d;
+        color: #9a9fb2;
+        border-color: #4a5068;
+      }
+      [data-theme="dark"] .mf-gantt-track {
+        border-bottom-color: #2a2e3d;
+        background: #1c1f2b;
+      }
+      [data-theme="dark"] .mf-gantt-track:nth-child(4n+1) {
+        background: #1a1d28;
+      }
+      [data-theme="dark"] .mf-gantt-track.mf-show-grid-lines {
+        background-image: repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent calc(var(--px-per-day) - 1px),
+          #2a2e3d calc(var(--px-per-day) - 1px),
+          #2a2e3d var(--px-per-day)
+        );
+      }
+      [data-theme="dark"] .mf-gantt-bar.mf-bar-default .bar-label,
+      [data-theme="dark"] .mf-gantt-bar.mf-bar-active .bar-label {
+        color: #e4e6ed;
+      }
+      [data-theme="dark"] .mf-bar-default { background: #3a3f52; }
+      [data-theme="dark"] .mf-gantt-excluded-day {
+        background: rgba(255,255,255,0.03);
+      }
+      [data-theme="dark"] .mf-gantt-insert-btn {
+        background: #1c1f2b;
+        border-color: #3a3f52;
+        color: #6b7088;
+      }
+      [data-theme="dark"] .mf-gantt-insert-btn:hover {
+        border-color: #60a5fa;
+        color: #60a5fa;
+        background: #1c1f2b;
+      }
+      [data-theme="dark"] .mf-gantt-today-line {
+        border-left-color: #ef4444;
+      }
+      [data-theme="dark"] .mf-gantt-vert-marker {
+        border-left-color: #3b82f6;
+      }
+      [data-theme="dark"] .mf-gantt-vert-label {
+        color: #60a5fa;
+      }
+      [data-theme="dark"] #mf-tooltip {
+        background: #252838;
+        color: #e4e6ed;
+        border-color: rgba(255,255,255,0.1);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      }
+      /* Dark flowchart nodes */
+      [data-theme="dark"] .mf-flow-node {
+        background: #252838;
+        border-color: #3a3f52;
+        color: #e4e6ed;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      }
+      [data-theme="dark"] .mf-shape-rect { background: #1c1f2b; border-color: #818cf8; }
+      [data-theme="dark"] .mf-shape-rounded { background: #172554; border-color: #60a5fa; }
+      [data-theme="dark"] .mf-shape-stadium { background: #14532d; border-color: #4ade80; }
+      [data-theme="dark"] .mf-shape-diamond { background: #451a03; }
+      [data-theme="dark"] .mf-shape-circle { background: #2e1065; border-color: #a78bfa; }
+      [data-theme="dark"] .mf-shape-hexagon { background: #500724; }
+      [data-theme="dark"] .mf-shape-subroutine { background: #1e293b; border-color: #94a3b8; }
+      [data-theme="dark"] .mf-shape-cylinder { background: #083344; border-color: #22d3ee; }
+      [data-theme="dark"] .mf-flow-edge line,
+      [data-theme="dark"] .mf-flow-edge path {
+        stroke: #4a5068;
+      }
+      [data-theme="dark"] .mf-flow-edge text {
+        fill: #9a9fb2;
+      }
+      /* Dark gantt header rows */
+      [data-theme="dark"] .mf-gh-row {
+        background: #1c1f2b;
+        border-color: #2a2e3d;
+        color: #9a9fb2;
+      }
+      [data-theme="dark"] .mf-gh-row.month { background: #1a1d28; }
+      [data-theme="dark"] .mf-gh-row.week { background: #161922; }
+      [data-theme="dark"] .mf-gh-cell {
+        border-color: #2a2e3d;
+        color: #9a9fb2;
+      }
+      [data-theme="dark"] .mf-role-row {
+        background: #1c1f2b;
+        border-color: #2a2e3d;
+        color: #e4e6ed;
       }
     </style>
   </head>
@@ -4195,6 +4329,11 @@ function getIframeSrcDoc() {
           return;
         }
 
+        if (data.type === "set-app-theme") {
+          document.documentElement.setAttribute("data-theme", data.payload?.theme || "light");
+          return;
+        }
+
         if (data.type !== "render") return;
 
         const { code, config } = data.payload || {};
@@ -4358,6 +4497,23 @@ function App() {
     if (last && !urlParams.current.embed) return last;
     return DEFAULT_CODE;
   })();
+
+  // Theme mode (light / dark / system)
+  const [themeMode, setThemeMode] = useState(getStoredTheme);
+
+  // Listen for system preference changes when in "system" mode
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => {
+      if (getStoredTheme() === "system") {
+        const resolved = getResolvedTheme("system");
+        document.documentElement.setAttribute("data-theme", resolved);
+        setThemeMode("system"); // trigger re-render for icon
+      }
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   // Core state
   const [code, setCode] = useState(initialCode);
@@ -4691,6 +4847,17 @@ function App() {
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
   }, [code, autoRender, mermaidRenderConfig]);
+
+  /* ── Sync app theme to iframe ─────────────────────────── */
+  useEffect(() => {
+    const frame = iframeRef.current;
+    if (!frame?.contentWindow) return;
+    const resolved = getResolvedTheme(themeMode);
+    frame.contentWindow.postMessage(
+      { channel: CHANNEL, type: "set-app-theme", payload: { theme: resolved } },
+      "*"
+    );
+  }, [themeMode]);
 
   /* ── Load user's Notion settings when sync panel opens ── */
   useEffect(() => {
@@ -5756,6 +5923,14 @@ function App() {
               Notion
             </button>
           )}
+
+          <button
+            className="icon-btn"
+            title={THEME_LABELS[themeMode]}
+            onClick={() => setThemeMode(cycleTheme())}
+          >
+            {themeMode === "dark" ? <IconMoon /> : themeMode === "light" ? <IconSun /> : <IconMonitor />}
+          </button>
 
           <div className="dropdown-wrap mobile-only" ref={mobileActionsRef}>
                 <button

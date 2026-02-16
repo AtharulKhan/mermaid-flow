@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { signUp, signIn, signInWithGoogle, resetPassword } from "../firebase/auth";
+import { getStoredTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "../themeUtils";
 
 export default function AuthPage() {
   const [mode, setMode] = useState("login"); // "login" | "signup" | "reset"
@@ -8,6 +9,7 @@ export default function AuthPage() {
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [themeMode, setThemeMode] = useState(getStoredTheme);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -50,6 +52,13 @@ export default function AuthPage() {
 
   return (
     <div className="auth-page">
+      <button
+        className="icon-btn auth-theme-toggle"
+        title={THEME_LABELS[themeMode]}
+        onClick={() => setThemeMode(cycleTheme())}
+      >
+        {themeMode === "dark" ? <IconMoon /> : themeMode === "light" ? <IconSun /> : <IconMonitor />}
+      </button>
       <div className="auth-card">
         <div className="auth-header">
           <div className="brand-mark">MF</div>
