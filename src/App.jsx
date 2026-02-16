@@ -692,7 +692,22 @@ function getIframeSrcDoc() {
         right: calc(100% + 8px);
         text-align: right;
       }
-      .mf-gantt-milestone .bar-date-suffix { display: none; }
+      .mf-gantt-milestone .bar-date-suffix {
+        position: absolute;
+        left: calc(100% + 8px + var(--outside-label-width, 0px) + 6px);
+        top: 50%;
+        transform: translateY(-50%);
+        white-space: nowrap;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 400;
+        text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+        pointer-events: none;
+      }
+      .mf-gantt-milestone.mf-label-outside-left .bar-date-suffix {
+        left: auto;
+        right: calc(100% + 8px + var(--outside-label-width, 0px) + 6px);
+      }
       .mf-gantt-milestone.mf-selected {
         outline: 2.5px solid #2563eb;
         outline-offset: 2px;
@@ -1188,6 +1203,14 @@ function getIframeSrcDoc() {
         box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
         outline: 2px solid #f87171;
         outline-offset: 1px;
+      }
+      [data-theme="dark"] .mf-gantt-milestone .bar-label {
+        color: #e4e6ed;
+        text-shadow: 0 0 3px #0f1117, 0 0 3px #0f1117;
+      }
+      [data-theme="dark"] .mf-gantt-milestone .bar-date-suffix {
+        color: #9a9fb2;
+        text-shadow: 0 0 3px #0f1117, 0 0 3px #0f1117;
       }
       [data-theme="dark"] .mf-dep-lines-svg path { stroke: #d1d5db; }
       [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #d1d5db; }
@@ -1978,7 +2001,7 @@ function getIframeSrcDoc() {
 
             const bar = document.createElement("div");
             const isNarrow = width < 70;
-            const showsMetaSuffix = !task.isMilestone && showDates && !!task.startDate;
+            const showsMetaSuffix = showDates && !!task.startDate;
             let barLeft = left;
             let barPixelWidth = width;
 
