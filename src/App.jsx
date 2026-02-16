@@ -1319,6 +1319,13 @@ function getIframeSrcDoc() {
         color: #9a9fb2;
         text-shadow: 0 0 3px #0f1117, 0 0 3px #0f1117;
       }
+      [data-theme="dark"] .mf-gantt-risk-badge { color: #fbbf24; }
+      [data-theme="dark"] .mf-bar-at-risk {
+        box-shadow: 0 0 0 2px #fbbf24, 0 0 8px rgba(251, 191, 36, 0.4);
+      }
+      [data-theme="dark"] .mf-bar-at-risk.mf-bar-critical-path {
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 0 5px #fbbf24, 0 0 12px rgba(248, 113, 113, 0.5);
+      }
       [data-theme="dark"] .mf-dep-lines-svg path { stroke: #d1d5db; }
       [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #d1d5db; }
       [data-theme="dark"] .mf-gantt-excluded-day {
