@@ -1475,11 +1475,22 @@ function getIframeSrcDoc() {
         if (labelMeasureCtx) {
           labelMeasureCtx.font = '600 11.5px "Manrope", system-ui, sans-serif';
         }
+        const suffixMeasureCanvas = document.createElement("canvas");
+        const suffixMeasureCtx = suffixMeasureCanvas.getContext("2d");
+        if (suffixMeasureCtx) {
+          suffixMeasureCtx.font = '400 10px "Manrope", system-ui, sans-serif';
+        }
         const measureLabelWidth = (text) => {
           const safeText = String(text || "");
           if (!safeText) return 0;
           if (labelMeasureCtx) return Math.ceil(labelMeasureCtx.measureText(safeText).width);
           return Math.ceil(safeText.length * 8.4);
+        };
+        const measureSuffixWidth = (text) => {
+          const safeText = String(text || "");
+          if (!safeText) return 0;
+          if (suffixMeasureCtx) return Math.ceil(suffixMeasureCtx.measureText(safeText).width);
+          return Math.ceil(safeText.length * 6.4);
         };
 
         // Build container
@@ -1688,10 +1699,21 @@ function getIframeSrcDoc() {
               if (task.assignee) dateStr += " · " + task.assignee;
               dateSuffix.textContent = dateStr;
               bar.appendChild(dateSuffix);
-              dateSuffixWidth = Math.ceil(dateSuffix.offsetWidth || 0);
+              // Measure before mount so label always reserves suffix space.
+              dateSuffixWidth = measureSuffixWidth(dateStr) + 4;
               bar.style.setProperty("--date-suffix-width", dateSuffixWidth + "px");
             } else {
               bar.style.setProperty("--date-suffix-width", "0px");
+            }
+
+            if (!task.isMilestone) {
+              const reservedWidth =
+                (dateSuffixWidth ? dateSuffixWidth + 6 : 0) +
+                (hasTaskLink ? 24 : 0) +
+                16;
+              // Avoid negative max-width values; those can invalidate CSS and cause overlap.
+              const clampedLabelWidth = Math.max(0, width - reservedWidth);
+              labelSpan.style.maxWidth = clampedLabelWidth + "px";
             }
 
             if (hasTaskLink) {
