@@ -490,9 +490,9 @@ function getIframeSrcDoc() {
       .mf-gantt-bar:active { cursor: grabbing; }
       .mf-gantt-progress-fill {
         position: absolute;
-        left: 0; top: 0; bottom: 0;
-        border-radius: 8px;
-        background: rgba(0, 0, 0, 0.18);
+        right: 0; top: 0; bottom: 0;
+        border-radius: 0 8px 8px 0;
+        background: rgba(255, 255, 255, 0.5);
         pointer-events: none;
         z-index: 0;
         transition: width 0.2s ease;
@@ -1421,8 +1421,8 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-gantt-bar.mf-bar-active .bar-label {
         color: #e4e6ed;
       }
-      [data-theme="dark"] .mf-gantt-progress-fill { background: rgba(255, 255, 255, 0.15); }
-      [data-theme="dark"] .mf-bar-active .mf-gantt-progress-fill { background: rgba(0, 0, 0, 0.18); }
+      [data-theme="dark"] .mf-gantt-progress-fill { background: rgba(0, 0, 0, 0.4); }
+      [data-theme="dark"] .mf-bar-active .mf-gantt-progress-fill { background: rgba(0, 0, 0, 0.35); }
       [data-theme="dark"] .mf-bar-default { background: #3a3f52; }
       [data-theme="dark"] .mf-bar-critical-path {
         box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
@@ -2360,11 +2360,11 @@ function getIframeSrcDoc() {
               bar.append(startHandle, endHandle);
             }
 
-            // Progress fill overlay
-            if (!task.isMilestone && task.progress != null && task.progress > 0) {
+            // Progress fill overlay (white wash on unfilled portion)
+            if (!task.isMilestone && task.progress != null && task.progress > 0 && task.progress < 100) {
               const progressFill = document.createElement("div");
               progressFill.className = "mf-gantt-progress-fill";
-              progressFill.style.width = Math.min(100, task.progress) + "%";
+              progressFill.style.width = (100 - Math.min(100, task.progress)) + "%";
               bar.appendChild(progressFill);
             }
 
