@@ -2069,6 +2069,23 @@ input:focus {
   margin: 4px 8px;
 }
 
+.dropdown-item-check {
+  display: inline-block;
+  width: 18px;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.preview-hint .dropdown-wrap {
+  display: inline-flex;
+}
+
+.preview-hint .dropdown-menu {
+  left: 0;
+  right: auto;
+  min-width: 160px;
+}
+
 /* ── Save Dialog ─────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
