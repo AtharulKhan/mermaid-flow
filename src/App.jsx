@@ -410,10 +410,8 @@ function getIframeSrcDoc() {
         outline: 2px solid #ef4444;
         outline-offset: 1px;
       }
-      .mf-gantt-milestone.mf-bar-critical-path {
+      .mf-gantt-milestone.mf-bar-critical-path::before {
         box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
-        outline: 2px solid #ef4444;
-        outline-offset: 1px;
       }
       .mf-bar-dimmed { opacity: 0.3; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
@@ -663,10 +661,17 @@ function getIframeSrcDoc() {
         cursor: grab;
         overflow: visible;
         box-sizing: border-box;
-        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-        transition: box-shadow 0.12s ease, filter 0.12s ease;
+        transition: filter 0.12s ease;
         min-width: 0;
         z-index: 3;
+      }
+      .mf-gantt-milestone::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: inherit;
+        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+        border-radius: inherit;
       }
       .mf-gantt-milestone:hover {
         filter: brightness(1.1);
@@ -708,10 +713,9 @@ function getIframeSrcDoc() {
         left: auto;
         right: calc(100% + 8px + var(--outside-label-width, 0px) + 6px);
       }
-      .mf-gantt-milestone.mf-selected {
-        outline: 2.5px solid #2563eb;
-        outline-offset: 2px;
-        box-shadow: 0 0 10px rgba(37, 99, 235, 0.3);
+      .mf-gantt-milestone.mf-selected::before {
+        filter: brightness(0.85);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5);
       }
       /* ── Excluded day shading ── */
       .mf-gantt-excluded-day {
@@ -1199,10 +1203,8 @@ function getIframeSrcDoc() {
         outline: 2px solid #f87171;
         outline-offset: 1px;
       }
-      [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path {
+      [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path::before {
         box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
-        outline: 2px solid #f87171;
-        outline-offset: 1px;
       }
       [data-theme="dark"] .mf-gantt-milestone .bar-label {
         color: #e4e6ed;
