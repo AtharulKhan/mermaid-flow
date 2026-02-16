@@ -1137,26 +1137,8 @@ export function computeRiskFlags(tasks) {
       }
     }
 
-    // Condition 3: Zero slack — only flag on critical-path tasks
-    // Back-to-back chaining via `after` is normal; only flag when a
-    // critical task has zero buffer, since a slip there delays the project.
-    const isCrit = (task.statusTokens || []).includes("crit") || task.isCriticalPath;
-    if (isCrit) {
-      const taskEndMs = isoToMs(task.computedEnd);
-      if (taskEndMs !== null) {
-        const key = (task.idToken || "").toLowerCase() || task.label.toLowerCase();
-        const dependents = reverseDeps.get(key) || [];
-        for (const dep of dependents) {
-          const depStartMs = isoToMs(dep.startDate);
-          if (depStartMs !== null && depStartMs === taskEndMs) {
-            const entry = getEntry(task.label);
-            entry.flags.push("zero-slack");
-            entry.reasons.push("No buffer before '" + dep.label + "'");
-            break;
-          }
-        }
-      }
-    }
+    // Zero-slack removed — same-day handoffs via `after` are normal workflow.
+    // Critical path indicator already shows which tasks have no slack.
   }
 
   // Condition 4: Overloaded assignee (4+ concurrent active tasks on any day)
