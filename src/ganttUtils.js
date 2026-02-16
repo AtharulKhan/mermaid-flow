@@ -651,6 +651,105 @@ export function computeCriticalPath(tasks) {
   return { criticalSet, connectedSet, slackByTask };
 }
 
+/* ── Cycle detection ─────────────────────────────────── */
+
+export function detectCycles(tasks) {
+  const graph = new Map();
+  const byKey = new Map();
+  const byLabel = new Map();
+
+  for (const t of tasks) {
+    if (t.isVertMarker) continue;
+    const key = (t.idToken || t.label || "").toLowerCase();
+    if (!key) continue;
+    byKey.set(key, t);
+    graph.set(key, []);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), key);
+    }
+  }
+
+  for (const t of tasks) {
+    if (t.isVertMarker) continue;
+    const key = (t.idToken || t.label || "").toLowerCase();
+    if (!key || !graph.has(key)) continue;
+    for (const dep of t.afterDeps || []) {
+      const depKey = byKey.has(dep.toLowerCase())
+        ? dep.toLowerCase()
+        : byLabel.get(dep.toLowerCase());
+      if (depKey && graph.has(depKey)) {
+        graph.get(depKey).push(key);
+      }
+    }
+  }
+
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = new Map();
+  for (const node of graph.keys()) color.set(node, WHITE);
+  const cycles = [];
+
+  const dfs = (node, stack) => {
+    color.set(node, GRAY);
+    stack.push(node);
+    for (const neighbor of graph.get(node) || []) {
+      if (color.get(neighbor) === GRAY) {
+        const idx = stack.indexOf(neighbor);
+        cycles.push(stack.slice(idx).map((k) => (byKey.get(k) || {}).label || k));
+      } else if (color.get(neighbor) === WHITE) {
+        dfs(neighbor, stack);
+      }
+    }
+    stack.pop();
+    color.set(node, BLACK);
+  };
+
+  for (const node of graph.keys()) {
+    if (color.get(node) === WHITE) dfs(node, []);
+  }
+  return cycles;
+}
+
+/* ── Conflict detection ──────────────────────────────── */
+
+export function detectConflicts(tasks) {
+  const byId = new Map();
+  const byLabel = new Map();
+  for (const t of tasks) {
+    if (t.idToken) byId.set(t.idToken.toLowerCase(), t);
+    if (t.label && !byLabel.has(t.label.toLowerCase())) {
+      byLabel.set(t.label.toLowerCase(), t);
+    }
+  }
+
+  const toMs = (iso) => {
+    if (!iso) return null;
+    const v = Date.parse(iso + "T00:00:00Z");
+    return Number.isFinite(v) ? v : null;
+  };
+  const DAY = 86400000;
+  const conflicts = [];
+
+  for (const task of tasks) {
+    if (task.isVertMarker) continue;
+    const startMs = toMs(task.startDate || task.resolvedStartDate);
+    if (startMs === null) continue;
+    for (const depId of task.afterDeps || []) {
+      const dep = byId.get(depId.toLowerCase()) || byLabel.get(depId.toLowerCase());
+      if (!dep) continue;
+      const depEndMs = toMs(dep.computedEnd || dep.endDate || dep.resolvedEndDate);
+      if (depEndMs === null) continue;
+      if (startMs < depEndMs) {
+        conflicts.push({
+          taskLabel: task.label,
+          depLabel: dep.label,
+          overlapDays: Math.ceil((depEndMs - startMs) / DAY),
+        });
+      }
+    }
+  }
+  return conflicts;
+}
+
 /* ── Existing utilities ───────────────────────────────── */
 
 export function findTaskByLabel(tasks, label) {
