@@ -5014,6 +5014,8 @@ function App() {
   const exportMenuRef = useRef(null);
   const mobileActionsRef = useRef(null);
   const mobileViewMenuRef = useRef(null);
+  const ganttViewMenuRef = useRef(null);
+  const ganttAnalysisMenuRef = useRef(null);
 
   // Router integration
   const params = useParams();
@@ -5114,6 +5116,8 @@ function App() {
   const [showDepLines, setShowDepLines] = useState(false);
   const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
   const [showRisks, setShowRisks] = useState(false);
+  const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis"
+  const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -5969,7 +5973,7 @@ function App() {
 
   /* ── Outside click for top/view dropdowns ────────────── */
   useEffect(() => {
-    if (!exportMenuOpen && !mobileActionsOpen && !mobileViewMenuOpen) return;
+    if (!exportMenuOpen && !mobileActionsOpen && !mobileViewMenuOpen && !ganttDropdown) return;
     const handler = (e) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
         setExportMenuOpen(false);
@@ -5980,10 +5984,15 @@ function App() {
       if (mobileViewMenuRef.current && !mobileViewMenuRef.current.contains(e.target)) {
         setMobileViewMenuOpen(false);
       }
+      if (ganttDropdown) {
+        const inView = ganttViewMenuRef.current?.contains(e.target);
+        const inAnalysis = ganttAnalysisMenuRef.current?.contains(e.target);
+        if (!inView && !inAnalysis) setGanttDropdown(null);
+      }
     };
     document.addEventListener("pointerdown", handler);
     return () => document.removeEventListener("pointerdown", handler);
-  }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen]);
+  }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, ganttDropdown]);
 
   /* ── Escape key handler ──────────────────────────────── */
   useEffect(() => {
@@ -6006,6 +6015,7 @@ function App() {
         if (presentMode) { setPresentMode(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (drawerOpen) { setDrawerOpen(false); return; }
+        if (ganttDropdown) { setGanttDropdown(null); return; }
         if (mobileViewMenuOpen) { setMobileViewMenuOpen(false); return; }
         if (mobileActionsOpen) { setMobileActionsOpen(false); return; }
         if (exportMenuOpen) { setExportMenuOpen(false); return; }
@@ -6013,7 +6023,7 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, ganttDropdown]);
 
   /* ── Style Toolbar ──────────────────────────────────── */
   const applyToolbarStyle = (nodeId, stylePatch) => {
@@ -6677,9 +6687,6 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setGanttScale("month"); setMobileViewMenuOpen(false); }}>
                     Month view
                   </button>
-                  <button className="dropdown-item" onClick={() => { setCompactMode((prev) => !prev); setMobileViewMenuOpen(false); }}>
-                    {compactMode ? "Expanded" : "Compact"}
-                  </button>
                   <button className="dropdown-item" onClick={() => { setPinCategories((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {pinCategories ? "Unpin labels" : "Pin labels"}
                   </button>
@@ -6702,60 +6709,51 @@ function App() {
             <span className="preview-hint desktop-only">
               {toolsetKey === "gantt" && (
                 <>
-                  <button
-                    className="date-toggle-btn"
-                    onClick={() => setShowGrid((prev) => !prev)}
-                  >
-                    {showGrid ? "Hide grid" : "Show grid"}
-                  </button>
-                  <button
-                    className="date-toggle-btn"
-                    onClick={() => setShowDates((prev) => !prev)}
-                  >
-                    {showDates ? "Hide dates" : "Show dates"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${ganttScale === "week" ? " active" : ""}`}
-                    onClick={() => setGanttScale("week")}
-                  >
-                    Week view
-                  </button>
-                  <button
-                    className={`date-toggle-btn${ganttScale === "month" ? " active" : ""}`}
-                    onClick={() => setGanttScale("month")}
-                  >
-                    Month view
-                  </button>
-                  <button
-                    className={`date-toggle-btn${compactMode ? " active" : ""}`}
-                    onClick={() => setCompactMode((prev) => !prev)}
-                  >
-                    {compactMode ? "Expanded" : "Compact"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${pinCategories ? " active" : ""}`}
-                    onClick={() => setPinCategories((prev) => !prev)}
-                  >
-                    {pinCategories ? "Unpin labels" : "Pin labels"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${showCriticalPath ? " active" : ""}`}
-                    onClick={() => setShowCriticalPath((prev) => !prev)}
-                  >
-                    {showCriticalPath ? "Hide critical path" : "Critical path"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${showDepLines ? " active" : ""}`}
-                    onClick={() => setShowDepLines((prev) => !prev)}
-                  >
-                    {showDepLines ? "Hide dep lines" : "Dep lines"}
-                  </button>
-                  <button
-                    className={`date-toggle-btn${showRisks ? " active" : ""}`}
-                    onClick={() => setShowRisks((prev) => !prev)}
-                  >
-                    {showRisks ? "Hide risks" : "Show risks"}
-                  </button>
+                  <div className="dropdown-wrap" ref={ganttViewMenuRef}>
+                    <button
+                      className={`date-toggle-btn${ganttDropdown === "view" ? " active" : ""}`}
+                      onClick={() => toggleGanttDropdown("view")}
+                    >
+                      View &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu${ganttDropdown === "view" ? " open" : ""}`}>
+                      <button className="dropdown-item" onClick={() => setGanttScale("week")}>
+                        <span className="dropdown-item-check">{ganttScale === "week" ? "\u2713" : ""}</span>Week view
+                      </button>
+                      <button className="dropdown-item" onClick={() => setGanttScale("month")}>
+                        <span className="dropdown-item-check">{ganttScale === "month" ? "\u2713" : ""}</span>Month view
+                      </button>
+                      <div className="dropdown-sep" />
+                      <button className="dropdown-item" onClick={() => setShowGrid((p) => !p)}>
+                        <span className="dropdown-item-check">{showGrid ? "\u2713" : ""}</span>Show grid
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowDates((p) => !p)}>
+                        <span className="dropdown-item-check">{showDates ? "\u2713" : ""}</span>Show dates
+                      </button>
+                      <button className="dropdown-item" onClick={() => setPinCategories((p) => !p)}>
+                        <span className="dropdown-item-check">{pinCategories ? "\u2713" : ""}</span>Pin labels
+                      </button>
+                    </div>
+                  </div>
+                  <div className="dropdown-wrap" ref={ganttAnalysisMenuRef}>
+                    <button
+                      className={`date-toggle-btn${ganttDropdown === "analysis" ? " active" : ""}`}
+                      onClick={() => toggleGanttDropdown("analysis")}
+                    >
+                      Analysis &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu${ganttDropdown === "analysis" ? " open" : ""}`}>
+                      <button className="dropdown-item" onClick={() => setShowCriticalPath((p) => !p)}>
+                        <span className="dropdown-item-check">{showCriticalPath ? "\u2713" : ""}</span>Critical path
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowDepLines((p) => !p)}>
+                        <span className="dropdown-item-check">{showDepLines ? "\u2713" : ""}</span>Dep lines
+                      </button>
+                      <button className="dropdown-item" onClick={() => setShowRisks((p) => !p)}>
+                        <span className="dropdown-item-check">{showRisks ? "\u2713" : ""}</span>Risk flags
+                      </button>
+                    </div>
+                  </div>
                   <button
                     className={`date-toggle-btn${executiveView ? " active" : ""}`}
                     onClick={() => setExecutiveView((prev) => !prev)}
