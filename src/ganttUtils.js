@@ -628,6 +628,21 @@ export function renameGanttSection(code, currentName, nextName) {
   return changed ? lines.join("\n") : code;
 }
 
+export function addGanttSection(code, sectionName) {
+  const name = String(sectionName || "").trim();
+  if (!name) return code;
+  const lines = String(code || "").split("\n");
+  const hasSection = lines.some((line) => {
+    const parsed = parseSectionHeader(line);
+    return parsed && parsed.name.toLowerCase() === name.toLowerCase();
+  });
+  if (hasSection) return code;
+
+  if (lines.length && lines[lines.length - 1].trim()) lines.push("");
+  lines.push(`section ${name}`);
+  return lines.join("\n");
+}
+
 export function moveGanttTaskToSection(code, task, targetSection) {
   if (!task) return code;
   const nextSection = String(targetSection || "").trim();

@@ -16,6 +16,7 @@ import {
   updateGanttLink,
   deleteGanttTask,
   insertGanttTaskAfter,
+  addGanttSection,
   getGanttSections,
   moveGanttTaskToSection,
   renameGanttSection,
@@ -269,6 +270,29 @@ function getIframeSrcDoc() {
         padding: 4px 8px;
         box-shadow: 10px 0 12px -12px rgba(15, 23, 42, 0.28);
       }
+      .mf-gantt-corner-label {
+        flex: 1;
+        min-width: 0;
+      }
+      .mf-gantt-add-section-btn {
+        border: 1px solid #cbd5e1;
+        background: rgba(255, 255, 255, 0.92);
+        color: #334155;
+        border-radius: 999px;
+        width: 22px;
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .mf-gantt-add-section-btn:hover {
+        background: #ffffff;
+        border-color: #94a3b8;
+      }
       .mf-gantt-timeline-header {
         position: sticky;
         top: 0;
@@ -294,6 +318,43 @@ function getIframeSrcDoc() {
         line-height: 1.4;
         overflow: hidden;
         box-shadow: 10px 0 12px -12px rgba(15, 23, 42, 0.25);
+      }
+      .mf-gantt-role-label-wrap {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+      }
+      .mf-gantt-role-label-wrap > span {
+        flex: 1;
+        min-width: 0;
+      }
+      .mf-gantt-section-edit-btn {
+        border: 1px solid #d5dbe8;
+        background: #f8fafc;
+        color: #64748b;
+        border-radius: 999px;
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+      }
+      .mf-gantt-section-edit-btn svg {
+        width: 11px;
+        height: 11px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+      }
+      .mf-gantt-section-edit-btn:hover {
+        background: #ffffff;
+        color: #334155;
+        border-color: #94a3b8;
       }
       .mf-gantt-track {
         border-bottom: 1px solid #e8ecf2;
@@ -1430,7 +1491,22 @@ function getIframeSrcDoc() {
         // === Header: Corner cell ===
         const corner = document.createElement("div");
         corner.className = "mf-gantt-corner";
-        corner.textContent = "Category / Phase";
+        const cornerLabel = document.createElement("span");
+        cornerLabel.className = "mf-gantt-corner-label";
+        cornerLabel.textContent = "Category / Phase";
+        corner.appendChild(cornerLabel);
+        const addSectionBtn = document.createElement("button");
+        addSectionBtn.type = "button";
+        addSectionBtn.className = "mf-gantt-add-section-btn";
+        addSectionBtn.setAttribute("aria-label", "Add category / phase");
+        addSectionBtn.setAttribute("title", "Add category / phase");
+        addSectionBtn.textContent = "+";
+        addSectionBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          send("gantt:add-section");
+        });
+        corner.appendChild(addSectionBtn);
         const headerHeight = scale === "month" ? 24 : 48;
         corner.style.height = headerHeight + "px";
         if (!pinCategories) corner.style.position = "relative";
@@ -1479,16 +1555,30 @@ function getIframeSrcDoc() {
           roleCell.className = "mf-gantt-role-cell";
           roleCell.style.height = trackHeight + "px";
           if (!pinCategories) roleCell.style.position = "relative";
+          const roleLabelWrap = document.createElement("div");
+          roleLabelWrap.className = "mf-gantt-role-label-wrap";
           const roleLabel = document.createElement("span");
           roleLabel.textContent = section;
-          roleLabel.title = "Double-click to rename category / phase";
-          roleLabel.style.cursor = "text";
-          roleLabel.addEventListener("dblclick", (event) => {
+          roleLabelWrap.appendChild(roleLabel);
+          const editSectionBtn = document.createElement("button");
+          editSectionBtn.type = "button";
+          editSectionBtn.className = "mf-gantt-section-edit-btn";
+          editSectionBtn.setAttribute("aria-label", "Edit category / phase");
+          editSectionBtn.setAttribute("title", "Edit category / phase");
+          const editIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          editIcon.setAttribute("viewBox", "0 0 24 24");
+          editIcon.setAttribute("aria-hidden", "true");
+          const editPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          editPath.setAttribute("d", "M4 20h4l10-10-4-4L4 16v4zm12-14l2 2");
+          editIcon.appendChild(editPath);
+          editSectionBtn.appendChild(editIcon);
+          editSectionBtn.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
             send("gantt:edit-section", { section });
           });
-          roleCell.appendChild(roleLabel);
+          roleLabelWrap.appendChild(editSectionBtn);
+          roleCell.appendChild(roleLabelWrap);
           // Insert (+) button per section
           const lastTask = sectionTasks[sectionTasks.length - 1];
           if (lastTask) {
@@ -4928,6 +5018,23 @@ function App() {
         if (!normalized || normalized === currentSection) return;
         setCode((prev) => renameGanttSection(prev, currentSection, normalized));
         setRenderMessage(`Renamed "${currentSection}" to "${normalized}"`);
+        return;
+      }
+
+      if (data.type === "gantt:add-section") {
+        const nextSection = window.prompt("New category / phase name");
+        if (nextSection == null) return;
+        const normalized = nextSection.trim();
+        if (!normalized) return;
+        const exists = getGanttSections(code).some(
+          (section) => section.name.toLowerCase() === normalized.toLowerCase()
+        );
+        if (exists) {
+          setRenderMessage(`Category "${normalized}" already exists`);
+          return;
+        }
+        setCode((prev) => addGanttSection(prev, normalized));
+        setRenderMessage(`Added category "${normalized}"`);
         return;
       }
 
