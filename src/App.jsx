@@ -16,6 +16,9 @@ import {
   updateGanttLink,
   deleteGanttTask,
   insertGanttTaskAfter,
+  getGanttSections,
+  moveGanttTaskToSection,
+  renameGanttSection,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
@@ -1478,6 +1481,13 @@ function getIframeSrcDoc() {
           if (!pinCategories) roleCell.style.position = "relative";
           const roleLabel = document.createElement("span");
           roleLabel.textContent = section;
+          roleLabel.title = "Double-click to rename category / phase";
+          roleLabel.style.cursor = "text";
+          roleLabel.addEventListener("dblclick", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            send("gantt:edit-section", { section });
+          });
           roleCell.appendChild(roleLabel);
           // Insert (+) button per section
           const lastTask = sectionTasks[sectionTasks.length - 1];
@@ -4260,6 +4270,7 @@ function App() {
     assignee: "",
     notes: "",
     link: "",
+    section: "",
   });
 
   // UI state
@@ -4297,6 +4308,38 @@ function App() {
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
   const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
+  const ganttSections = useMemo(() => {
+    const ordered = [];
+    const seen = new Set();
+    for (const section of getGanttSections(code)) {
+      const name = String(section?.name || "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ordered.push(name);
+    }
+    for (const task of ganttTasks) {
+      const name = String(task.section || "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ordered.push(name);
+    }
+    return ordered;
+  }, [code, ganttTasks]);
+  const ganttSectionOptions = useMemo(() => {
+    const options = [...ganttSections];
+    const selectedSection = String(ganttDraft.section || "").trim();
+    if (
+      selectedSection &&
+      !options.some((section) => section.toLowerCase() === selectedSection.toLowerCase())
+    ) {
+      options.push(selectedSection);
+    }
+    return options;
+  }, [ganttSections, ganttDraft.section]);
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
     return { direction: "TD", nodes: [], edges: [], subgraphs: [] };
@@ -4638,7 +4681,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "", section: "" });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -4655,6 +4698,7 @@ function App() {
       assignee: selectedGanttTask.assignee || "",
       notes: selectedGanttTask.notes || "",
       link: selectedGanttTask.link || "",
+      section: selectedGanttTask.section || "",
     });
   }, [selectedGanttTask]);
 
@@ -4872,6 +4916,18 @@ function App() {
       if (data.type === "gantt:zoom") {
         const delta = data.payload?.delta || 0;
         setGanttZoom((prev) => Math.max(0.2, Math.min(4, +(prev + delta).toFixed(1))));
+        return;
+      }
+
+      if (data.type === "gantt:edit-section") {
+        const currentSection = String(data.payload?.section || "").trim();
+        if (!currentSection) return;
+        const nextSection = window.prompt("Rename category / phase", currentSection);
+        if (nextSection == null) return;
+        const normalized = nextSection.trim();
+        if (!normalized || normalized === currentSection) return;
+        setCode((prev) => renameGanttSection(prev, currentSection, normalized));
+        setRenderMessage(`Renamed "${currentSection}" to "${normalized}"`);
         return;
       }
 
@@ -5146,9 +5202,22 @@ function App() {
       updated = updateGanttLink(updated, linkTask, ganttDraft.link.trim());
     }
 
+    // Move task to a different category / phase when changed
+    const sectionTasks = parseGanttTasks(updated);
+    const sectionTask = findTaskByLabel(sectionTasks, nextLabel);
+    if (sectionTask) {
+      updated = moveGanttTaskToSection(updated, sectionTask, ganttDraft.section);
+    }
+
+    const finalTasks = parseGanttTasks(updated);
+    const finalTask = findTaskByLabel(finalTasks, nextLabel);
+
     setCode(updated);
     setRenderMessage(`Updated "${nextLabel}"`);
-    setHighlightLine(selectedGanttTask.lineIndex + 1);
+    setHighlightLine(finalTask ? finalTask.lineIndex + 1 : null);
+    if (finalTask) {
+      setSelectedElement({ label: finalTask.label, id: "" });
+    }
   };
 
   const handleDeleteGanttTask = (label) => {
@@ -5826,6 +5895,20 @@ function App() {
             {selectedGanttTask ? (
               <>
                 <label>
+                  Category / phase
+                  <select
+                    value={ganttDraft.section}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, section: e.target.value }))}
+                  >
+                    <option value="">Unsectioned (Tasks)</option>
+                    {ganttSectionOptions.map((section) => (
+                      <option key={section} value={section}>
+                        {section}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
                   Task label
                   <input
                     value={ganttDraft.label}
@@ -6021,6 +6104,21 @@ function App() {
                     onChange={(e) => setGanttDraft((prev) => ({ ...prev, link: e.target.value }))}
                     placeholder="https://example.com/task"
                   />
+                </label>
+
+                <label>
+                  Category / phase
+                  <select
+                    value={ganttDraft.section}
+                    onChange={(e) => setGanttDraft((prev) => ({ ...prev, section: e.target.value }))}
+                  >
+                    <option value="">Unsectioned (Tasks)</option>
+                    {ganttSectionOptions.map((section) => (
+                      <option key={section} value={section}>
+                        {section}
+                      </option>
+                    ))}
+                  </select>
                 </label>
 
                 <label>

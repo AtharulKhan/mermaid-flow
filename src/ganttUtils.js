@@ -587,3 +587,85 @@ export function updateGanttNotes(code, task, notes) {
 export function updateGanttLink(code, task, link) {
   return updateGanttMetadataComment(code, task, "link", link);
 }
+
+function parseSectionHeader(line) {
+  const match = String(line || "").match(/^(\s*)section\s+(.+?)\s*$/i);
+  if (!match) return null;
+  return {
+    indent: match[1] || "",
+    name: (match[2] || "").trim(),
+  };
+}
+
+export function getGanttSections(code) {
+  const lines = String(code || "").split("\n");
+  const sections = [];
+  lines.forEach((line, lineIndex) => {
+    const parsed = parseSectionHeader(line);
+    if (!parsed || !parsed.name) return;
+    sections.push({
+      ...parsed,
+      lineIndex,
+    });
+  });
+  return sections;
+}
+
+export function renameGanttSection(code, currentName, nextName) {
+  const from = String(currentName || "").trim();
+  const to = String(nextName || "").trim();
+  if (!from || !to || from === to) return code;
+
+  const lines = String(code || "").split("\n");
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const parsed = parseSectionHeader(lines[i]);
+    if (!parsed) continue;
+    if (parsed.name.toLowerCase() !== from.toLowerCase()) continue;
+    lines[i] = `${parsed.indent}section ${to}`;
+    changed = true;
+  }
+  return changed ? lines.join("\n") : code;
+}
+
+export function moveGanttTaskToSection(code, task, targetSection) {
+  if (!task) return code;
+  const nextSection = String(targetSection || "").trim();
+  const currentSection = String(task.section || "").trim();
+  if (nextSection === currentSection) return code;
+
+  const lines = String(code || "").split("\n");
+  const taskEnd = findMetadataEndIndex(lines, task.lineIndex);
+  const taskBlock = lines.slice(task.lineIndex, taskEnd + 1);
+  lines.splice(task.lineIndex, taskEnd - task.lineIndex + 1);
+
+  if (!nextSection) {
+    const insertAt = lines.findIndex((line) => !!parseSectionHeader(line));
+    if (insertAt < 0) {
+      lines.push(...taskBlock);
+      return lines.join("\n");
+    }
+    lines.splice(insertAt, 0, ...taskBlock);
+    return lines.join("\n");
+  }
+
+  const sectionIndices = [];
+  lines.forEach((line, index) => {
+    const parsed = parseSectionHeader(line);
+    if (!parsed) return;
+    sectionIndices.push({ ...parsed, lineIndex: index });
+  });
+
+  const targetIdx = sectionIndices.findIndex((section) => section.name.toLowerCase() === nextSection.toLowerCase());
+  if (targetIdx < 0) {
+    if (lines.length && lines[lines.length - 1].trim()) lines.push("");
+    lines.push(`section ${nextSection}`, ...taskBlock);
+    return lines.join("\n");
+  }
+
+  const targetLine = sectionIndices[targetIdx].lineIndex;
+  const nextSectionLine = targetIdx + 1 < sectionIndices.length ? sectionIndices[targetIdx + 1].lineIndex : lines.length;
+  const insertAt = Math.max(targetLine + 1, nextSectionLine);
+  lines.splice(insertAt, 0, ...taskBlock);
+  return lines.join("\n");
+}
