@@ -403,13 +403,23 @@ function getIframeSrcDoc() {
         white-space: nowrap;
         pointer-events: none;
       }
+      .mf-bar-resize-handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 10px;
+        cursor: ew-resize;
+        z-index: 3;
+      }
+      .mf-bar-resize-handle.start { left: 0; }
+      .mf-bar-resize-handle.end { right: 0; }
       .bar-link-icon {
         position: absolute;
-        right: 5px;
+        right: 11px;
         top: 50%;
         transform: translateY(-50%);
-        width: 15px;
-        height: 15px;
+        width: 14px;
+        height: 14px;
         border-radius: 999px;
         border: 1px solid rgba(148, 163, 184, 0.45);
         background: rgba(255, 255, 255, 0.9);
@@ -419,6 +429,7 @@ function getIframeSrcDoc() {
         justify-content: center;
         padding: 0;
         cursor: pointer;
+        z-index: 5;
         transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease, border-color 0.12s ease;
       }
       .bar-link-icon svg {
@@ -1543,7 +1554,17 @@ function getIframeSrcDoc() {
             const rawTaskLink = String(task.link || "").trim();
             const openableTaskLink = buildOpenableTaskUrl(rawTaskLink);
             const hasTaskLink = Boolean(rawTaskLink);
-            bar.style.setProperty("--link-icon-width", hasTaskLink ? "20px" : "0px");
+            bar.style.setProperty("--link-icon-width", hasTaskLink ? "24px" : "0px");
+
+            if (!task.isMilestone) {
+              const startHandle = document.createElement("div");
+              startHandle.className = "mf-bar-resize-handle start";
+              startHandle.setAttribute("data-drag-mode", "resize-start");
+              const endHandle = document.createElement("div");
+              endHandle.className = "mf-bar-resize-handle end";
+              endHandle.setAttribute("data-drag-mode", "resize-end");
+              bar.append(startHandle, endHandle);
+            }
 
             // Bar label
             const labelSpan = document.createElement("span");
@@ -1608,7 +1629,7 @@ function getIframeSrcDoc() {
                 width -
                   16 -
                   (dateSuffixWidth ? dateSuffixWidth + 6 : 0) -
-                  (hasTaskLink ? 20 : 0)
+                  (hasTaskLink ? 24 : 0)
               );
               if (labelWidth > innerLabelWidth) {
                 const rightSpace = timelineWidth - (left + width);
@@ -1671,13 +1692,15 @@ function getIframeSrcDoc() {
             let dragInfo = null;
             bar.addEventListener("pointerdown", (e) => {
               if (e.button !== 0) return;
+              if (e.target.closest(".bar-link-icon")) return;
               e.preventDefault();
               const rect = bar.getBoundingClientRect();
               const relX = e.clientX - rect.left;
               const edgeZone = Math.max(rect.width * 0.15, 8);
-              let mode = "shift";
+              const explicitMode = e.target.closest(".mf-bar-resize-handle")?.getAttribute("data-drag-mode");
+              let mode = explicitMode || "shift";
               // Milestones only support shift (no resize)
-              if (!task.isMilestone) {
+              if (!task.isMilestone && !explicitMode) {
                 if (relX > rect.width - edgeZone) mode = "resize-end";
                 else if (relX < edgeZone) mode = "resize-start";
               }
