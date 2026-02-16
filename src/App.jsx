@@ -458,7 +458,6 @@ function getIframeSrcDoc() {
         overflow: visible;
         text-overflow: clip;
       }
-      .mf-gantt-bar.mf-bar-narrow .bar-date-suffix,
       .mf-gantt-bar.mf-label-outside .bar-date-suffix,
       .mf-gantt-bar.mf-label-outside-left .bar-date-suffix { display: none; }
       .bar-date-suffix {
@@ -1645,6 +1644,7 @@ function getIframeSrcDoc() {
 
             const bar = document.createElement("div");
             const isNarrow = width < 70;
+            const showsMetaSuffix = !task.isMilestone && showDates && !!task.startDate;
             let barLeft = left;
             let barPixelWidth = width;
 
@@ -1660,7 +1660,7 @@ function getIframeSrcDoc() {
               bar.style.height = diamondSize + "px";
               bar.style.top = top + "px";
             } else {
-              bar.className = "mf-gantt-bar " + barClass + (isNarrow ? " mf-bar-narrow" : "");
+              bar.className = "mf-gantt-bar " + barClass + (isNarrow && !showsMetaSuffix ? " mf-bar-narrow" : "");
               bar.style.left = left + "px";
               bar.style.width = width + "px";
               bar.style.top = top + "px";
@@ -1690,7 +1690,7 @@ function getIframeSrcDoc() {
 
             // Date suffix (not for milestones)
             let dateSuffixWidth = 0;
-            if (!task.isMilestone && showDates && task.startDate) {
+            if (showsMetaSuffix) {
               const dateSuffix = document.createElement("span");
               dateSuffix.className = "bar-date-suffix";
               const startStr = fmtShort(task.startDate);
@@ -1758,7 +1758,7 @@ function getIframeSrcDoc() {
                   (dateSuffixWidth ? dateSuffixWidth + 6 : 0) -
                   (hasTaskLink ? 24 : 0)
               );
-              if (labelWidth > innerLabelWidth) {
+              if (!showsMetaSuffix && labelWidth > innerLabelWidth) {
                 const rightSpace = timelineWidth - (left + width);
                 if (rightSpace >= labelWidth + 14) bar.classList.add("mf-label-outside");
                 else bar.classList.add("mf-label-outside-left");
