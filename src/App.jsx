@@ -31,7 +31,7 @@ import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeF
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
-import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError } from "./firebase/firestore";
+import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
@@ -836,6 +836,39 @@ function getIframeSrcDoc() {
       .mf-gantt-milestone.mf-dep-upstream-bar { filter: drop-shadow(0 0 4px #8b5cf6); }
       .mf-gantt-milestone.mf-dep-downstream-bar { filter: drop-shadow(0 0 4px #f97316); }
 
+      /* ── Baseline ghost bars ── */
+      .mf-gantt-baseline-bar {
+        position: absolute;
+        border-radius: 8px;
+        background: #94a3b8;
+        opacity: 0.22;
+        border: 1.5px dashed #64748b;
+        pointer-events: none;
+        box-sizing: border-box;
+        z-index: 0;
+      }
+      .mf-gantt-delta-badge {
+        position: absolute;
+        font-size: 9px;
+        font-weight: 700;
+        font-family: "Manrope", system-ui, sans-serif;
+        padding: 1px 4px;
+        border-radius: 4px;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 4;
+        line-height: 1.3;
+      }
+      .mf-gantt-delta-badge.mf-delta-late {
+        background: #fef2f2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+      }
+      .mf-gantt-delta-badge.mf-delta-early {
+        background: #f0fdf4;
+        color: #16a34a;
+        border: 1px solid #bbf7d0;
+      }
       /* ── Milestone diamond ── */
       .mf-gantt-milestone {
         position: absolute;
@@ -1433,6 +1466,21 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-gantt-vert-label {
         color: #60a5fa;
       }
+      [data-theme="dark"] .mf-gantt-baseline-bar {
+        background: #64748b;
+        opacity: 0.18;
+        border-color: #94a3b8;
+      }
+      [data-theme="dark"] .mf-gantt-delta-badge.mf-delta-late {
+        background: #451a1a;
+        color: #f87171;
+        border-color: #7f1d1d;
+      }
+      [data-theme="dark"] .mf-gantt-delta-badge.mf-delta-early {
+        background: #14331c;
+        color: #4ade80;
+        border-color: #166534;
+      }
       [data-theme="dark"] #mf-tooltip {
         background: #252838;
         color: #e4e6ed;
@@ -1865,7 +1913,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags, cycles) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags, cycles, baselineTasks) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1943,10 +1991,29 @@ function getIframeSrcDoc() {
           return { ...t, resolvedEnd };
         });
 
+        // Build baseline task lookup by label
+        const baselineByLabel = new Map();
+        if (baselineTasks && baselineTasks.length) {
+          for (const bt of baselineTasks) {
+            if (bt.label && !bt.isVertMarker) {
+              baselineByLabel.set(bt.label.toLowerCase(), bt);
+            }
+          }
+        }
+
         // Date range (include vert markers in range calculation)
         const allItems = [...enriched, ...vertTasks.map((t) => ({ startDate: t.startDate, resolvedEnd: t.startDate }))];
         const allStartMs = allItems.map((t) => isoToMs(t.startDate)).filter(Number.isFinite);
         const allEndMs = allItems.map((t) => isoToMs(t.resolvedEnd) || isoToMs(t.startDate)).filter(Number.isFinite);
+        // Expand date range to include baseline tasks
+        if (baselineByLabel.size) {
+          for (const bt of baselineByLabel.values()) {
+            const bsMs = isoToMs(bt.startDate);
+            const beMs = isoToMs(bt.computedEnd) || bsMs;
+            if (Number.isFinite(bsMs)) allStartMs.push(bsMs);
+            if (Number.isFinite(beMs)) allEndMs.push(beMs);
+          }
+        }
         if (!allStartMs.length) {
           canvas.textContent = "No dated tasks found.";
           return;
@@ -2190,6 +2257,41 @@ function getIframeSrcDoc() {
             const left = Math.round(((startMs - paddedMin) / dayMs) * pxPerDay);
             const width = Math.max(Math.round(pxPerDay), Math.round(((Math.max(endMs, startMs + dayMs) - startMs) / dayMs) * pxPerDay));
             const top = rowAssignments[idx] * rowHeight + barGap;
+
+            // Baseline ghost bar
+            const baselineTask = baselineByLabel.get((task.label || "").toLowerCase());
+            if (baselineTask && !task.isMilestone) {
+              const blStartMs = isoToMs(baselineTask.startDate);
+              const blEndMs = isoToMs(baselineTask.computedEnd) || blStartMs;
+              if (Number.isFinite(blStartMs)) {
+                const blLeft = Math.round(((blStartMs - paddedMin) / dayMs) * pxPerDay);
+                const blWidth = Math.max(Math.round(pxPerDay), Math.round(((Math.max(blEndMs, blStartMs + dayMs) - blStartMs) / dayMs) * pxPerDay));
+                const ghost = document.createElement("div");
+                ghost.className = "mf-gantt-baseline-bar";
+                ghost.style.left = blLeft + "px";
+                ghost.style.width = blWidth + "px";
+                ghost.style.top = top + "px";
+                ghost.style.height = barHeight + "px";
+                ghost.setAttribute("data-mf-tip", "Baseline: " + (baselineTask.startDate || "") + " – " + (baselineTask.computedEnd || ""));
+                track.appendChild(ghost);
+              }
+            }
+
+            // Delta badge (baseline vs current start date)
+            if (baselineTask && task.startDate && baselineTask.startDate) {
+              const baselineStartMs = isoToMs(baselineTask.startDate);
+              if (Number.isFinite(startMs) && Number.isFinite(baselineStartMs)) {
+                const deltaDays = Math.round((startMs - baselineStartMs) / dayMs);
+                if (deltaDays !== 0) {
+                  const badge = document.createElement("div");
+                  badge.className = "mf-gantt-delta-badge" + (deltaDays > 0 ? " mf-delta-late" : " mf-delta-early");
+                  badge.textContent = (deltaDays > 0 ? "+" : "") + deltaDays + "d";
+                  badge.style.top = (top - 12) + "px";
+                  badge.style.left = left + "px";
+                  track.appendChild(badge);
+                }
+              }
+            }
 
             // Status-based color
             const statuses = task.statusTokens || [];
@@ -5196,7 +5298,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {}, gd.cycles || []);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {}, gd.cycles || [], gd.baselineTasks || null);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -5422,6 +5524,9 @@ function App() {
   const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis"
   const [showChainView, setShowChainView] = useState(false);
   const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
+  const [baselineCode, setBaselineCode] = useState(null);
+  const [baselineSetAt, setBaselineSetAt] = useState(null);
+  const [showBaseline, setShowBaseline] = useState(true);
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -5470,6 +5575,32 @@ function App() {
     }
     return ordered;
   }, [code, ganttTasks, toolsetKey]);
+  const baselineTasks = useMemo(() => {
+    if (!baselineCode) return null;
+    const dirs = parseGanttDirectives(baselineCode);
+    const raw = resolveDependencies(parseGanttTasks(baselineCode));
+    return raw.map((t) => {
+      const effectiveStart = t.startDate || t.resolvedStartDate || "";
+      let computedEnd = t.endDate || t.resolvedEndDate || "";
+      if (!computedEnd && effectiveStart && t.durationDays) {
+        computedEnd = dirs.excludes.length
+          ? addWorkingDays(effectiveStart, t.durationDays, dirs.excludes, dirs.weekend)
+          : (() => {
+              const d = new Date(effectiveStart + "T00:00:00Z");
+              d.setUTCDate(d.getUTCDate() + t.durationDays);
+              return d.toISOString().slice(0, 10);
+            })();
+      }
+      return {
+        label: t.label,
+        startDate: effectiveStart,
+        computedEnd,
+        section: t.section || "",
+        isMilestone: t.isMilestone || false,
+        isVertMarker: t.isVertMarker || false,
+      };
+    });
+  }, [baselineCode]);
   const ganttSections = useMemo(() => {
     const ordered = [];
     const seen = new Set();
@@ -5730,6 +5861,7 @@ function App() {
       showRisks,
       riskFlags: showRisks ? computeRiskFlags(enrichedTasks) : {},
       cycles,
+      baselineTasks: showBaseline ? baselineTasks : null,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -5800,6 +5932,8 @@ function App() {
           setCode(flow.code || DEFAULT_CODE);
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
+          setBaselineCode(flow.baselineCode || null);
+          setBaselineSetAt(flow.baselineSetAt || null);
           // Delay marking loaded so the auto-save doesn't fire on initial load
           window.setTimeout(() => { flowLoadedRef.current = true; }, 3000);
         } else {
@@ -6284,7 +6418,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, toolsetKey]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, toolsetKey, showBaseline, baselineTasks]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -7052,6 +7186,41 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setExecutiveView((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {executiveView ? "All tasks" : "Executive"}
                   </button>
+                  {flowId && baselineCode && (
+                    <button className="dropdown-item" onClick={() => { setShowBaseline((prev) => !prev); setMobileViewMenuOpen(false); }}>
+                      {showBaseline ? "Hide baseline" : "Show baseline"}
+                    </button>
+                  )}
+                  {flowId && canEditCurrentFlow && (
+                    <button className="dropdown-item" onClick={async () => {
+                      try {
+                        await setFlowBaseline(flowId, code);
+                        setBaselineCode(code);
+                        setBaselineSetAt(new Date());
+                        setShowBaseline(true);
+                      } catch (err) {
+                        console.warn("Set baseline failed:", formatFirestoreError(err));
+                      }
+                      setMobileViewMenuOpen(false);
+                    }}>
+                      {baselineCode ? "Update baseline" : "Set baseline"}
+                    </button>
+                  )}
+                  {flowId && canEditCurrentFlow && baselineCode && (
+                    <button className="dropdown-item" onClick={async () => {
+                      try {
+                        await clearFlowBaseline(flowId);
+                        setBaselineCode(null);
+                        setBaselineSetAt(null);
+                        setShowBaseline(false);
+                      } catch (err) {
+                        console.warn("Clear baseline failed:", formatFirestoreError(err));
+                      }
+                      setMobileViewMenuOpen(false);
+                    }}>
+                      Clear baseline
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -7112,6 +7281,73 @@ function App() {
                   >
                     {executiveView ? "All tasks" : "Executive"}
                   </button>
+                  {flowId && (
+                    <>
+                      <span style={{ display: "inline-block", width: 1, height: 16, background: "var(--line)", margin: "0 4px", verticalAlign: "middle" }} />
+                      {baselineCode ? (
+                        <>
+                          <button
+                            className={`date-toggle-btn${showBaseline ? " active" : ""}`}
+                            onClick={() => setShowBaseline((prev) => !prev)}
+                          >
+                            {showBaseline ? "Hide baseline" : "Show baseline"}
+                          </button>
+                          {canEditCurrentFlow && (
+                            <>
+                              <button
+                                className="date-toggle-btn"
+                                onClick={async () => {
+                                  try {
+                                    await setFlowBaseline(flowId, code);
+                                    setBaselineCode(code);
+                                    setBaselineSetAt(new Date());
+                                    setShowBaseline(true);
+                                  } catch (err) {
+                                    console.warn("Set baseline failed:", formatFirestoreError(err));
+                                  }
+                                }}
+                              >
+                                Update baseline
+                              </button>
+                              <button
+                                className="date-toggle-btn"
+                                onClick={async () => {
+                                  try {
+                                    await clearFlowBaseline(flowId);
+                                    setBaselineCode(null);
+                                    setBaselineSetAt(null);
+                                    setShowBaseline(false);
+                                  } catch (err) {
+                                    console.warn("Clear baseline failed:", formatFirestoreError(err));
+                                  }
+                                }}
+                              >
+                                Clear baseline
+                              </button>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        canEditCurrentFlow && (
+                          <button
+                            className="date-toggle-btn"
+                            onClick={async () => {
+                              try {
+                                await setFlowBaseline(flowId, code);
+                                setBaselineCode(code);
+                                setBaselineSetAt(new Date());
+                                setShowBaseline(true);
+                              } catch (err) {
+                                console.warn("Set baseline failed:", formatFirestoreError(err));
+                              }
+                            }}
+                          >
+                            Set baseline
+                          </button>
+                        )
+                      )}
+                    </>
+                  )}
                 </>
               )}
               Click, right-click, and drag to edit

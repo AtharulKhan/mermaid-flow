@@ -347,6 +347,26 @@ export async function updateFlow(flowId, updates) {
   });
 }
 
+export async function setFlowBaseline(flowId, baselineCode) {
+  return runFirestoreOperation("setFlowBaseline", { flowId }, async () => {
+    await updateDoc(doc(db, "flows", flowId), {
+      baselineCode,
+      baselineSetAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function clearFlowBaseline(flowId) {
+  return runFirestoreOperation("clearFlowBaseline", { flowId }, async () => {
+    await updateDoc(doc(db, "flows", flowId), {
+      baselineCode: null,
+      baselineSetAt: null,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function deleteFlow(flowId) {
   // Delete comments and versions subcollections in batches
   const [commentsSnap, versionsSnap] = await Promise.all([
