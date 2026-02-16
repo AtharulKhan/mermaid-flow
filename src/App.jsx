@@ -404,13 +404,17 @@ function getIframeSrcDoc() {
       .mf-bar-activeCrit { background: #dc2626; }
       .mf-bar-doneCrit   { background: #16a34a; }
       .mf-bar-critical-path {
-        box-shadow: 0 0 0 2.5px #ef4444, 0 0 8px rgba(239, 68, 68, 0.3);
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
         z-index: 2;
+        outline: 2px solid #ef4444;
+        outline-offset: 1px;
       }
       .mf-gantt-milestone.mf-bar-critical-path {
-        box-shadow: 0 0 0 2.5px #ef4444, 0 0 8px rgba(239, 68, 68, 0.3);
+        box-shadow: 0 0 0 2.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
+        outline: 2px solid #ef4444;
+        outline-offset: 1px;
       }
-      .mf-bar-dimmed { opacity: 0.35; }
+      .mf-bar-dimmed { opacity: 0.3; }
       .mf-gantt-bar:not(.mf-bar-default) .bar-label { color: #ffffff; }
       .mf-gantt-bar.mf-bar-active .bar-label {
         color: #1f2937;
@@ -493,6 +497,39 @@ function getIframeSrcDoc() {
       }
       .mf-bar-resize-handle.start { left: 0; }
       .mf-bar-resize-handle.end { right: 0; }
+      .mf-dep-connector {
+        position: absolute;
+        right: -6px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #94a3b8;
+        border: 2px solid #fff;
+        cursor: crosshair;
+        z-index: 5;
+        opacity: 0;
+        transition: opacity 0.15s;
+        pointer-events: auto;
+      }
+      .mf-gantt-bar:hover .mf-dep-connector,
+      .mf-gantt-milestone:hover .mf-dep-connector { opacity: 1; }
+      .mf-dep-connector:hover { background: #3b82f6; transform: translateY(-50%) scale(1.2); }
+      [data-theme="dark"] .mf-dep-connector { background: #6b7280; border-color: #1c1f2b; }
+      [data-theme="dark"] .mf-dep-connector:hover { background: #60a5fa; }
+      .mf-gantt-bar.mf-dep-drop-target,
+      .mf-gantt-milestone.mf-dep-drop-target {
+        outline: 2px solid #3b82f6;
+        outline-offset: 2px;
+      }
+      .mf-dep-drag-line {
+        pointer-events: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 10;
+      }
       .bar-link-icon {
         position: absolute;
         right: 11px;
@@ -1141,13 +1178,17 @@ function getIframeSrcDoc() {
       }
       [data-theme="dark"] .mf-bar-default { background: #3a3f52; }
       [data-theme="dark"] .mf-bar-critical-path {
-        box-shadow: 0 0 0 2.5px #f87171, 0 0 8px rgba(248, 113, 113, 0.4);
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+        outline: 2px solid #f87171;
+        outline-offset: 1px;
       }
       [data-theme="dark"] .mf-gantt-milestone.mf-bar-critical-path {
-        box-shadow: 0 0 0 2.5px #f87171, 0 0 8px rgba(248, 113, 113, 0.4);
+        box-shadow: 0 0 0 2.5px #f87171, 0 0 12px rgba(248, 113, 113, 0.5);
+        outline: 2px solid #f87171;
+        outline-offset: 1px;
       }
-      [data-theme="dark"] .mf-dep-lines-svg path { stroke: #9ca3af; }
-      [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #9ca3af; }
+      [data-theme="dark"] .mf-dep-lines-svg path { stroke: #6b7280; }
+      [data-theme="dark"] .mf-dep-lines-svg marker path { fill: #6b7280; }
       [data-theme="dark"] .mf-gantt-excluded-day {
         background: rgba(255,255,255,0.03);
       }
@@ -1846,6 +1887,78 @@ function getIframeSrcDoc() {
               bar.append(startHandle, endHandle);
             }
 
+            // Dependency connector handle (drag from this to create a dependency)
+            const depConn = document.createElement("div");
+            depConn.className = "mf-dep-connector";
+            depConn.setAttribute("title", "Drag to create dependency");
+            bar.appendChild(depConn);
+
+            depConn.addEventListener("pointerdown", (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const fromId = task.idToken || task.label || "";
+              const fromLabel = task.label || "";
+              const connRect = depConn.getBoundingClientRect();
+              const canvasRect = canvas.getBoundingClientRect();
+              const startX = connRect.left + connRect.width / 2 - canvasRect.left + canvas.scrollLeft;
+              const startY = connRect.top + connRect.height / 2 - canvasRect.top + canvas.scrollTop;
+
+              // Create temporary SVG drag line
+              const svgNS = "http://www.w3.org/2000/svg";
+              const dragSvg = document.createElementNS(svgNS, "svg");
+              dragSvg.className = "mf-dep-drag-line";
+              dragSvg.style.width = canvas.scrollWidth + "px";
+              dragSvg.style.height = canvas.scrollHeight + "px";
+              const dragLine = document.createElementNS(svgNS, "line");
+              dragLine.setAttribute("x1", startX);
+              dragLine.setAttribute("y1", startY);
+              dragLine.setAttribute("x2", startX);
+              dragLine.setAttribute("y2", startY);
+              dragLine.setAttribute("stroke", "#3b82f6");
+              dragLine.setAttribute("stroke-width", "2");
+              dragLine.setAttribute("stroke-dasharray", "6 3");
+              dragSvg.appendChild(dragLine);
+              canvas.querySelector(".mf-gantt-container").appendChild(dragSvg);
+
+              let currentTarget = null;
+
+              const onMove = (ev) => {
+                const mx = ev.clientX - canvasRect.left + canvas.scrollLeft;
+                const my = ev.clientY - canvasRect.top + canvas.scrollTop;
+                dragLine.setAttribute("x2", mx);
+                dragLine.setAttribute("y2", my);
+
+                // Highlight drop target
+                const el = document.elementFromPoint(ev.clientX, ev.clientY);
+                const targetBar = el?.closest(".mf-gantt-bar, .mf-gantt-milestone");
+                if (currentTarget && currentTarget !== targetBar) {
+                  currentTarget.classList.remove("mf-dep-drop-target");
+                }
+                if (targetBar && targetBar !== bar) {
+                  targetBar.classList.add("mf-dep-drop-target");
+                  currentTarget = targetBar;
+                } else {
+                  currentTarget = null;
+                }
+              };
+
+              const onUp = (ev) => {
+                document.removeEventListener("pointermove", onMove);
+                document.removeEventListener("pointerup", onUp);
+                dragSvg.remove();
+                if (currentTarget) {
+                  currentTarget.classList.remove("mf-dep-drop-target");
+                  const targetLabel = currentTarget.getAttribute("data-label") || "";
+                  if (targetLabel && targetLabel !== fromLabel) {
+                    send("gantt:dep-created", { fromId, fromLabel, targetLabel });
+                  }
+                }
+              };
+
+              document.addEventListener("pointermove", onMove);
+              document.addEventListener("pointerup", onUp);
+            });
+
             // Bar label
             const labelSpan = document.createElement("span");
             labelSpan.className = "bar-label";
@@ -2001,6 +2114,7 @@ function getIframeSrcDoc() {
             bar.addEventListener("pointerdown", (e) => {
               if (e.button !== 0) return;
               if (e.target.closest(".bar-link-icon")) return;
+              if (e.target.closest(".mf-dep-connector")) return;
               e.preventDefault();
               const rect = bar.getBoundingClientRect();
               const relX = e.clientX - rect.left;
@@ -2101,22 +2215,34 @@ function getIframeSrcDoc() {
           svg.style.pointerEvents = "none";
           svg.style.zIndex = "3";
 
-          // Arrowhead marker
+          // Arrowhead markers
           const defs = document.createElementNS(svgNS, "defs");
-          const marker = document.createElementNS(svgNS, "marker");
-          marker.setAttribute("id", "dep-arrow");
-          marker.setAttribute("viewBox", "0 0 10 10");
-          marker.setAttribute("refX", "9");
-          marker.setAttribute("refY", "5");
-          marker.setAttribute("markerWidth", "6");
-          marker.setAttribute("markerHeight", "6");
-          marker.setAttribute("orient", "auto-start-reverse");
-          const arrowPath = document.createElementNS(svgNS, "path");
-          arrowPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-          arrowPath.setAttribute("fill", "#6b7280");
-          marker.appendChild(arrowPath);
-          defs.appendChild(marker);
+          const makeMarker = (id, color) => {
+            const m = document.createElementNS(svgNS, "marker");
+            m.setAttribute("id", id);
+            m.setAttribute("viewBox", "0 0 10 10");
+            m.setAttribute("refX", "9");
+            m.setAttribute("refY", "5");
+            m.setAttribute("markerWidth", "6");
+            m.setAttribute("markerHeight", "6");
+            m.setAttribute("orient", "auto-start-reverse");
+            const p = document.createElementNS(svgNS, "path");
+            p.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+            p.setAttribute("fill", color);
+            m.appendChild(p);
+            return m;
+          };
+          defs.appendChild(makeMarker("dep-arrow", "#94a3b8"));
+          defs.appendChild(makeMarker("dep-arrow-cp", "#ef4444"));
           svg.appendChild(defs);
+
+          // Build critical path set for coloring arrows
+          const cpSet = new Set();
+          if (showCriticalPath) {
+            for (const t of enriched) {
+              if (t.isCriticalPath) cpSet.add((t.idToken || t.label || "").toLowerCase());
+            }
+          }
 
           const allRegularTasks = enriched;
           for (const task of allRegularTasks) {
@@ -2130,24 +2256,35 @@ function getIframeSrcDoc() {
               const fromPos = barPositions.get(fromKey);
               if (!fromPos) continue;
 
-              const x1 = fromPos.right;
+              // Arrow: predecessor right edge → dependent left edge
+              const x1 = fromPos.right + 2;
               const y1 = fromPos.centerY;
-              const x2 = toPos.left;
+              const x2 = toPos.left - 2;
               const y2 = toPos.centerY;
+              const isCpEdge = showCriticalPath && cpSet.has(fromKey) && cpSet.has(toKey);
 
               const path = document.createElementNS(svgNS, "path");
               if (Math.abs(y1 - y2) < 2) {
-                // Horizontal: straight line
                 path.setAttribute("d", "M " + x1 + " " + y1 + " L " + x2 + " " + y2);
               } else {
-                // Curved: horizontal out, curve down/up, horizontal in
-                const midX = x1 + (x2 - x1) * 0.5;
-                path.setAttribute("d", "M " + x1 + " " + y1 + " C " + midX + " " + y1 + " " + midX + " " + y2 + " " + x2 + " " + y2);
+                // Step-curve: go right, then down/up, then right to target
+                const gapX = x2 - x1;
+                if (gapX > 20) {
+                  // Normal: gentle S-curve
+                  const cx1 = x1 + gapX * 0.4;
+                  const cx2 = x2 - gapX * 0.4;
+                  path.setAttribute("d", "M " + x1 + " " + y1 + " C " + cx1 + " " + y1 + " " + cx2 + " " + y2 + " " + x2 + " " + y2);
+                } else {
+                  // Overlapping: route below/above with elbow
+                  const detour = 16;
+                  const midY = y1 < y2 ? Math.max(y1, y2) + detour : Math.min(y1, y2) - detour;
+                  path.setAttribute("d", "M " + x1 + " " + y1 + " C " + (x1 + detour) + " " + y1 + " " + (x1 + detour) + " " + midY + " " + ((x1 + x2) / 2) + " " + midY + " S " + (x2 - detour) + " " + y2 + " " + x2 + " " + y2);
+                }
               }
-              path.setAttribute("stroke", "#6b7280");
-              path.setAttribute("stroke-width", "1.5");
+              path.setAttribute("stroke", isCpEdge ? "#ef4444" : "#94a3b8");
+              path.setAttribute("stroke-width", isCpEdge ? "2" : "1.5");
               path.setAttribute("fill", "none");
-              path.setAttribute("marker-end", "url(#dep-arrow)");
+              path.setAttribute("marker-end", isCpEdge ? "url(#dep-arrow-cp)" : "url(#dep-arrow)");
               svg.appendChild(path);
             }
           }
@@ -5394,6 +5531,35 @@ function App() {
           setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
         }
         setHighlightLine(task.lineIndex + 1);
+      }
+
+      if (data.type === "gantt:dep-created") {
+        const { fromId, fromLabel, targetLabel } = data.payload || {};
+        if (!fromLabel || !targetLabel) return;
+        // Find the target task (the one that will depend on fromId)
+        const targetTask = findTaskByLabel(ganttTasks, targetLabel);
+        if (!targetTask) {
+          setRenderMessage("Could not find target task");
+          return;
+        }
+        // Resolve the fromId: use idToken if available, otherwise label
+        const fromTask = findTaskByLabel(ganttTasks, fromLabel);
+        const resolvedFromId = fromTask ? (fromTask.idToken || fromTask.label) : fromId;
+        // Add the dependency: target task now depends on from task
+        const existingDeps = targetTask.afterDeps || [];
+        if (existingDeps.map((d) => d.toLowerCase()).includes(resolvedFromId.toLowerCase())) {
+          setRenderMessage(`"${targetLabel}" already depends on "${fromLabel}"`);
+          return;
+        }
+        const newDeps = [...existingDeps, resolvedFromId];
+        setCode((prev) => {
+          const freshTasks = parseGanttTasks(prev);
+          const freshTarget = findTaskByLabel(freshTasks, targetLabel);
+          if (!freshTarget) return prev;
+          return updateGanttDependency(prev, freshTarget, newDeps);
+        });
+        setRenderMessage(`Added dependency: "${targetLabel}" now depends on "${fromLabel}"`);
+        setHighlightLine(targetTask.lineIndex + 1);
       }
 
       if (data.type === "gantt:add-between") {
