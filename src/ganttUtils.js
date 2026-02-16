@@ -786,6 +786,26 @@ export function toggleGanttStatus(code, task, flag) {
   return lines.join("\n");
 }
 
+export function toggleGanttMilestone(code, task, shouldBeMilestone) {
+  if (!task) return code;
+  const lines = code.split("\n");
+  const nextTokens = [...task.tokens];
+  const milestoneIdx = nextTokens.findIndex((t) => t.toLowerCase() === "milestone");
+  const hasMilestone = milestoneIdx >= 0;
+
+  if (shouldBeMilestone && !hasMilestone) {
+    // Insert "milestone" at the beginning of tokens (before status tokens)
+    nextTokens.unshift("milestone");
+  } else if (!shouldBeMilestone && hasMilestone) {
+    nextTokens.splice(milestoneIdx, 1);
+  } else {
+    return code; // no change needed
+  }
+
+  lines[task.lineIndex] = `${task.indent}${task.label} :${nextTokens.join(", ")}`;
+  return lines.join("\n");
+}
+
 export function clearGanttStatus(code, task) {
   if (!task || !task.statusIndices.length) return code;
   const lines = code.split("\n");

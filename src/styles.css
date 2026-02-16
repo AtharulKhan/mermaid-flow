@@ -1128,6 +1128,35 @@ input:focus {
   color: #991b1b;
 }
 
+/* ── Milestone toggle ─────────────────────────────────── */
+.milestone-toggle-row {
+  margin-top: 8px;
+}
+.milestone-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+}
+.milestone-toggle-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.milestone-diamond {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  transform: rotate(45deg);
+  border-radius: 1px;
+  opacity: 0.7;
+}
+
 /* ── Context Menu ──────────────────────────────────────── */
 .context-menu-backdrop {
   position: fixed;
