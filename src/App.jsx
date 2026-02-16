@@ -21,6 +21,7 @@ import {
   moveGanttTaskToSection,
   renameGanttSection,
   computeCriticalPath,
+  updateGanttDependency,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
@@ -4567,6 +4568,7 @@ function App() {
     notes: "",
     link: "",
     section: "",
+    dependsOn: [],
   });
 
   // UI state
@@ -4997,7 +4999,7 @@ function App() {
   /* ── Gantt draft sync ────────────────────────────────── */
   useEffect(() => {
     if (!selectedGanttTask) {
-      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "", section: "" });
+      setGanttDraft({ label: "", startDate: "", endDate: "", status: [], assignee: "", notes: "", link: "", section: "", dependsOn: [] });
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
@@ -5015,6 +5017,7 @@ function App() {
       notes: selectedGanttTask.notes || "",
       link: selectedGanttTask.link || "",
       section: selectedGanttTask.section || "",
+      dependsOn: selectedGanttTask.afterDeps || [],
     });
   }, [selectedGanttTask]);
 
@@ -5533,6 +5536,13 @@ function App() {
     const linkTask = findTaskByLabel(linkTasks, nextLabel);
     if (linkTask) {
       updated = updateGanttLink(updated, linkTask, ganttDraft.link.trim());
+    }
+
+    // Apply dependency changes
+    const depTasks = parseGanttTasks(updated);
+    const depTask = findTaskByLabel(depTasks, nextLabel);
+    if (depTask) {
+      updated = updateGanttDependency(updated, depTask, ganttDraft.dependsOn);
     }
 
     // Move task to a different category / phase when changed
@@ -6497,6 +6507,49 @@ function App() {
                     />
                   </label>
                 </div>
+
+                <label>
+                  Depends on
+                  <div className="dep-picker">
+                    {ganttDraft.dependsOn.map((depId) => {
+                      const depTask = ganttTasks.find((t) => (t.idToken || "").toLowerCase() === depId.toLowerCase() || (t.label || "").toLowerCase() === depId.toLowerCase());
+                      return (
+                        <span className="dep-pill" key={depId}>
+                          {depTask ? depTask.label : depId}
+                          <button
+                            type="button"
+                            onClick={() => setGanttDraft((prev) => ({ ...prev, dependsOn: prev.dependsOn.filter((d) => d !== depId) }))}
+                          >
+                            &times;
+                          </button>
+                        </span>
+                      );
+                    })}
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!val) return;
+                        setGanttDraft((prev) => ({
+                          ...prev,
+                          dependsOn: prev.dependsOn.includes(val) ? prev.dependsOn : [...prev.dependsOn, val],
+                        }));
+                      }}
+                    >
+                      <option value="">+ Add dependency...</option>
+                      {ganttTasks
+                        .filter((t) => !t.isVertMarker && t.label !== (task?.label || contextMenu.label) && !ganttDraft.dependsOn.includes(t.idToken || t.label))
+                        .map((t) => {
+                          const id = t.idToken || t.label;
+                          return (
+                            <option key={id} value={id}>
+                              {t.label}{t.idToken && t.idToken !== t.label ? ` (${t.idToken})` : ""}
+                            </option>
+                          );
+                        })}
+                    </select>
+                  </div>
+                </label>
 
                 <label>
                   Notes
