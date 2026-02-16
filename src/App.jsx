@@ -451,11 +451,9 @@ function getIframeSrcDoc() {
         overflow: visible;
         text-overflow: clip;
       }
-      .mf-gantt-bar.mf-label-outside .bar-date-suffix,
-      .mf-gantt-bar.mf-label-outside-left .bar-date-suffix { display: none; }
       .bar-date-suffix {
-        color: #cbd5e1;
-        font-size: 10px;
+        color: rgba(148, 163, 184, 0.78);
+        font-size: 9.5px;
         font-weight: 400;
         position: absolute;
         right: calc(8px + var(--link-icon-width, 0px));
@@ -463,7 +461,6 @@ function getIframeSrcDoc() {
         transform: translateY(-50%);
         white-space: nowrap;
         pointer-events: none;
-        text-shadow: 0 1px 1px rgba(15, 23, 42, 0.42);
       }
       .mf-bar-resize-handle {
         position: absolute;
@@ -1752,7 +1749,7 @@ function getIframeSrcDoc() {
                   (dateSuffixWidth ? dateSuffixWidth + 6 : 0) -
                   (hasTaskLink ? 24 : 0)
               );
-              if (!showsMetaSuffix && labelWidth > innerLabelWidth) {
+              if (labelWidth > innerLabelWidth) {
                 const rightSpace = timelineWidth - (left + width);
                 if (rightSpace >= labelWidth + 14) bar.classList.add("mf-label-outside");
                 else bar.classList.add("mf-label-outside-left");
