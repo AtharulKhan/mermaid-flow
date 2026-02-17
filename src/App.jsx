@@ -1570,6 +1570,7 @@ function getIframeSrcDoc() {
         position: relative;
         margin: 24px auto;
         min-height: 200px;
+        background: var(--panel, #ffffff);
       }
       .mf-seq-actor {
         display: flex;
@@ -5701,9 +5702,8 @@ function getIframeSrcDoc() {
           }
         }
 
-        // Draw block overlays (alt/loop/opt/break/par)
+        // Draw block overlays (alt/loop/opt/break/par) — minimal: left bar + label only
         for (const block of (blocks || [])) {
-          // Find the message range this block covers
           const startMsgIdx = messages.findIndex((m) => m.lineIndex > block.startLine);
           let endMsgIdx = messages.length - 1;
           if (block.endLine >= 0) {
@@ -5715,39 +5715,30 @@ function getIframeSrcDoc() {
 
           const y1 = msgStartY + startMsgIdx * rowHeight - 16;
           const y2 = msgStartY + (endMsgIdx + 1) * rowHeight + 8;
-          const blockInset = MARGIN / 2 + block.depth * 10;
-          const bx = blockInset;
-          const bw = totalWidth - blockInset * 2;
+          const barX = MARGIN / 2 + block.depth * 6;
 
-          const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-          rect.setAttribute("x", bx);
-          rect.setAttribute("y", y1);
-          rect.setAttribute("width", bw);
-          rect.setAttribute("height", y2 - y1);
-          rect.setAttribute("rx", "6");
-          rect.setAttribute("fill", "rgba(37, 99, 235, 0.02)");
-          rect.setAttribute("stroke", "var(--border, #d1d5db)");
-          rect.setAttribute("stroke-width", "1");
-          svg.appendChild(rect);
+          // Thin left accent bar instead of full border rectangle
+          const bar = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          bar.setAttribute("x1", barX);
+          bar.setAttribute("y1", y1);
+          bar.setAttribute("x2", barX);
+          bar.setAttribute("y2", y2);
+          bar.setAttribute("stroke", "var(--border, #d1d5db)");
+          bar.setAttribute("stroke-width", "2");
+          bar.setAttribute("stroke-linecap", "round");
+          svg.appendChild(bar);
 
-          // Block type label (pill badge)
+          // Block type label (small inline text next to bar)
           const labelText = block.type + (block.label ? " " + block.label : "");
           const blkLabelEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
-          blkLabelEl.setAttribute("x", bx + 8);
-          blkLabelEl.setAttribute("y", y1 + 15);
+          blkLabelEl.setAttribute("x", barX + 8);
+          blkLabelEl.setAttribute("y", y1 + 4);
           blkLabelEl.setAttribute("font-size", "10");
           blkLabelEl.setAttribute("font-weight", "600");
-          blkLabelEl.setAttribute("fill", "var(--ink-soft, #6b7280)");
+          blkLabelEl.setAttribute("fill", "var(--ink-soft, #9ca3af)");
           blkLabelEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
           blkLabelEl.textContent = labelText;
-          const blkLabelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-          blkLabelBg.setAttribute("rx", "3");
-          blkLabelBg.setAttribute("fill", "var(--panel, #f9fafb)");
-          blkLabelBg.setAttribute("stroke", "var(--border, #d1d5db)");
-          blkLabelBg.setAttribute("stroke-width", "0.5");
-          svg.appendChild(blkLabelBg);
           svg.appendChild(blkLabelEl);
-          labelPairs.push({ bg: blkLabelBg, text: blkLabelEl, padX: 8, padY: 3 });
 
           // Divider lines (else / and)
           for (const div of (block.dividers || [])) {
@@ -5755,20 +5746,20 @@ function getIframeSrcDoc() {
             if (divMsgIdx < 0) continue;
             const divY = msgStartY + divMsgIdx * rowHeight - 12;
             const divLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            divLine.setAttribute("x1", bx);
+            divLine.setAttribute("x1", barX);
             divLine.setAttribute("y1", divY);
-            divLine.setAttribute("x2", bx + bw);
+            divLine.setAttribute("x2", totalWidth - barX);
             divLine.setAttribute("y2", divY);
-            divLine.setAttribute("stroke", "var(--border, #ccc)");
+            divLine.setAttribute("stroke", "var(--border, #e5e7eb)");
             divLine.setAttribute("stroke-dasharray", "4,3");
             svg.appendChild(divLine);
 
             if (div.label) {
               const dLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
-              dLabel.setAttribute("x", bx + 6);
+              dLabel.setAttribute("x", barX + 8);
               dLabel.setAttribute("y", divY - 3);
               dLabel.setAttribute("font-size", "10");
-              dLabel.setAttribute("fill", "var(--ink-soft, #666)");
+              dLabel.setAttribute("fill", "var(--ink-soft, #9ca3af)");
               dLabel.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
               dLabel.textContent = "[" + div.label + "]";
               svg.appendChild(dLabel);
@@ -5794,9 +5785,9 @@ function getIframeSrcDoc() {
           noteRect.setAttribute("width", noteW);
           noteRect.setAttribute("height", "24");
           noteRect.setAttribute("rx", "3");
-          noteRect.setAttribute("fill", "var(--note-bg, #fffde7)");
-          noteRect.setAttribute("stroke", "var(--note-border, #f9d71c)");
-          noteRect.setAttribute("stroke-width", "1");
+          noteRect.setAttribute("fill", "var(--note-bg, #fefce8)");
+          noteRect.setAttribute("stroke", "var(--note-border, #fde68a)");
+          noteRect.setAttribute("stroke-width", "0.5");
           svg.appendChild(noteRect);
           const noteText = document.createElementNS("http://www.w3.org/2000/svg", "text");
           noteText.setAttribute("x", noteX + noteW / 2);
