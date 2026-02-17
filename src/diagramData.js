@@ -260,16 +260,39 @@ export const DIAGRAM_LIBRARY = [
     label: "State Diagram",
     keyword: "stateDiagram-v2",
     starter: `stateDiagram-v2
+    direction LR
     [*] --> Idle
-    Idle --> Editing : paste
-    Editing --> Rendering : render
-    Rendering --> Idle : success
-    Rendering --> Error : failure
-    Error --> Editing : retry
+    Idle --> Loading : fetch
+    Loading --> Success : resolve
+    Loading --> Error : reject
+    Success --> Idle : reset
+    Error --> Loading : retry
+    Error --> Idle : dismiss
 `,
     quickTools: [
-      { label: "Add state", snippet: "\n    Review --> Published\n" },
-      { label: "Add note", snippet: "\n    note right of Error\n      Show parser diagnostics\n    end note\n" },
+      { label: "Add state", snippet: '\n    state "New State" as NewState\n' },
+      { label: "Add transition", snippet: "\n    StateA --> StateB : event\n" },
+      { label: "Add note", snippet: "\n    note right of Idle\n      Description here\n    end note\n" },
+    ],
+  },
+  {
+    id: "stateDiagram-auth",
+    label: "Auth Flow",
+    keyword: "stateDiagram-v2",
+    starter: `stateDiagram-v2
+    direction LR
+    [*] --> LoggedOut
+    LoggedOut --> Authenticating : login
+    Authenticating --> LoggedIn : success
+    Authenticating --> LoggedOut : failure
+    LoggedIn --> LoggedOut : logout
+    LoggedIn --> SessionExpired : timeout
+    SessionExpired --> Authenticating : refresh
+    SessionExpired --> LoggedOut : dismiss
+`,
+    quickTools: [
+      { label: "Add state", snippet: '\n    state "New State" as NewState\n' },
+      { label: "Add transition", snippet: "\n    StateA --> StateB : event\n" },
     ],
   },
   { id: "journey", label: "User Journey", keyword: "journey", starter: `journey

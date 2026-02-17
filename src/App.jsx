@@ -30,7 +30,8 @@ import {
   updateGanttDependency,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph } from "./flowchartUtils";
-import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, updateErEntity, updateErRelationship, parseSequenceDiagram, parseSequenceBlocks, parseSequenceExtras, updateSequenceMessageByIndex, removeSequenceMessageByIndex, reorderSequenceParticipants, addSequenceMessage } from "./diagramUtils";
+import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, addStateDiagramState, addStateDiagramTransition, updateErEntity, updateErRelationship, parseSequenceDiagram, parseSequenceBlocks, parseSequenceExtras, updateSequenceMessageByIndex, removeSequenceMessageByIndex, reorderSequenceParticipants, addSequenceMessage } from "./diagramUtils";
+import { parseStateDiagramEnhanced, xstateToMermaid, mermaidToXState, generateStateId, toggleStateDiagramDirection } from "./stateUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
 import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
@@ -2077,6 +2078,131 @@ function getIframeSrcDoc() {
         background: rgba(239, 68, 68, 0.2);
         color: #f87171;
       }
+
+      /* ── State Diagram Renderer ────────────────────── */
+      .mf-state-container {
+        font-family: "Manrope", system-ui, sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        user-select: none;
+        position: relative;
+      }
+      .mf-state-node {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: #ffffff;
+        border: 2px solid #6366f1;
+        border-radius: 12px;
+        color: #1e293b;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 10px 20px;
+        cursor: grab;
+        transition: box-shadow 0.12s ease, border-color 0.12s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        box-sizing: border-box;
+        z-index: 2;
+      }
+      .mf-state-node:hover {
+        box-shadow: 0 4px 16px rgba(99, 102, 241, 0.2);
+        border-color: #4f46e5;
+      }
+      .mf-state-node:active { cursor: grabbing; }
+      .mf-state-node.mf-selected {
+        outline: 2.5px solid #2563eb;
+        outline-offset: 2px;
+        box-shadow: 0 0 10px rgba(37, 99, 235, 0.3);
+      }
+      .mf-state-node.mf-state-dragging {
+        opacity: 0.7;
+        border-color: #22c55e;
+        box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+      }
+      .mf-state-initial {
+        width: 20px !important;
+        height: 20px !important;
+        min-width: 20px;
+        min-height: 20px;
+        padding: 0;
+        border-radius: 50%;
+        background: #1e293b;
+        border-color: #1e293b;
+        cursor: default;
+      }
+      .mf-state-final {
+        width: 24px !important;
+        height: 24px !important;
+        min-width: 24px;
+        min-height: 24px;
+        padding: 0;
+        border-radius: 50%;
+        background: #ffffff;
+        border: 3px solid #1e293b;
+        box-shadow: inset 0 0 0 3px #ffffff, inset 0 0 0 8px #1e293b;
+        cursor: default;
+      }
+      .mf-state-label {
+        pointer-events: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 160px;
+      }
+      .mf-state-edges {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .mf-state-edges .mf-edge { pointer-events: stroke; cursor: pointer; }
+      .mf-state-edges .mf-edge-hit {
+        stroke: transparent;
+        stroke-width: 14;
+        fill: none;
+        pointer-events: stroke;
+        cursor: pointer;
+      }
+      .mf-state-edges .mf-edge:hover {
+        stroke: #4f46e5;
+        stroke-width: 2.5;
+      }
+      .mf-drag-line {
+        stroke: #22c55e;
+        stroke-width: 2;
+        stroke-dasharray: 6,4;
+        pointer-events: none;
+      }
+      .mf-state-node.mf-drop-target {
+        border-color: #22c55e;
+        box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+      }
+      /* Dark state diagram */
+      [data-theme="dark"] .mf-state-node {
+        background: #1e293b;
+        border-color: #818cf8;
+        color: #e4e6ed;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      }
+      [data-theme="dark"] .mf-state-node:hover {
+        box-shadow: 0 4px 16px rgba(129, 140, 248, 0.25);
+        border-color: #a5b4fc;
+      }
+      [data-theme="dark"] .mf-state-initial {
+        background: #e2e8f0;
+        border-color: #e2e8f0;
+      }
+      [data-theme="dark"] .mf-state-final {
+        background: #1e293b;
+        border: 3px solid #e2e8f0;
+        box-shadow: inset 0 0 0 3px #1e293b, inset 0 0 0 8px #e2e8f0;
+      }
+      [data-theme="dark"] .mf-state-edges .mf-edge { stroke: #4a5068; }
+      [data-theme="dark"] .mf-state-edges .mf-edge-label { fill: #9a9fb2; }
+      [data-theme="dark"] .mf-state-edges .mf-edge-label-bg { fill: #252838; stroke: #3a3f52; }
     </style>
   </head>
   <body>
@@ -5226,6 +5352,416 @@ function getIframeSrcDoc() {
         canvas.appendChild(container);
       };
 
+      /* ── Custom State Diagram Renderer ─────────────── */
+      const renderCustomStateDiagram = (parsed) => {
+        setGanttMode(false);
+        clearGanttOverlay();
+        canvas.innerHTML = "";
+        canvas.style.justifyContent = "center";
+
+        const states = parsed?.states || [];
+        const transitions = parsed?.transitions || [];
+        const direction = parsed?.direction || "LR";
+
+        if (!states.length) {
+          const msg = document.createElement("div");
+          msg.style.cssText = "padding:32px;color:#64748b;font-size:14px;text-align:center;";
+          msg.textContent = "No states found in diagram.";
+          canvas.appendChild(msg);
+          return;
+        }
+
+        // Measure state dimensions
+        const stateDims = {};
+        const measurer = document.createElement("div");
+        measurer.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font:500 13px Manrope,system-ui,sans-serif;padding:10px 20px;";
+        document.body.appendChild(measurer);
+        for (const s of states) {
+          if (s.pseudo === "initial") { stateDims[s.id] = { width: 20, height: 20 }; continue; }
+          if (s.pseudo === "final") { stateDims[s.id] = { width: 24, height: 24 }; continue; }
+          measurer.textContent = s.label || s.id;
+          const w = Math.max(80, measurer.offsetWidth + 8);
+          const h = Math.max(40, measurer.offsetHeight + 4);
+          stateDims[s.id] = { width: w, height: h };
+        }
+        document.body.removeChild(measurer);
+
+        // Dagre layout
+        const g = new dagre.graphlib.Graph();
+        g.setGraph({ rankdir: direction === "TB" ? "TB" : "LR", nodesep: 60, ranksep: 80, marginx: 40, marginy: 40 });
+        g.setDefaultEdgeLabel(() => ({}));
+
+        for (const s of states) {
+          const d = stateDims[s.id] || { width: 80, height: 40 };
+          g.setNode(s.id, { width: d.width, height: d.height, label: s.label || s.id });
+        }
+
+        // Deduplicate edges for dagre (it doesn't support multi-edges natively)
+        const edgeKey = (s, t) => s + ">>>" + t;
+        const seenEdges = new Set();
+        for (const t of transitions) {
+          const key = edgeKey(t.source, t.target);
+          if (seenEdges.has(key)) continue;
+          seenEdges.add(key);
+          if (g.hasNode(t.source) && g.hasNode(t.target) && t.source !== t.target) {
+            g.setEdge(t.source, t.target, { label: t.label || "" });
+          }
+        }
+
+        dagre.layout(g);
+
+        const graphInfo = g.graph();
+        const gw = (graphInfo.width || 600) + 80;
+        const gh = (graphInfo.height || 400) + 80;
+
+        const container = document.createElement("div");
+        container.className = "mf-state-container";
+        container.style.width = gw + "px";
+        container.style.height = gh + "px";
+
+        // SVG edge overlay
+        const ns = "http://www.w3.org/2000/svg";
+        const edgeSvg = document.createElementNS(ns, "svg");
+        edgeSvg.setAttribute("class", "mf-state-edges");
+        edgeSvg.setAttribute("width", gw);
+        edgeSvg.setAttribute("height", gh);
+        edgeSvg.style.width = gw + "px";
+        edgeSvg.style.height = gh + "px";
+
+        // Arrow markers
+        const defs = document.createElementNS(ns, "defs");
+        const mkArrowSt = (id, color) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "10"); m.setAttribute("markerHeight", "7");
+          m.setAttribute("refX", "9"); m.setAttribute("refY", "3.5"); m.setAttribute("orient", "auto");
+          const p = document.createElementNS(ns, "polygon");
+          p.setAttribute("points", "0 0, 10 3.5, 0 7"); p.setAttribute("fill", color);
+          m.appendChild(p); return m;
+        };
+        defs.appendChild(mkArrowSt("mf-state-arrow", "#8b9dc3"));
+        defs.appendChild(mkArrowSt("mf-state-arrow-active", "#6366f1"));
+        edgeSvg.appendChild(defs);
+
+        // Helper: connection point on a state boundary
+        const stateConnectionPt = (cx, cy, hw, hh, tx, ty, isPseudo) => {
+          const dx = tx - cx;
+          const dy = ty - cy;
+          const angle = Math.atan2(dy, dx);
+          if (isPseudo) {
+            // Circle
+            const r = Math.max(hw, hh);
+            return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+          }
+          // Rounded rectangle
+          const ar = hh / (hw || 1);
+          const tanA = Math.abs(dy / (dx || 0.001));
+          if (tanA > ar) {
+            const iy = cy + (dy > 0 ? hh : -hh);
+            return { x: cx + (dy !== 0 ? hh * (dx / Math.abs(dy)) : 0), y: iy };
+          }
+          const ix = cx + (dx > 0 ? hw : -hw);
+          return { x: ix, y: cy + (dx !== 0 ? hw * (dy / Math.abs(dx)) : 0) };
+        };
+
+        // Track node elements and centers for edge updates
+        const nodeEls = {};
+        const nodeCenters = {};
+
+        // Render transitions as cubic Bezier paths
+        const edgeGroup = document.createElementNS(ns, "g");
+
+        // Collect self-loops
+        const selfLoops = transitions.filter(t => t.source === t.target);
+        const normalTransitions = transitions.filter(t => t.source !== t.target);
+
+        // Group normal transitions by source-target pair to stack labels
+        const edgePairs = new Map();
+        for (const t of normalTransitions) {
+          const key = edgeKey(t.source, t.target);
+          if (!edgePairs.has(key)) edgePairs.set(key, []);
+          edgePairs.get(key).push(t);
+        }
+
+        for (const [key, group] of edgePairs) {
+          const t = group[0];
+          const sPos = g.node(t.source);
+          const tPos = g.node(t.target);
+          if (!sPos || !tPos) continue;
+          const sDim = stateDims[t.source] || { width: 80, height: 40 };
+          const tDim = stateDims[t.target] || { width: 80, height: 40 };
+          const sState = states.find(s => s.id === t.source);
+          const tState = states.find(s => s.id === t.target);
+          const sIsPseudo = !!(sState && sState.pseudo);
+          const tIsPseudo = !!(tState && tState.pseudo);
+
+          const sp = stateConnectionPt(sPos.x, sPos.y, sDim.width / 2, sDim.height / 2, tPos.x, tPos.y, sIsPseudo);
+          const tp = stateConnectionPt(tPos.x, tPos.y, tDim.width / 2, tDim.height / 2, sPos.x, sPos.y, tIsPseudo);
+
+          const dist = Math.hypot(tp.x - sp.x, tp.y - sp.y);
+          const off = Math.max(dist * 0.35, 25);
+          const ddx = tp.x - sp.x;
+          const ddy = tp.y - sp.y;
+          let c1x, c1y, c2x, c2y;
+          if (Math.abs(ddx) > Math.abs(ddy)) {
+            c1x = sp.x + (ddx > 0 ? off : -off); c1y = sp.y;
+            c2x = tp.x - (ddx > 0 ? off : -off); c2y = tp.y;
+          } else {
+            c1x = sp.x; c1y = sp.y + (ddy > 0 ? off : -off);
+            c2x = tp.x; c2y = tp.y - (ddy > 0 ? off : -off);
+          }
+          const d = "M " + sp.x.toFixed(1) + " " + sp.y.toFixed(1) + " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + tp.x.toFixed(1) + " " + tp.y.toFixed(1);
+
+          // Hit area
+          const hit = document.createElementNS(ns, "path");
+          hit.setAttribute("d", d); hit.setAttribute("class", "mf-edge-hit");
+          hit.setAttribute("data-source", t.source); hit.setAttribute("data-target", t.target);
+          edgeGroup.appendChild(hit);
+
+          // Visible path
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", d); path.setAttribute("fill", "none");
+          path.setAttribute("stroke", "#8b9dc3"); path.setAttribute("stroke-width", "1.5");
+          path.setAttribute("marker-end", "url(#mf-state-arrow)");
+          path.setAttribute("class", "mf-edge");
+          path.setAttribute("data-source", t.source); path.setAttribute("data-target", t.target);
+          edgeGroup.appendChild(path);
+
+          // Labels (stack multiple labels for same source→target pair)
+          const combinedLabel = group.map(tr => tr.label).filter(Boolean).join(" / ");
+          if (combinedLabel) {
+            const midX = (sp.x + tp.x) / 2;
+            const midY = (sp.y + tp.y) / 2;
+            const bg = document.createElementNS(ns, "rect");
+            bg.setAttribute("class", "mf-edge-label-bg");
+            bg.setAttribute("data-source", t.source); bg.setAttribute("data-target", t.target);
+            bg.setAttribute("rx", "4"); bg.setAttribute("fill", "#f8f9fb"); bg.setAttribute("stroke", "#e2e8f0"); bg.setAttribute("stroke-width", "0.5");
+            edgeGroup.appendChild(bg);
+            const txt = document.createElementNS(ns, "text");
+            txt.setAttribute("x", midX); txt.setAttribute("y", midY);
+            txt.setAttribute("text-anchor", "middle"); txt.setAttribute("dominant-baseline", "central");
+            txt.setAttribute("font-size", "11"); txt.setAttribute("font-family", "Manrope,system-ui,sans-serif");
+            txt.setAttribute("fill", "#475569"); txt.setAttribute("font-weight", "500");
+            txt.setAttribute("class", "mf-edge-label");
+            txt.setAttribute("data-source", t.source); txt.setAttribute("data-target", t.target);
+            txt.textContent = combinedLabel;
+            edgeGroup.appendChild(txt);
+          }
+        }
+
+        // Self-loop rendering
+        for (const t of selfLoops) {
+          const sPos = g.node(t.source);
+          if (!sPos) continue;
+          const sDim = stateDims[t.source] || { width: 80, height: 40 };
+          const topY = sPos.y - sDim.height / 2;
+          const cx = sPos.x;
+          const loopR = 22;
+          const d = "M " + (cx - 12).toFixed(1) + " " + topY.toFixed(1)
+            + " C " + (cx - 12).toFixed(1) + " " + (topY - loopR * 2).toFixed(1)
+            + " " + (cx + 12).toFixed(1) + " " + (topY - loopR * 2).toFixed(1)
+            + " " + (cx + 12).toFixed(1) + " " + topY.toFixed(1);
+
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", d); path.setAttribute("fill", "none");
+          path.setAttribute("stroke", "#8b9dc3"); path.setAttribute("stroke-width", "1.5");
+          path.setAttribute("marker-end", "url(#mf-state-arrow)");
+          path.setAttribute("class", "mf-edge");
+          path.setAttribute("data-source", t.source); path.setAttribute("data-target", t.target);
+          edgeGroup.appendChild(path);
+
+          if (t.label) {
+            const txt = document.createElementNS(ns, "text");
+            txt.setAttribute("x", cx); txt.setAttribute("y", topY - loopR * 2 + 4);
+            txt.setAttribute("text-anchor", "middle"); txt.setAttribute("dominant-baseline", "auto");
+            txt.setAttribute("font-size", "11"); txt.setAttribute("font-family", "Manrope,system-ui,sans-serif");
+            txt.setAttribute("fill", "#475569"); txt.setAttribute("font-weight", "500");
+            txt.setAttribute("class", "mf-edge-label");
+            txt.textContent = t.label;
+            edgeGroup.appendChild(txt);
+          }
+        }
+
+        edgeSvg.appendChild(edgeGroup);
+        container.appendChild(edgeSvg);
+
+        // Render state nodes
+        let suppressClick = false;
+        let dragConnect = null;
+        let dragLine = null;
+
+        for (const state of states) {
+          const pos = g.node(state.id);
+          if (!pos) continue;
+          const dim = stateDims[state.id] || { width: 80, height: 40 };
+
+          const el = document.createElement("div");
+          const isPseudo = !!state.pseudo;
+          el.className = "mf-state-node" + (state.pseudo === "initial" ? " mf-state-initial" : "") + (state.pseudo === "final" ? " mf-state-final" : "");
+          el.setAttribute("data-state-id", state.id);
+          el.style.left = (pos.x - dim.width / 2) + "px";
+          el.style.top = (pos.y - dim.height / 2) + "px";
+          el.style.width = dim.width + "px";
+          el.style.height = dim.height + "px";
+
+          if (!isPseudo) {
+            const labelSpan = document.createElement("span");
+            labelSpan.className = "mf-state-label";
+            labelSpan.textContent = state.label || state.id;
+            el.appendChild(labelSpan);
+            el.setAttribute("data-mf-tip", state.label || state.id);
+          }
+
+          nodeCenters[state.id] = { x: pos.x, y: pos.y };
+
+          // Click
+          el.addEventListener("click", (ev) => {
+            if (suppressClick) return;
+            ev.stopPropagation();
+            container.querySelectorAll(".mf-state-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            el.classList.add("mf-selected");
+            // Map pseudo IDs back to [*]
+            const outId = state.pseudo ? "[*]" : state.id;
+            const outLabel = state.pseudo ? "[*]" : (state.label || state.id);
+            send("element:selected", {
+              label: outLabel, id: outId, nodeId: outId, elementType: "node",
+            });
+          });
+
+          // Context menu
+          el.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault(); ev.stopPropagation();
+            container.querySelectorAll(".mf-state-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            el.classList.add("mf-selected");
+            const outId = state.pseudo ? "[*]" : state.id;
+            send("element:context", {
+              label: state.label || state.id, id: outId, nodeId: outId, elementType: "node",
+              pointerX: ev.clientX, pointerY: ev.clientY,
+            });
+          });
+
+          // Drag-to-connect (pointer down → move → up)
+          if (!isPseudo || state.pseudo === "initial") {
+            let dragInfo = null;
+            el.addEventListener("pointerdown", (ev) => {
+              if (ev.button !== 0) return;
+              ev.preventDefault();
+              dragInfo = { startX: ev.clientX, startY: ev.clientY, moved: false };
+              el.setPointerCapture(ev.pointerId);
+            });
+            el.addEventListener("pointermove", (ev) => {
+              if (!dragInfo) return;
+              const dx = ev.clientX - dragInfo.startX;
+              const dy = ev.clientY - dragInfo.startY;
+              if (!dragInfo.moved && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+                dragInfo.moved = true;
+                el.classList.add("mf-state-dragging");
+                // Create drag line
+                const svgRect = edgeSvg.getBoundingClientRect();
+                dragLine = document.createElementNS(ns, "line");
+                dragLine.setAttribute("class", "mf-drag-line");
+                dragLine.setAttribute("x1", pos.x);
+                dragLine.setAttribute("y1", pos.y);
+                dragLine.setAttribute("x2", pos.x);
+                dragLine.setAttribute("y2", pos.y);
+                edgeSvg.appendChild(dragLine);
+                dragConnect = { sourceId: state.id, el: el };
+              }
+              if (dragInfo.moved && dragLine) {
+                const svgRect = edgeSvg.getBoundingClientRect();
+                dragLine.setAttribute("x2", ev.clientX - svgRect.left);
+                dragLine.setAttribute("y2", ev.clientY - svgRect.top);
+
+                // Highlight potential drop targets
+                container.querySelectorAll(".mf-drop-target").forEach(n => n.classList.remove("mf-drop-target"));
+                const targetEl = document.elementFromPoint(ev.clientX, ev.clientY);
+                const targetNode = targetEl?.closest?.("[data-state-id]");
+                if (targetNode && targetNode !== el) {
+                  targetNode.classList.add("mf-drop-target");
+                }
+              }
+            });
+            el.addEventListener("pointerup", (ev) => {
+              if (!dragInfo) return;
+              try { el.releasePointerCapture(ev.pointerId); } catch(_) {}
+              el.classList.remove("mf-state-dragging");
+              container.querySelectorAll(".mf-drop-target").forEach(n => n.classList.remove("mf-drop-target"));
+
+              if (dragInfo.moved && dragConnect) {
+                suppressClick = true;
+                setTimeout(() => { suppressClick = false; }, 200);
+                // Find target under cursor
+                if (dragLine) { dragLine.remove(); dragLine = null; }
+                const targetEl = document.elementFromPoint(ev.clientX, ev.clientY);
+                const targetNode = targetEl?.closest?.("[data-state-id]");
+                if (targetNode && targetNode !== el) {
+                  const targetId = targetNode.getAttribute("data-state-id");
+                  // Map pseudo IDs back to [*]
+                  const srcOut = state.pseudo ? "[*]" : state.id;
+                  let tgtOut = targetId;
+                  const tgtState = states.find(s => s.id === targetId);
+                  if (tgtState && tgtState.pseudo) tgtOut = "[*]";
+                  send("state:connect", { sourceId: srcOut, targetId: tgtOut });
+                }
+              } else {
+                if (dragLine) { dragLine.remove(); dragLine = null; }
+              }
+              dragConnect = null;
+              dragInfo = null;
+            });
+          }
+
+          container.appendChild(el);
+          nodeEls[state.id] = el;
+        }
+
+        // Edge click handlers
+        edgeSvg.addEventListener("click", (ev) => {
+          const t = ev.target;
+          if (t.classList.contains("mf-edge-hit") || t.classList.contains("mf-edge") || t.classList.contains("mf-edge-label-bg") || t.classList.contains("mf-edge-label")) {
+            ev.stopPropagation();
+            const src = t.getAttribute("data-source") || "";
+            const tgt = t.getAttribute("data-target") || "";
+            send("element:selected", { label: "", id: "", nodeId: "", elementType: "edge", edgeSource: src, edgeTarget: tgt });
+          }
+        });
+        edgeSvg.addEventListener("contextmenu", (ev) => {
+          const t = ev.target;
+          if (t.classList.contains("mf-edge-hit") || t.classList.contains("mf-edge") || t.classList.contains("mf-edge-label-bg") || t.classList.contains("mf-edge-label")) {
+            ev.preventDefault(); ev.stopPropagation();
+            const src = t.getAttribute("data-source") || "";
+            const tgt = t.getAttribute("data-target") || "";
+            send("element:context", { label: "", id: "", nodeId: "", elementType: "edge", edgeSource: src, edgeTarget: tgt, pointerX: ev.clientX, pointerY: ev.clientY });
+          }
+        });
+
+        // Empty area click
+        container.addEventListener("click", (ev) => {
+          if (ev.target === container) {
+            container.querySelectorAll(".mf-state-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            send("element:selected", null);
+          }
+        });
+        container.addEventListener("contextmenu", (ev) => {
+          if (ev.target === container) {
+            ev.preventDefault();
+            send("element:context", { label: "", id: "", nodeId: "", elementType: "canvas", pointerX: ev.clientX, pointerY: ev.clientY });
+          }
+        });
+
+        // Size edge label backgrounds after DOM paint
+        requestAnimationFrame(() => {
+          edgeSvg.querySelectorAll(".mf-edge-label").forEach(txt => {
+            const src = txt.getAttribute("data-source");
+            const tgt = txt.getAttribute("data-target");
+            const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + src + '"][data-target="' + tgt + '"]');
+            if (!bg) return;
+            try { const bb = txt.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(e) {}
+          });
+        });
+
+        canvas.appendChild(container);
+      };
+
       const isDarkFill = (el) => {
         if (!el) return false;
         const fill = (window.getComputedStyle(el).fill || el.getAttribute("fill") || "").trim();
@@ -7621,6 +8157,11 @@ function getIframeSrcDoc() {
             const sd = data.payload?.sequenceData || {};
             renderCustomSequence(sd.participants || [], sd.messages || [], sd.blocks || [], sd.extras || {}, sd.swimlaneView || false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomSequence: true });
+          } else if (dtLower.includes("state")) {
+            // Custom HTML State Diagram renderer — bypass Mermaid SVG
+            const sd = data.payload?.stateData || {};
+            renderCustomStateDiagram(sd.parsed || {});
+            send("render:success", { diagramType: currentDiagramType, svg: "", isCustomState: true });
           } else {
             setGanttMode(false);
             // Standard Mermaid SVG rendering
@@ -7929,6 +8470,9 @@ function App() {
   const [sequenceSwimlaneView, setSequenceSwimlaneView] = useState(false);
   const [messageCreationForm, setMessageCreationForm] = useState(null);
   const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
+  const [stateDropdown, setStateDropdown] = useState(null); // null | "view" | "xstate"
+  const [transitionLabelModal, setTransitionLabelModal] = useState(null); // { sourceId, targetId, label }
+  const toggleStateDropdown = (name) => setStateDropdown((prev) => prev === name ? null : name);
   const [baselineCode, setBaselineCode] = useState(null);
   const [baselineSetAt, setBaselineSetAt] = useState(null);
   const [showBaseline, setShowBaseline] = useState(true);
@@ -8131,6 +8675,10 @@ function App() {
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
     return { direction: "TD", nodes: [], edges: [], subgraphs: [] };
+  }, [code, toolsetKey]);
+  const stateDiagramData = useMemo(() => {
+    if (toolsetKey === "stateDiagram") return parseStateDiagramEnhanced(code);
+    return { states: [], transitions: [], direction: "LR", hasInitial: false, hasFinal: false };
   }, [code, toolsetKey]);
   const selectedGanttTask = useMemo(
     () => findTaskByLabel(ganttTasks, selectedElement?.label || ""),
@@ -8480,6 +9028,11 @@ function App() {
       swimlaneView: sequenceSwimlaneView,
     };
 
+    // Pre-compute state diagram data so the iframe can render custom HTML state diagram
+    const statePayload = {
+      parsed: parseStateDiagramEnhanced(code),
+    };
+
     frame.contentWindow.postMessage(
       {
         channel: CHANNEL,
@@ -8491,6 +9044,7 @@ function App() {
           flowchartData: flowchartPayload,
           erData: erPayload,
           sequenceData: sequencePayload,
+          stateData: statePayload,
         },
       },
       "*"
@@ -8763,7 +9317,8 @@ function App() {
         const isCustomFlowchart = payload.isCustomFlowchart || false;
         const isCustomEr = payload.isCustomEr || false;
         const isCustomSequence = payload.isCustomSequence || false;
-        const isCustomRenderer = isCustomGantt || isCustomFlowchart || isCustomEr || isCustomSequence;
+        const isCustomState = payload.isCustomState || false;
+        const isCustomRenderer = isCustomGantt || isCustomFlowchart || isCustomEr || isCustomSequence || isCustomState;
 
         // Apply position overrides after re-render (SVG diagrams only)
         if (!isCustomRenderer && Object.keys(positionOverrides).length > 0) {
@@ -9303,6 +9858,14 @@ function App() {
         });
         return;
       }
+
+      /* ── State diagram handlers ───────────────────── */
+      if (data.type === "state:connect") {
+        const { sourceId, targetId } = data.payload || {};
+        if (sourceId && targetId) {
+          setTransitionLabelModal({ sourceId, targetId, label: "" });
+        }
+      }
     };
 
     window.addEventListener("message", listener);
@@ -9596,6 +10159,8 @@ function App() {
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (drawerOpen) { setDrawerOpen(false); return; }
         if (ganttDropdown) { setGanttDropdown(null); return; }
+        if (stateDropdown) { setStateDropdown(null); return; }
+        if (transitionLabelModal) { setTransitionLabelModal(null); return; }
         if (mobileViewMenuOpen) { setMobileViewMenuOpen(false); return; }
         if (mobileActionsOpen) { setMobileActionsOpen(false); return; }
         if (exportMenuOpen) { setExportMenuOpen(false); return; }
@@ -10845,6 +11410,72 @@ function App() {
                 >
                   {sequenceSwimlaneView ? "Timeline" : "Swimlane"}
                 </button>
+              )}
+              {toolsetKey === "stateDiagram" && (
+                <>
+                  <div className="dropdown-wrap">
+                    <button
+                      className={`date-toggle-btn${stateDropdown === "view" ? " active" : ""}`}
+                      onClick={() => toggleStateDropdown("view")}
+                    >
+                      View &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu${stateDropdown === "view" ? " open" : ""}`}>
+                      <button className="dropdown-item" onClick={() => { setCode((prev) => toggleStateDiagramDirection(prev, "LR")); setStateDropdown(null); }}>
+                        <span className="dropdown-item-check">{stateDiagramData.direction === "LR" ? "\u2713" : ""}</span>Left to Right
+                      </button>
+                      <button className="dropdown-item" onClick={() => { setCode((prev) => toggleStateDiagramDirection(prev, "TB")); setStateDropdown(null); }}>
+                        <span className="dropdown-item-check">{stateDiagramData.direction === "TB" ? "\u2713" : ""}</span>Top to Bottom
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    className="date-toggle-btn"
+                    onClick={() => {
+                      const id = generateStateId(stateDiagramData.states);
+                      setCode((prev) => addStateDiagramState(prev, { id, label: id }));
+                      setRenderMessage(`Added state "${id}"`);
+                    }}
+                  >
+                    + State
+                  </button>
+                  <div className="dropdown-wrap">
+                    <button
+                      className={`date-toggle-btn${stateDropdown === "xstate" ? " active" : ""}`}
+                      onClick={() => toggleStateDropdown("xstate")}
+                    >
+                      XState &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu${stateDropdown === "xstate" ? " open" : ""}`}>
+                      <button className="dropdown-item" onClick={() => {
+                        const json = window.prompt("Paste XState machine JSON");
+                        if (!json) return;
+                        try {
+                          const config = JSON.parse(json);
+                          const mermaidCode = xstateToMermaid(config);
+                          setCode(mermaidCode);
+                          setRenderMessage("Imported XState machine");
+                        } catch (e) {
+                          setRenderMessage("Invalid JSON: " + e.message);
+                        }
+                        setStateDropdown(null);
+                      }}>
+                        Import XState JSON
+                      </button>
+                      <button className="dropdown-item" onClick={() => {
+                        const xstateConfig = mermaidToXState(code);
+                        const jsonStr = JSON.stringify(xstateConfig, null, 2);
+                        navigator.clipboard.writeText(jsonStr).then(
+                          () => setRenderMessage("XState JSON copied to clipboard"),
+                          () => setRenderMessage("XState JSON exported (clipboard unavailable)")
+                        );
+                        setStateDropdown(null);
+                      }}>
+                        Export XState JSON
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
               Click, right-click, and drag to edit
             </span>
@@ -12362,6 +12993,44 @@ function App() {
                 setRenderMessage(`Updated edge label`);
                 setEdgeLabelEdit(null);
               }}>Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Transition Label Modal (State Diagram) ────── */}
+      {transitionLabelModal && (
+        <div className="modal-backdrop" onClick={() => setTransitionLabelModal(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h2>New Transition</h2>
+            <p style={{ margin: "0 0 12px", color: "#64748b", fontSize: 13 }}>
+              {transitionLabelModal.sourceId} &rarr; {transitionLabelModal.targetId}
+            </p>
+            <label>
+              Event name
+              <input
+                value={transitionLabelModal.label || ""}
+                onChange={(e) => setTransitionLabelModal((prev) => ({ ...prev, label: e.target.value }))}
+                placeholder="e.g. click, submit, timeout..."
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const { sourceId, targetId, label } = transitionLabelModal;
+                    setCode((prev) => addStateDiagramTransition(prev, { source: sourceId, target: targetId, label: label || "" }));
+                    setRenderMessage(`Added transition ${sourceId} \u2192 ${targetId}${label ? " : " + label : ""}`);
+                    setTransitionLabelModal(null);
+                  }
+                }}
+              />
+            </label>
+            <div className="modal-actions">
+              <button className="soft-btn" onClick={() => setTransitionLabelModal(null)}>Cancel</button>
+              <button className="soft-btn primary" onClick={() => {
+                const { sourceId, targetId, label } = transitionLabelModal;
+                setCode((prev) => addStateDiagramTransition(prev, { source: sourceId, target: targetId, label: label || "" }));
+                setRenderMessage(`Added transition ${sourceId} \u2192 ${targetId}${label ? " : " + label : ""}`);
+                setTransitionLabelModal(null);
+              }}>Add Transition</button>
             </div>
           </div>
         </div>
