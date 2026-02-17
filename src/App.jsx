@@ -5272,6 +5272,25 @@ function getIframeSrcDoc() {
           }
           return;
         }
+        // Custom ER diagram: apply to HTML entity cards
+        const erContainer = canvas.querySelector(".mf-er-container");
+        if (erContainer) {
+          for (const [nodeId, style] of Object.entries(styleOverrides)) {
+            const el = erContainer.querySelector('[data-node-id="' + CSS.escape(nodeId) + '"]');
+            if (!el) continue;
+            if (style.fill) el.style.background = style.fill;
+            if (style.stroke) {
+              el.style.borderColor = style.stroke;
+              const header = el.querySelector(".mf-er-header");
+              if (header) header.style.background = style.stroke;
+            }
+            if (style.textColor) el.style.color = style.textColor;
+            if (style.strokeStyle === "dashed") el.style.borderStyle = "dashed";
+            else if (style.strokeStyle === "solid") el.style.borderStyle = "solid";
+            else if (style.strokeStyle === "none") el.style.borderColor = "transparent";
+          }
+          return;
+        }
         // SVG diagrams: apply to SVG elements
         const svg = canvas.querySelector("svg");
         if (!svg) return;
