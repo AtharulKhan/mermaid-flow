@@ -1576,7 +1576,7 @@ function getIframeSrcDoc() {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        height: 48px;
+        height: 52px;
         border-radius: 8px;
         border: 1.5px solid var(--border, #d1d5db);
         background: var(--panel, #ffffff);
@@ -1584,10 +1584,11 @@ function getIframeSrcDoc() {
         transition: box-shadow 0.15s, border-color 0.15s;
         z-index: 2;
         gap: 2px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
       }
       .mf-seq-actor:hover {
         border-color: var(--accent, #2563eb);
-        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
       }
       .mf-seq-actor.mf-selected {
         border-color: var(--accent, #2563eb);
@@ -1607,7 +1608,7 @@ function getIframeSrcDoc() {
         line-height: 0;
       }
       .mf-seq-actor-label {
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 600;
         color: var(--ink, #333);
         white-space: nowrap;
@@ -1615,13 +1616,13 @@ function getIframeSrcDoc() {
         text-overflow: ellipsis;
         max-width: 100%;
         text-align: center;
-        padding: 0 6px;
+        padding: 0 10px;
       }
       .mf-seq-actor-bottom .mf-seq-actor-label {
         font-weight: 500;
       }
       .mf-seq-lifeline {
-        opacity: 0.5;
+        opacity: 0.7;
       }
       .mf-seq-activation {
         opacity: 0.7;
@@ -1642,6 +1643,9 @@ function getIframeSrcDoc() {
       .mf-seq-msg-label {
         pointer-events: none;
       }
+      .mf-seq-msg-label-bg {
+        pointer-events: none;
+      }
       .mf-seq-drop-indicator {
         position: absolute;
         width: 3px;
@@ -1655,16 +1659,21 @@ function getIframeSrcDoc() {
       /* Swimlane view */
       .mf-seq-swimlane {
         display: flex;
-        gap: 8px;
+        gap: 12px;
         padding: 16px;
         align-items: flex-start;
+        overflow-x: auto;
+        width: 100% !important;
+        max-width: none !important;
       }
       .mf-seq-lane {
         border: 1px solid var(--border, #d1d5db);
         border-radius: 10px;
         background: var(--panel, #ffffff);
         overflow: hidden;
-        flex-shrink: 0;
+        flex: 1 1 0;
+        min-width: 200px;
+        max-width: 400px;
       }
       .mf-seq-lane.mf-selected {
         border-color: var(--accent, #2563eb);
@@ -1673,11 +1682,12 @@ function getIframeSrcDoc() {
       .mf-seq-lane-header {
         font-size: 13px;
         font-weight: 600;
-        padding: 10px 12px;
+        padding: 12px 16px;
         background: var(--bg-soft, #f9fafb);
         border-bottom: 1px solid var(--border, #e5e7eb);
         cursor: pointer;
         text-align: center;
+        word-break: break-word;
       }
       .mf-seq-lane-header:hover {
         background: var(--bg-hover, #f3f4f6);
@@ -1687,12 +1697,13 @@ function getIframeSrcDoc() {
       }
       .mf-seq-lane-msg {
         display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        padding: 8px 16px;
         font-size: 12px;
         cursor: pointer;
-        min-height: 28px;
+        min-height: 36px;
         transition: background 0.1s;
       }
       .mf-seq-lane-msg:hover {
@@ -1702,29 +1713,42 @@ function getIframeSrcDoc() {
         background: rgba(37, 99, 235, 0.1);
       }
       .mf-seq-lane-msg-blank {
-        min-height: 28px;
+        min-height: 8px;
         cursor: default;
       }
       .mf-seq-lane-msg-blank:hover {
         background: none;
       }
+      .mf-seq-lane-text {
+        color: var(--ink, #333);
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+        white-space: normal;
+        word-break: break-word;
+      }
+      .mf-seq-lane-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
       .mf-seq-lane-direction {
         font-weight: 600;
         color: var(--accent, #2563eb);
         flex-shrink: 0;
-        width: 14px;
-        text-align: center;
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        background: rgba(37, 99, 235, 0.08);
+        font-size: 11px;
       }
       .mf-seq-lane-peer {
+        font-size: 10px;
         font-weight: 500;
-        color: var(--ink-soft, #6b7280);
-        flex-shrink: 0;
-      }
-      .mf-seq-lane-text {
-        color: var(--ink, #333);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        color: var(--ink-soft, #9ca3af);
       }
 
       /* ── Dark Theme ── */
@@ -1929,7 +1953,18 @@ function getIframeSrcDoc() {
       /* Dark sequence diagram */
       [data-theme="dark"] .mf-seq-actor {
         background: #1c1f2b;
-        border-color: #2a2e3d;
+        border-color: #3a3f52;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      }
+      [data-theme="dark"] .mf-seq-actor:hover {
+        border-color: #60a5fa;
+        box-shadow: 0 2px 8px rgba(96, 165, 250, 0.2);
+      }
+      [data-theme="dark"] .mf-seq-actor-label { color: #e4e6ed; }
+      [data-theme="dark"] .mf-seq-actor-icon { color: #e4e6ed; }
+      [data-theme="dark"] .mf-seq-msg-label-bg {
+        fill: #1c1f2b;
+        stroke: #2a2e3d;
       }
       [data-theme="dark"] .mf-seq-lane {
         background: #1c1f2b;
@@ -1939,6 +1974,15 @@ function getIframeSrcDoc() {
         background: #161922;
         border-color: #2a2e3d;
         color: #e4e6ed;
+      }
+      [data-theme="dark"] .mf-seq-lane-text { color: #e4e6ed; }
+      [data-theme="dark"] .mf-seq-lane-direction {
+        background: rgba(99, 102, 241, 0.15);
+        color: #818cf8;
+      }
+      [data-theme="dark"] .mf-seq-lane-peer { color: #6b7088; }
+      [data-theme="dark"] .mf-seq-lane-msg:hover {
+        background: rgba(99, 102, 241, 0.08);
       }
       /* Dark gantt header rows */
       [data-theme="dark"] .mf-gh-row {
@@ -5297,13 +5341,53 @@ function getIframeSrcDoc() {
           return;
         }
 
-        const colWidth = 160;
-        const rowHeight = 44;
-        const actorHeight = 48;
-        const actorPad = 16;
+        const MIN_COL_W = 200;
+        const MAX_COL_W = 350;
+        const MARGIN = 40;
+        const rowHeight = 48;
+        const actorHeight = 52;
+        const actorPad = 20;
         const lifelineStartY = actorHeight + actorPad;
-        const msgStartY = lifelineStartY + 12;
-        const totalWidth = participants.length * colWidth;
+        const msgStartY = lifelineStartY + 14;
+
+        // --- Measure actor label widths for dynamic columns ---
+        const measurer = document.createElement("div");
+        measurer.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;top:-9999px;left:-9999px;font-family:Manrope,system-ui,sans-serif;font-size:13px;";
+        document.body.appendChild(measurer);
+        const colWidths = [];
+        for (const p of participants) {
+          const el = document.createElement("span");
+          el.style.cssText = "font-weight:600;white-space:nowrap;padding:0 10px;";
+          el.textContent = p.label || p.id;
+          measurer.appendChild(el);
+          colWidths.push(Math.min(MAX_COL_W, Math.max(el.offsetWidth + 40, MIN_COL_W)));
+          measurer.removeChild(el);
+        }
+        // Measure message labels — expand columns if needed
+        const msgCanvas = document.createElement("canvas");
+        const msgCtx = msgCanvas.getContext("2d");
+        if (msgCtx) msgCtx.font = '500 13px Manrope, system-ui, sans-serif';
+        for (const m of messages) {
+          if (!m.text) continue;
+          const si = participants.findIndex(p => p.id === m.source);
+          const ti = participants.findIndex(p => p.id === m.target);
+          if (si < 0 || ti < 0 || si === ti) continue;
+          const textW = msgCtx ? msgCtx.measureText(m.text).width + 32 : m.text.length * 8;
+          const lo = Math.min(si, ti), hi = Math.max(si, ti);
+          let avail = 0;
+          for (let i = lo; i <= hi; i++) avail += colWidths[i];
+          if (textW > avail) {
+            const perCol = Math.ceil((textW - avail) / (hi - lo + 1));
+            for (let i = lo; i <= hi; i++) colWidths[i] = Math.min(MAX_COL_W, colWidths[i] + perCol);
+          }
+        }
+        document.body.removeChild(measurer);
+
+        // Cumulative offsets for variable-width columns
+        const colOffsets = [MARGIN];
+        for (let i = 0; i < colWidths.length; i++) colOffsets.push(colOffsets[i] + colWidths[i]);
+        const totalWidth = colOffsets[colWidths.length] + MARGIN;
+        const actorCenterX = (idx) => colOffsets[idx] + colWidths[idx] / 2;
 
         const activations = (extras && extras.activations) || [];
         const notes = (extras && extras.notes) || [];
@@ -5337,21 +5421,17 @@ function getIframeSrcDoc() {
         const bodyHeight = Math.max(rowItems.length * rowHeight + 40, 120);
         const totalHeight = actorHeight + actorPad + bodyHeight + actorHeight + actorPad;
 
-        // Participant center X positions
-        const actorCenterX = (idx) => idx * colWidth + colWidth / 2;
-
         // --- Swimlane view ---
         if (swimlaneView) {
           const container = document.createElement("div");
           container.className = "mf-seq-container mf-seq-swimlane";
-          container.style.width = totalWidth + "px";
+          // Swimlane uses flex layout — no fixed widths
 
           for (let pi = 0; pi < participants.length; pi++) {
             const p = participants[pi];
             const lane = document.createElement("div");
             lane.className = "mf-seq-lane";
             lane.setAttribute("data-participant-id", p.id);
-            lane.style.width = colWidth + "px";
 
             const header = document.createElement("div");
             header.className = "mf-seq-lane-header";
@@ -5390,20 +5470,24 @@ function getIframeSrcDoc() {
               row.className = "mf-seq-lane-msg";
               row.setAttribute("data-message-index", mi);
 
+              // Primary: message text (full width, wrapping)
+              const text = document.createElement("span");
+              text.className = "mf-seq-lane-text";
+              text.textContent = m.text || "(no label)";
+              row.appendChild(text);
+
+              // Meta line: direction badge + peer name
+              const meta = document.createElement("div");
+              meta.className = "mf-seq-lane-meta";
               const dir = document.createElement("span");
               dir.className = "mf-seq-lane-direction";
               dir.textContent = isSender ? "\u2192" : "\u2190";
-              row.appendChild(dir);
-
+              meta.appendChild(dir);
               const peer = document.createElement("span");
               peer.className = "mf-seq-lane-peer";
-              peer.textContent = isSender ? (m.target) : (m.source);
-              row.appendChild(peer);
-
-              const text = document.createElement("span");
-              text.className = "mf-seq-lane-text";
-              text.textContent = m.text || "";
-              row.appendChild(text);
+              peer.textContent = (isSender ? "to " : "from ") + (isSender ? m.target : m.source);
+              meta.appendChild(peer);
+              row.appendChild(meta);
 
               row.addEventListener("click", (e) => {
                 e.stopPropagation();
@@ -5459,72 +5543,52 @@ function getIframeSrcDoc() {
         svg.style.pointerEvents = "none";
         svg.style.overflow = "visible";
 
-        // Arrow marker definitions
+        // Arrow marker definitions (larger for better visibility)
         const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+        const mkr = (id, w, h, rx, ry) => {
+          const m = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", w); m.setAttribute("markerHeight", h);
+          m.setAttribute("refX", rx); m.setAttribute("refY", ry); m.setAttribute("orient", "auto");
+          return m;
+        };
         // Filled arrowhead (for ->> and -->>)
-        const mkFilled = document.createElementNS("http://www.w3.org/2000/svg", "marker");
-        mkFilled.setAttribute("id", "mf-seq-arrow-filled");
-        mkFilled.setAttribute("markerWidth", "10");
-        mkFilled.setAttribute("markerHeight", "8");
-        mkFilled.setAttribute("refX", "9");
-        mkFilled.setAttribute("refY", "4");
-        mkFilled.setAttribute("orient", "auto");
+        const mkFilled = mkr("mf-seq-arrow-filled", "14", "10", "13", "5");
         const filledPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        filledPath.setAttribute("d", "M0,0 L10,4 L0,8 Z");
+        filledPath.setAttribute("d", "M0,0 L14,5 L0,10 Z");
         filledPath.setAttribute("fill", "var(--ink, #333)");
-        mkFilled.appendChild(filledPath);
-        defs.appendChild(mkFilled);
+        mkFilled.appendChild(filledPath); defs.appendChild(mkFilled);
 
         // Open arrowhead (for -> and -->)
-        const mkOpen = document.createElementNS("http://www.w3.org/2000/svg", "marker");
-        mkOpen.setAttribute("id", "mf-seq-arrow-open");
-        mkOpen.setAttribute("markerWidth", "10");
-        mkOpen.setAttribute("markerHeight", "8");
-        mkOpen.setAttribute("refX", "9");
-        mkOpen.setAttribute("refY", "4");
-        mkOpen.setAttribute("orient", "auto");
+        const mkOpen = mkr("mf-seq-arrow-open", "14", "10", "13", "5");
         const openPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        openPath.setAttribute("d", "M0,0 L10,4 L0,8");
+        openPath.setAttribute("d", "M0,0 L14,5 L0,10");
         openPath.setAttribute("fill", "none");
         openPath.setAttribute("stroke", "var(--ink, #333)");
-        openPath.setAttribute("stroke-width", "1.5");
-        mkOpen.appendChild(openPath);
-        defs.appendChild(mkOpen);
+        openPath.setAttribute("stroke-width", "2");
+        mkOpen.appendChild(openPath); defs.appendChild(mkOpen);
 
-        // Reverse filled arrowhead (for left-pointing messages)
-        const mkFilledRev = document.createElementNS("http://www.w3.org/2000/svg", "marker");
-        mkFilledRev.setAttribute("id", "mf-seq-arrow-filled-rev");
-        mkFilledRev.setAttribute("markerWidth", "10");
-        mkFilledRev.setAttribute("markerHeight", "8");
-        mkFilledRev.setAttribute("refX", "1");
-        mkFilledRev.setAttribute("refY", "4");
-        mkFilledRev.setAttribute("orient", "auto");
+        // Reverse filled arrowhead (for self-message loops)
+        const mkFilledRev = mkr("mf-seq-arrow-filled-rev", "14", "10", "1", "5");
         const filledRevPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        filledRevPath.setAttribute("d", "M10,0 L0,4 L10,8 Z");
+        filledRevPath.setAttribute("d", "M14,0 L0,5 L14,10 Z");
         filledRevPath.setAttribute("fill", "var(--ink, #333)");
-        mkFilledRev.appendChild(filledRevPath);
-        defs.appendChild(mkFilledRev);
+        mkFilledRev.appendChild(filledRevPath); defs.appendChild(mkFilledRev);
 
         // X marker (for -x and --x)
-        const mkX = document.createElementNS("http://www.w3.org/2000/svg", "marker");
-        mkX.setAttribute("id", "mf-seq-arrow-x");
-        mkX.setAttribute("markerWidth", "12");
-        mkX.setAttribute("markerHeight", "12");
-        mkX.setAttribute("refX", "6");
-        mkX.setAttribute("refY", "6");
-        mkX.setAttribute("orient", "auto");
+        const mkX = mkr("mf-seq-arrow-x", "16", "16", "8", "8");
         const xLine1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
         xLine1.setAttribute("x1", "2"); xLine1.setAttribute("y1", "2");
-        xLine1.setAttribute("x2", "10"); xLine1.setAttribute("y2", "10");
-        xLine1.setAttribute("stroke", "var(--ink, #333)"); xLine1.setAttribute("stroke-width", "2");
+        xLine1.setAttribute("x2", "14"); xLine1.setAttribute("y2", "14");
+        xLine1.setAttribute("stroke", "var(--ink, #333)"); xLine1.setAttribute("stroke-width", "2.5");
         const xLine2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        xLine2.setAttribute("x1", "10"); xLine2.setAttribute("y1", "2");
-        xLine2.setAttribute("x2", "2"); xLine2.setAttribute("y2", "10");
-        xLine2.setAttribute("stroke", "var(--ink, #333)"); xLine2.setAttribute("stroke-width", "2");
-        mkX.appendChild(xLine1);
-        mkX.appendChild(xLine2);
-        defs.appendChild(mkX);
+        xLine2.setAttribute("x1", "14"); xLine2.setAttribute("y1", "2");
+        xLine2.setAttribute("x2", "2"); xLine2.setAttribute("y2", "14");
+        xLine2.setAttribute("stroke", "var(--ink, #333)"); xLine2.setAttribute("stroke-width", "2.5");
+        mkX.appendChild(xLine1); mkX.appendChild(xLine2); defs.appendChild(mkX);
         svg.appendChild(defs);
+
+        // Collect label bg+text pairs for deferred getBBox sizing
+        const labelPairs = [];
 
         // Draw lifelines
         for (let pi = 0; pi < participants.length; pi++) {
@@ -5535,8 +5599,8 @@ function getIframeSrcDoc() {
           line.setAttribute("x2", cx);
           line.setAttribute("y2", totalHeight - actorHeight - actorPad);
           line.setAttribute("stroke", "var(--border, #ccc)");
-          line.setAttribute("stroke-width", "1");
-          line.setAttribute("stroke-dasharray", "6,4");
+          line.setAttribute("stroke-width", "1.5");
+          line.setAttribute("stroke-dasharray", "8,5");
           line.classList.add("mf-seq-lifeline");
           svg.appendChild(line);
         }
@@ -5586,13 +5650,13 @@ function getIframeSrcDoc() {
 
           if (isSelf) {
             // Self-message: loop to the right and back
-            const loopW = 30;
-            const loopH = 20;
+            const loopW = 36;
+            const loopH = 24;
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
             path.setAttribute("d", "M" + srcX + "," + y + " H" + (srcX + loopW) + " V" + (y + loopH) + " H" + srcX);
             path.setAttribute("fill", "none");
             path.setAttribute("stroke", "var(--ink, #333)");
-            path.setAttribute("stroke-width", "1.5");
+            path.setAttribute("stroke-width", "2");
             if (isDashed) path.setAttribute("stroke-dasharray", "6,3");
             path.setAttribute("marker-end", isX ? "url(#mf-seq-arrow-x)" : isFilled ? "url(#mf-seq-arrow-filled-rev)" : "url(#mf-seq-arrow-open)");
             svg.appendChild(path);
@@ -5603,7 +5667,7 @@ function getIframeSrcDoc() {
             line.setAttribute("x2", tgtX);
             line.setAttribute("y2", y);
             line.setAttribute("stroke", "var(--ink, #333)");
-            line.setAttribute("stroke-width", "1.5");
+            line.setAttribute("stroke-width", "2");
             if (isDashed) line.setAttribute("stroke-dasharray", "6,3");
             if (isX) {
               line.setAttribute("marker-end", "url(#mf-seq-arrow-x)");
@@ -5615,20 +5679,29 @@ function getIframeSrcDoc() {
             svg.appendChild(line);
           }
 
-          // Message label
+          // Message label with background
           if (m.text) {
-            const labelX = isSelf ? srcX + 34 : (srcX + tgtX) / 2;
-            const labelY = isSelf ? y + 6 : y - 8;
+            const labelX = isSelf ? srcX + 40 : (srcX + tgtX) / 2;
+            const labelY = isSelf ? y + 6 : y - 10;
+            const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            labelBg.setAttribute("rx", "3");
+            labelBg.setAttribute("fill", "var(--panel, #ffffff)");
+            labelBg.setAttribute("stroke", "var(--border, #e5e7eb)");
+            labelBg.setAttribute("stroke-width", "0.5");
+            labelBg.classList.add("mf-seq-msg-label-bg");
+            svg.appendChild(labelBg);
             const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
             textEl.setAttribute("x", labelX);
             textEl.setAttribute("y", labelY);
             textEl.setAttribute("text-anchor", isSelf ? "start" : "middle");
-            textEl.setAttribute("font-size", "12");
+            textEl.setAttribute("font-size", "13");
+            textEl.setAttribute("font-weight", "500");
             textEl.setAttribute("fill", "var(--ink, #333)");
             textEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
             textEl.classList.add("mf-seq-msg-label");
             textEl.textContent = m.text;
             svg.appendChild(textEl);
+            labelPairs.push({ bg: labelBg, text: textEl });
           }
         }
 
@@ -5644,9 +5717,9 @@ function getIframeSrcDoc() {
           }
           if (startMsgIdx < 0) continue;
 
-          const y1 = msgStartY + startMsgIdx * rowHeight - 12;
-          const y2 = msgStartY + (endMsgIdx + 1) * rowHeight + 4;
-          const blockInset = 10 + block.depth * 8;
+          const y1 = msgStartY + startMsgIdx * rowHeight - 16;
+          const y2 = msgStartY + (endMsgIdx + 1) * rowHeight + 8;
+          const blockInset = MARGIN / 2 + block.depth * 10;
           const bx = blockInset;
           const bw = totalWidth - blockInset * 2;
 
@@ -5655,35 +5728,30 @@ function getIframeSrcDoc() {
           rect.setAttribute("y", y1);
           rect.setAttribute("width", bw);
           rect.setAttribute("height", y2 - y1);
-          rect.setAttribute("rx", "4");
-          rect.setAttribute("fill", "none");
-          rect.setAttribute("stroke", "var(--border, #ccc)");
-          rect.setAttribute("stroke-width", "1");
-          rect.setAttribute("stroke-dasharray", "4,3");
+          rect.setAttribute("rx", "6");
+          rect.setAttribute("fill", "rgba(37, 99, 235, 0.03)");
+          rect.setAttribute("stroke", "var(--accent, #93c5fd)");
+          rect.setAttribute("stroke-width", "1.5");
           svg.appendChild(rect);
 
-          // Block type label
-          const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          // Block type label (pill badge)
           const labelText = block.type + (block.label ? " " + block.label : "");
-          labelBg.setAttribute("x", bx);
-          labelBg.setAttribute("y", y1);
-          labelBg.setAttribute("width", Math.min(labelText.length * 7 + 12, bw));
-          labelBg.setAttribute("height", "18");
-          labelBg.setAttribute("rx", "4");
-          labelBg.setAttribute("fill", "var(--panel, #f5f5f5)");
-          labelBg.setAttribute("stroke", "var(--border, #ccc)");
-          labelBg.setAttribute("stroke-width", "1");
-          svg.appendChild(labelBg);
-
-          const labelEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
-          labelEl.setAttribute("x", bx + 6);
-          labelEl.setAttribute("y", y1 + 13);
-          labelEl.setAttribute("font-size", "11");
-          labelEl.setAttribute("font-weight", "600");
-          labelEl.setAttribute("fill", "var(--ink-soft, #666)");
-          labelEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
-          labelEl.textContent = labelText;
-          svg.appendChild(labelEl);
+          const blkLabelEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          blkLabelEl.setAttribute("x", bx + 8);
+          blkLabelEl.setAttribute("y", y1 + 15);
+          blkLabelEl.setAttribute("font-size", "11");
+          blkLabelEl.setAttribute("font-weight", "700");
+          blkLabelEl.setAttribute("fill", "var(--accent, #2563eb)");
+          blkLabelEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
+          blkLabelEl.textContent = labelText;
+          const blkLabelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          blkLabelBg.setAttribute("rx", "4");
+          blkLabelBg.setAttribute("fill", "var(--panel, #eff6ff)");
+          blkLabelBg.setAttribute("stroke", "var(--accent, #93c5fd)");
+          blkLabelBg.setAttribute("stroke-width", "1");
+          svg.appendChild(blkLabelBg);
+          svg.appendChild(blkLabelEl);
+          labelPairs.push({ bg: blkLabelBg, text: blkLabelEl, padX: 8, padY: 3 });
 
           // Divider lines (else / and)
           for (const div of (block.dividers || [])) {
@@ -5758,9 +5826,9 @@ function getIframeSrcDoc() {
           const topBox = document.createElement("div");
           topBox.className = "mf-seq-actor" + (p.type === "actor" ? " mf-seq-actor-person" : "");
           topBox.setAttribute("data-participant-id", p.id);
-          topBox.style.left = (cx - colWidth / 2 + 8) + "px";
+          topBox.style.left = (cx - colWidths[pi] / 2 + 8) + "px";
           topBox.style.top = "0";
-          topBox.style.width = (colWidth - 16) + "px";
+          topBox.style.width = (colWidths[pi] - 16) + "px";
           topBox.style.position = "absolute";
 
           if (p.type === "actor") {
@@ -5810,7 +5878,7 @@ function getIframeSrcDoc() {
               topBox.style.left = (dragOrigLeft + dx) + "px";
               topBox.classList.add("mf-seq-actor-dragging");
               // Highlight drop position
-              const currentCx = dragOrigLeft + dx + (colWidth - 16) / 2;
+              const currentCx = dragOrigLeft + dx + (colWidths[pi] - 16) / 2;
               let newIdx = 0;
               for (let i = 0; i < actorPositions.length; i++) {
                 if (currentCx > actorPositions[i].cx) newIdx = i + 1;
@@ -5818,7 +5886,8 @@ function getIframeSrcDoc() {
               container.querySelectorAll(".mf-seq-drop-indicator").forEach((el) => el.remove());
               const indicator = document.createElement("div");
               indicator.className = "mf-seq-drop-indicator";
-              const dropX = newIdx === 0 ? 4 : (actorPositions[Math.min(newIdx - 1, actorPositions.length - 1)].cx + colWidth / 2 - 1);
+              const prevIdx = Math.min(newIdx - 1, actorPositions.length - 1);
+              const dropX = newIdx === 0 ? MARGIN : (colOffsets[prevIdx + 1] - 1);
               indicator.style.left = dropX + "px";
               indicator.style.top = "0";
               indicator.style.height = totalHeight + "px";
@@ -5834,7 +5903,7 @@ function getIframeSrcDoc() {
             container.querySelectorAll(".mf-seq-drop-indicator").forEach((el) => el.remove());
             if (isDragging) {
               const dx = e.clientX - dragStartX;
-              const currentCx = dragOrigLeft + dx + (colWidth - 16) / 2;
+              const currentCx = dragOrigLeft + dx + (colWidths[pi] - 16) / 2;
               let newIdx = 0;
               for (let i = 0; i < actorPositions.length; i++) {
                 if (currentCx > actorPositions[i].cx) newIdx = i + 1;
@@ -5857,9 +5926,9 @@ function getIframeSrcDoc() {
           const bottomBox = document.createElement("div");
           bottomBox.className = "mf-seq-actor mf-seq-actor-bottom" + (p.type === "actor" ? " mf-seq-actor-person" : "");
           bottomBox.setAttribute("data-participant-id", p.id);
-          bottomBox.style.left = (cx - colWidth / 2 + 8) + "px";
+          bottomBox.style.left = (cx - colWidths[pi] / 2 + 8) + "px";
           bottomBox.style.top = (totalHeight - actorHeight) + "px";
-          bottomBox.style.width = (colWidth - 16) + "px";
+          bottomBox.style.width = (colWidths[pi] - 16) + "px";
           bottomBox.style.position = "absolute";
           const bottomLabel = document.createElement("div");
           bottomLabel.className = "mf-seq-actor-label";
@@ -5961,6 +6030,19 @@ function getIframeSrcDoc() {
         });
 
         canvas.appendChild(container);
+
+        // Deferred getBBox pass — size label backgrounds after DOM attachment
+        for (const pair of labelPairs) {
+          try {
+            const bb = pair.text.getBBox();
+            const px = pair.padX || 6;
+            const py = pair.padY || 2;
+            pair.bg.setAttribute("x", bb.x - px);
+            pair.bg.setAttribute("y", bb.y - py);
+            pair.bg.setAttribute("width", bb.width + px * 2);
+            pair.bg.setAttribute("height", bb.height + py * 2);
+          } catch (e) { /* getBBox unavailable */ }
+        }
       };
 
       /* ── Diagram-aware node resolution ─────────────────── */
