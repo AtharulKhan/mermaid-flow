@@ -8759,22 +8759,6 @@ function App() {
               </div>
             )}
             <span className="preview-hint desktop-only">
-              {toolsetKey === "flowchart" && (
-                <button
-                  className="date-toggle-btn"
-                  title="Re-run auto-layout (clears manual positions)"
-                  onClick={() => {
-                    setPositionOverrides({});
-                    const frame = iframeRef.current;
-                    if (frame?.contentWindow) {
-                      frame.contentWindow.postMessage({ channel: CHANNEL, type: "layout:reset" }, "*");
-                    }
-                    setRenderMessage("Layout reset — dagre will re-arrange nodes");
-                  }}
-                >
-                  Format diagram
-                </button>
-              )}
               {toolsetKey === "gantt" && (
                 <>
                   <div className="dropdown-wrap" ref={ganttViewMenuRef}>
