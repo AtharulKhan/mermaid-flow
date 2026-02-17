@@ -1576,23 +1576,22 @@ function getIframeSrcDoc() {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        height: 52px;
-        border-radius: 8px;
-        border: 1.5px solid var(--border, #d1d5db);
+        height: 44px;
+        border-radius: 4px;
+        border: 1px solid var(--border, #ced4da);
         background: var(--panel, #ffffff);
         cursor: grab;
         transition: box-shadow 0.15s, border-color 0.15s;
         z-index: 2;
         gap: 2px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
       }
       .mf-seq-actor:hover {
         border-color: var(--accent, #2563eb);
-        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
       }
       .mf-seq-actor.mf-selected {
         border-color: var(--accent, #2563eb);
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
       }
       .mf-seq-actor.mf-seq-actor-dragging {
         opacity: 0.7;
@@ -1609,7 +1608,7 @@ function getIframeSrcDoc() {
       }
       .mf-seq-actor-label {
         font-size: 13px;
-        font-weight: 600;
+        font-weight: 500;
         color: var(--ink, #333);
         white-space: nowrap;
         overflow: hidden;
@@ -1619,13 +1618,13 @@ function getIframeSrcDoc() {
         padding: 0 10px;
       }
       .mf-seq-actor-bottom .mf-seq-actor-label {
-        font-weight: 500;
+        font-weight: 400;
       }
       .mf-seq-lifeline {
-        opacity: 0.7;
+        opacity: 0.5;
       }
       .mf-seq-activation {
-        opacity: 0.7;
+        opacity: 0.6;
       }
       .mf-seq-message {
         cursor: pointer;
@@ -1637,8 +1636,8 @@ function getIframeSrcDoc() {
         background: rgba(37, 99, 235, 0.06);
       }
       .mf-seq-message.mf-selected {
-        background: rgba(37, 99, 235, 0.1);
-        outline: 1.5px solid var(--accent, #2563eb);
+        background: rgba(37, 99, 235, 0.08);
+        outline: 1px solid var(--accent, #2563eb);
       }
       .mf-seq-msg-label {
         pointer-events: none;
@@ -1668,7 +1667,7 @@ function getIframeSrcDoc() {
       }
       .mf-seq-lane {
         border: 1px solid var(--border, #d1d5db);
-        border-radius: 10px;
+        border-radius: 8px;
         background: var(--panel, #ffffff);
         overflow: hidden;
         flex: 1 1 0;
@@ -1954,11 +1953,10 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-seq-actor {
         background: #1c1f2b;
         border-color: #3a3f52;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
       }
       [data-theme="dark"] .mf-seq-actor:hover {
         border-color: #60a5fa;
-        box-shadow: 0 2px 8px rgba(96, 165, 250, 0.2);
+        box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.15);
       }
       [data-theme="dark"] .mf-seq-actor-label { color: #e4e6ed; }
       [data-theme="dark"] .mf-seq-actor-icon { color: #e4e6ed; }
@@ -5344,9 +5342,9 @@ function getIframeSrcDoc() {
         const MIN_COL_W = 200;
         const MAX_COL_W = 350;
         const MARGIN = 40;
-        const rowHeight = 48;
-        const actorHeight = 52;
-        const actorPad = 20;
+        const rowHeight = 52;
+        const actorHeight = 44;
+        const actorPad = 16;
         const lifelineStartY = actorHeight + actorPad;
         const msgStartY = lifelineStartY + 14;
 
@@ -5552,38 +5550,38 @@ function getIframeSrcDoc() {
           return m;
         };
         // Filled arrowhead (for ->> and -->>)
-        const mkFilled = mkr("mf-seq-arrow-filled", "14", "10", "13", "5");
+        const mkFilled = mkr("mf-seq-arrow-filled", "11", "8", "10", "4");
         const filledPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        filledPath.setAttribute("d", "M0,0 L14,5 L0,10 Z");
+        filledPath.setAttribute("d", "M0,0 L11,4 L0,8 Z");
         filledPath.setAttribute("fill", "var(--ink, #333)");
         mkFilled.appendChild(filledPath); defs.appendChild(mkFilled);
 
         // Open arrowhead (for -> and -->)
-        const mkOpen = mkr("mf-seq-arrow-open", "14", "10", "13", "5");
+        const mkOpen = mkr("mf-seq-arrow-open", "11", "8", "10", "4");
         const openPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        openPath.setAttribute("d", "M0,0 L14,5 L0,10");
+        openPath.setAttribute("d", "M0,0 L11,4 L0,8");
         openPath.setAttribute("fill", "none");
         openPath.setAttribute("stroke", "var(--ink, #333)");
-        openPath.setAttribute("stroke-width", "2");
+        openPath.setAttribute("stroke-width", "1.5");
         mkOpen.appendChild(openPath); defs.appendChild(mkOpen);
 
         // Reverse filled arrowhead (for self-message loops)
-        const mkFilledRev = mkr("mf-seq-arrow-filled-rev", "14", "10", "1", "5");
+        const mkFilledRev = mkr("mf-seq-arrow-filled-rev", "11", "8", "1", "4");
         const filledRevPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        filledRevPath.setAttribute("d", "M14,0 L0,5 L14,10 Z");
+        filledRevPath.setAttribute("d", "M11,0 L0,4 L11,8 Z");
         filledRevPath.setAttribute("fill", "var(--ink, #333)");
         mkFilledRev.appendChild(filledRevPath); defs.appendChild(mkFilledRev);
 
         // X marker (for -x and --x)
-        const mkX = mkr("mf-seq-arrow-x", "16", "16", "8", "8");
+        const mkX = mkr("mf-seq-arrow-x", "14", "14", "7", "7");
         const xLine1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
         xLine1.setAttribute("x1", "2"); xLine1.setAttribute("y1", "2");
-        xLine1.setAttribute("x2", "14"); xLine1.setAttribute("y2", "14");
-        xLine1.setAttribute("stroke", "var(--ink, #333)"); xLine1.setAttribute("stroke-width", "2.5");
+        xLine1.setAttribute("x2", "12"); xLine1.setAttribute("y2", "12");
+        xLine1.setAttribute("stroke", "var(--ink, #333)"); xLine1.setAttribute("stroke-width", "2");
         const xLine2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        xLine2.setAttribute("x1", "14"); xLine2.setAttribute("y1", "2");
-        xLine2.setAttribute("x2", "2"); xLine2.setAttribute("y2", "14");
-        xLine2.setAttribute("stroke", "var(--ink, #333)"); xLine2.setAttribute("stroke-width", "2.5");
+        xLine2.setAttribute("x1", "12"); xLine2.setAttribute("y1", "2");
+        xLine2.setAttribute("x2", "2"); xLine2.setAttribute("y2", "12");
+        xLine2.setAttribute("stroke", "var(--ink, #333)"); xLine2.setAttribute("stroke-width", "2");
         mkX.appendChild(xLine1); mkX.appendChild(xLine2); defs.appendChild(mkX);
         svg.appendChild(defs);
 
@@ -5598,9 +5596,9 @@ function getIframeSrcDoc() {
           line.setAttribute("y1", lifelineStartY);
           line.setAttribute("x2", cx);
           line.setAttribute("y2", totalHeight - actorHeight - actorPad);
-          line.setAttribute("stroke", "var(--border, #ccc)");
-          line.setAttribute("stroke-width", "1.5");
-          line.setAttribute("stroke-dasharray", "8,5");
+          line.setAttribute("stroke", "var(--border, #d1d5db)");
+          line.setAttribute("stroke-width", "1");
+          line.setAttribute("stroke-dasharray", "6,4");
           line.classList.add("mf-seq-lifeline");
           svg.appendChild(line);
         }
@@ -5622,8 +5620,8 @@ function getIframeSrcDoc() {
           actRect.setAttribute("width", "12");
           actRect.setAttribute("height", Math.max(y2 - y1 + 8, 16));
           actRect.setAttribute("rx", "2");
-          actRect.setAttribute("fill", "var(--accent-soft, rgba(37,99,235,0.12))");
-          actRect.setAttribute("stroke", "var(--accent, #2563eb)");
+          actRect.setAttribute("fill", "var(--accent-soft, rgba(37,99,235,0.08))");
+          actRect.setAttribute("stroke", "var(--border, #d1d5db)");
           actRect.setAttribute("stroke-width", "1");
           actRect.classList.add("mf-seq-activation");
           svg.appendChild(actRect);
@@ -5656,7 +5654,7 @@ function getIframeSrcDoc() {
             path.setAttribute("d", "M" + srcX + "," + y + " H" + (srcX + loopW) + " V" + (y + loopH) + " H" + srcX);
             path.setAttribute("fill", "none");
             path.setAttribute("stroke", "var(--ink, #333)");
-            path.setAttribute("stroke-width", "2");
+            path.setAttribute("stroke-width", "1.5");
             if (isDashed) path.setAttribute("stroke-dasharray", "6,3");
             path.setAttribute("marker-end", isX ? "url(#mf-seq-arrow-x)" : isFilled ? "url(#mf-seq-arrow-filled-rev)" : "url(#mf-seq-arrow-open)");
             svg.appendChild(path);
@@ -5667,7 +5665,7 @@ function getIframeSrcDoc() {
             line.setAttribute("x2", tgtX);
             line.setAttribute("y2", y);
             line.setAttribute("stroke", "var(--ink, #333)");
-            line.setAttribute("stroke-width", "2");
+            line.setAttribute("stroke-width", "1.5");
             if (isDashed) line.setAttribute("stroke-dasharray", "6,3");
             if (isX) {
               line.setAttribute("marker-end", "url(#mf-seq-arrow-x)");
@@ -5684,18 +5682,16 @@ function getIframeSrcDoc() {
             const labelX = isSelf ? srcX + 40 : (srcX + tgtX) / 2;
             const labelY = isSelf ? y + 6 : y - 10;
             const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            labelBg.setAttribute("rx", "3");
+            labelBg.setAttribute("rx", "2");
             labelBg.setAttribute("fill", "var(--panel, #ffffff)");
-            labelBg.setAttribute("stroke", "var(--border, #e5e7eb)");
-            labelBg.setAttribute("stroke-width", "0.5");
             labelBg.classList.add("mf-seq-msg-label-bg");
             svg.appendChild(labelBg);
             const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
             textEl.setAttribute("x", labelX);
             textEl.setAttribute("y", labelY);
             textEl.setAttribute("text-anchor", isSelf ? "start" : "middle");
-            textEl.setAttribute("font-size", "13");
-            textEl.setAttribute("font-weight", "500");
+            textEl.setAttribute("font-size", "12");
+            textEl.setAttribute("font-weight", "400");
             textEl.setAttribute("fill", "var(--ink, #333)");
             textEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
             textEl.classList.add("mf-seq-msg-label");
@@ -5729,9 +5725,9 @@ function getIframeSrcDoc() {
           rect.setAttribute("width", bw);
           rect.setAttribute("height", y2 - y1);
           rect.setAttribute("rx", "6");
-          rect.setAttribute("fill", "rgba(37, 99, 235, 0.03)");
-          rect.setAttribute("stroke", "var(--accent, #93c5fd)");
-          rect.setAttribute("stroke-width", "1.5");
+          rect.setAttribute("fill", "rgba(37, 99, 235, 0.02)");
+          rect.setAttribute("stroke", "var(--border, #d1d5db)");
+          rect.setAttribute("stroke-width", "1");
           svg.appendChild(rect);
 
           // Block type label (pill badge)
@@ -5739,16 +5735,16 @@ function getIframeSrcDoc() {
           const blkLabelEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
           blkLabelEl.setAttribute("x", bx + 8);
           blkLabelEl.setAttribute("y", y1 + 15);
-          blkLabelEl.setAttribute("font-size", "11");
-          blkLabelEl.setAttribute("font-weight", "700");
-          blkLabelEl.setAttribute("fill", "var(--accent, #2563eb)");
+          blkLabelEl.setAttribute("font-size", "10");
+          blkLabelEl.setAttribute("font-weight", "600");
+          blkLabelEl.setAttribute("fill", "var(--ink-soft, #6b7280)");
           blkLabelEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
           blkLabelEl.textContent = labelText;
           const blkLabelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-          blkLabelBg.setAttribute("rx", "4");
-          blkLabelBg.setAttribute("fill", "var(--panel, #eff6ff)");
-          blkLabelBg.setAttribute("stroke", "var(--accent, #93c5fd)");
-          blkLabelBg.setAttribute("stroke-width", "1");
+          blkLabelBg.setAttribute("rx", "3");
+          blkLabelBg.setAttribute("fill", "var(--panel, #f9fafb)");
+          blkLabelBg.setAttribute("stroke", "var(--border, #d1d5db)");
+          blkLabelBg.setAttribute("stroke-width", "0.5");
           svg.appendChild(blkLabelBg);
           svg.appendChild(blkLabelEl);
           labelPairs.push({ bg: blkLabelBg, text: blkLabelEl, padX: 8, padY: 3 });
@@ -5834,7 +5830,7 @@ function getIframeSrcDoc() {
           if (p.type === "actor") {
             const icon = document.createElement("div");
             icon.className = "mf-seq-actor-icon";
-            icon.innerHTML = '<svg width="20" height="24" viewBox="0 0 20 24"><circle cx="10" cy="5" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="9" x2="10" y2="17" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="13" x2="17" y2="13" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="17" x2="4" y2="23" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="17" x2="16" y2="23" stroke="currentColor" stroke-width="1.5"/></svg>';
+            icon.innerHTML = '<svg width="16" height="20" viewBox="0 0 20 24"><circle cx="10" cy="5" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="9" x2="10" y2="17" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="13" x2="17" y2="13" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="17" x2="4" y2="23" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="17" x2="16" y2="23" stroke="currentColor" stroke-width="1.5"/></svg>';
             topBox.appendChild(icon);
           }
 
