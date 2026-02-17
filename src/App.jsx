@@ -9720,6 +9720,18 @@ function App() {
                   {flowchartData.direction === "LR" ? "\u2195 Top-Bottom" : "\u2194 Left-Right"}
                 </button>
               )}
+              {toolsetKey === "erDiagram" && (
+                <button
+                  className={`date-toggle-btn`}
+                  title={erLayoutDir === "LR" ? "Switch to top-to-bottom layout" : "Switch to left-to-right layout"}
+                  onClick={() => {
+                    setErLayoutDir((prev) => prev === "LR" ? "TB" : "LR");
+                    setPositionOverrides({});
+                  }}
+                >
+                  {erLayoutDir === "LR" ? "\u2195 Top-Bottom" : "\u2194 Left-Right"}
+                </button>
+              )}
               {toolsetKey === "gantt" && (
                 <>
                   <div className="dropdown-wrap" ref={ganttViewMenuRef}>
@@ -9928,20 +9940,6 @@ function App() {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-          {toolsetKey === "erDiagram" && (
-            <div className="zoom-controls" style={{ marginRight: 6 }}>
-              <button
-                title="Left to Right layout"
-                onClick={() => setErLayoutDir("LR")}
-                style={{ fontWeight: erLayoutDir === "LR" ? 700 : 400, opacity: erLayoutDir === "LR" ? 1 : 0.55 }}
-              >LR</button>
-              <button
-                title="Top to Bottom layout"
-                onClick={() => setErLayoutDir("TB")}
-                style={{ fontWeight: erLayoutDir === "TB" ? 700 : 400, opacity: erLayoutDir === "TB" ? 1 : 0.55 }}
-              >TB</button>
             </div>
           )}
           <div className="zoom-controls">
