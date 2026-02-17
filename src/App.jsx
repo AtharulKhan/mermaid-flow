@@ -18,6 +18,8 @@ import {
   updateGanttLink,
   updateGanttProgress,
   deleteGanttTask,
+  findDependentTasks,
+  removeDependencyReferences,
   insertGanttTaskAfter,
   addGanttSection,
   getGanttSections,
@@ -8438,6 +8440,7 @@ function App() {
     progress: "",
     dependsOn: [],
   });
+  const [ganttDeleteConfirm, setGanttDeleteConfirm] = useState(null);
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(() => {
@@ -10306,17 +10309,45 @@ function App() {
     }
   };
 
-  const handleDeleteGanttTask = (label) => {
+  const handleDeleteGanttTask = (label, deleteDependents = false) => {
     commitSnapshotNow();
     const task = findTaskByLabel(ganttTasks, label);
     if (!task) return;
-    const updated = deleteGanttTask(code, task);
+
+    // Check for dependent tasks if not already confirmed
+    if (!deleteDependents) {
+      const dependents = findDependentTasks(ganttTasks, task);
+      if (dependents.length > 0) {
+        setGanttDeleteConfirm({ task, dependents });
+        return;
+      }
+    }
+
+    let updated = code;
+    if (deleteDependents) {
+      // Cascade: delete the task and all its dependents
+      const dependents = findDependentTasks(ganttTasks, task);
+      // Re-parse after each deletion since line indices shift; delete in reverse order
+      const allToDelete = [task, ...dependents].sort((a, b) => b.lineIndex - a.lineIndex);
+      for (const t of allToDelete) {
+        const current = findTaskByLabel(parseGanttTasks(updated), t.label);
+        if (current) updated = deleteGanttTask(updated, current);
+      }
+    } else {
+      // Remove dependency references first, then delete the task
+      updated = removeDependencyReferences(updated, ganttTasks, task);
+      // Re-find task since line indices may not have shifted (refs are in-line edits)
+      const refreshed = findTaskByLabel(parseGanttTasks(updated), task.label);
+      updated = deleteGanttTask(updated, refreshed || task);
+    }
+
     setCode(updated);
     setRenderMessage(`Deleted "${task.label}"`);
     setHighlightLine(null);
     if (selectedElement?.label && selectedElement.label.toLowerCase() === task.label.toLowerCase()) {
       setSelectedElement(null);
     }
+    setGanttDeleteConfirm(null);
   };
 
   const handleStatusToggle = (flag) => {
@@ -12006,6 +12037,63 @@ function App() {
                   onClick={() => { applyGanttTaskPatch(); setContextMenu(null); }}
                 >
                   Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Gantt Delete Confirmation Dialog ──────────── */}
+      {ganttDeleteConfirm && (() => {
+        const { task, dependents } = ganttDeleteConfirm;
+        return (
+          <div className="modal-backdrop" onClick={() => setGanttDeleteConfirm(null)}>
+            <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+              <h2>Delete Task</h2>
+              <p style={{ margin: "0 0 12px", fontSize: "0.88rem", lineHeight: 1.5 }}>
+                <strong>{task.label}</strong> has {dependents.length === 1 ? "1 task" : `${dependents.length} tasks`} that {dependents.length === 1 ? "depends" : "depend"} on it:
+              </p>
+              <ul style={{ margin: "0 0 16px", paddingLeft: 20, fontSize: "0.85rem", lineHeight: 1.6 }}>
+                {dependents.map((d) => (
+                  <li key={d.label}>{d.label}</li>
+                ))}
+              </ul>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button
+                  className="soft-btn"
+                  onClick={() => setGanttDeleteConfirm(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="soft-btn danger"
+                  onClick={() => {
+                    handleDeleteGanttTask(task.label, true);
+                    setContextMenu(null);
+                  }}
+                >
+                  Delete All
+                </button>
+                <button
+                  className="soft-btn primary"
+                  onClick={() => {
+                    // Delete task only, clean up dependency references
+                    commitSnapshotNow();
+                    let updated = removeDependencyReferences(code, ganttTasks, task);
+                    const refreshed = findTaskByLabel(parseGanttTasks(updated), task.label);
+                    updated = deleteGanttTask(updated, refreshed || task);
+                    setCode(updated);
+                    setRenderMessage(`Deleted "${task.label}"`);
+                    setHighlightLine(null);
+                    if (selectedElement?.label && selectedElement.label.toLowerCase() === task.label.toLowerCase()) {
+                      setSelectedElement(null);
+                    }
+                    setGanttDeleteConfirm(null);
+                    setContextMenu(null);
+                  }}
+                >
+                  Delete Task Only
                 </button>
               </div>
             </div>
