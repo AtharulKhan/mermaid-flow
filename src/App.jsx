@@ -6895,7 +6895,7 @@ function App() {
     setAiLoading(true);
     setAiError("");
     try {
-      const res = await fetch("/api/ai/generate", {
+      const res = await fetch("https://us-central1-mermaidflow-487516.cloudfunctions.net/aiGenerate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
