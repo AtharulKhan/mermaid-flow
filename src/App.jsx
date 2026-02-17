@@ -6031,6 +6031,9 @@ function App() {
   const [convertError, setConvertError] = useState("");
   const [aiPreview, setAiPreview] = useState(null); // { code, title, summary, source }
   const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
+  const [diagramTabs, setDiagramTabs] = useState([]); // [{ id, label, code }]
+  const [activeTabId, setActiveTabId] = useState("original");
+  const originalCodeRef = useRef(null);
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -8038,7 +8041,18 @@ function App() {
 
   const handleAiPreviewAccept = () => {
     if (!aiPreview) return;
-    setCode(aiPreview.code);
+    const newTab = {
+      id: Date.now().toString(),
+      label: aiPreview.title || (aiPreview.source === "convert" ? "Conversion" : "AI Generated"),
+      code: aiPreview.code,
+    };
+    setDiagramTabs((prev) => [...prev, newTab]);
+    // Switch to the new tab
+    if (activeTabId === "original") {
+      originalCodeRef.current = code;
+    }
+    setCode(newTab.code);
+    setActiveTabId(newTab.id);
     setSelectedElement(null);
     setHighlightLine(null);
     setPositionOverrides({});
@@ -8052,6 +8066,56 @@ function App() {
   const handleAiPreviewReject = () => {
     setAiPreviewOpen(false);
     setAiPreview(null);
+  };
+
+  const switchTab = (tabId) => {
+    if (tabId === activeTabId) return;
+    if (tabId === "original") {
+      if (originalCodeRef.current !== null) {
+        setCode(originalCodeRef.current);
+        originalCodeRef.current = null;
+      }
+      setActiveTabId("original");
+    } else {
+      if (activeTabId === "original") {
+        originalCodeRef.current = code;
+      }
+      const tab = diagramTabs.find((t) => t.id === tabId);
+      if (tab) {
+        setCode(tab.code);
+        setActiveTabId(tabId);
+      }
+    }
+    setSelectedElement(null);
+    setHighlightLine(null);
+    setPositionOverrides({});
+  };
+
+  const closeTab = (tabId) => {
+    setDiagramTabs((prev) => prev.filter((t) => t.id !== tabId));
+    if (activeTabId === tabId) {
+      if (originalCodeRef.current !== null) {
+        setCode(originalCodeRef.current);
+        originalCodeRef.current = null;
+      }
+      setActiveTabId("original");
+      setSelectedElement(null);
+      setHighlightLine(null);
+      setPositionOverrides({});
+    }
+  };
+
+  const applyTabToOriginal = (tabId) => {
+    const tab = diagramTabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    originalCodeRef.current = null;
+    setCode(tab.code);
+    setDiagramTabs((prev) => prev.filter((t) => t.id !== tabId));
+    setActiveTabId("original");
+    setSelectedElement(null);
+    setHighlightLine(null);
+    setPositionOverrides({});
+    setRenderMessage(`Applied: ${tab.label}`);
   };
 
   const handleDeleteDiagram = (name) => {
@@ -8394,6 +8458,44 @@ function App() {
               <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
             </div>
           </div>
+          {diagramTabs.length > 0 && (
+            <div className="editor-tab-bar">
+              <button
+                className={`editor-tab ${activeTabId === "original" ? "active" : ""}`}
+                onClick={() => switchTab("original")}
+              >
+                Original
+              </button>
+              {diagramTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  className={`editor-tab ${activeTabId === tab.id ? "active" : ""}`}
+                  onClick={() => switchTab(tab.id)}
+                >
+                  <span className="editor-tab-label">{tab.label}</span>
+                  <span
+                    className="editor-tab-close"
+                    onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+                  >
+                    &times;
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {activeTabId !== "original" && (
+            <div className="editor-tab-actions">
+              <button
+                className="soft-btn small primary"
+                onClick={() => applyTabToOriginal(activeTabId)}
+              >
+                Apply to editor
+              </button>
+              <span style={{ fontSize: 11, color: "var(--ink-muted)" }}>
+                This is a read-only AI preview. Click "Apply" to make it your working code.
+              </span>
+            </div>
+          )}
           <div className="editor-wrap">
             <pre className="line-gutter" aria-hidden="true">
               {Array.from({ length: lineCount }, (_, idx) => {
@@ -8409,6 +8511,7 @@ function App() {
               ref={editorRef}
               value={code}
               onChange={(e) => {
+                if (activeTabId !== "original") return;
                 if (!pendingTypingSnapshotRef.current) {
                   pendingTypingSnapshotRef.current = { code: codeRef.current, positionOverrides: positionOverridesRef.current, styleOverrides: styleOverridesRef.current };
                 }
@@ -8421,8 +8524,9 @@ function App() {
                 }, 800);
                 setCode(e.target.value); setPositionOverrides({});
               }}
+              readOnly={activeTabId !== "original"}
               spellCheck={false}
-              className="code-area"
+              className={`code-area ${activeTabId !== "original" ? "read-only" : ""}`}
             />
           </div>
           <div className="panel-footer">
