@@ -3615,6 +3615,12 @@ input:focus {
   border-bottom-color: var(--accent);
   background: var(--panel);
 }
+.editor-tab[draggable="true"] {
+  cursor: grab;
+}
+.editor-tab[draggable="true"]:active {
+  cursor: grabbing;
+}
 .editor-tab-label {
   max-width: 140px;
   overflow: hidden;
