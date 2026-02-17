@@ -30,7 +30,7 @@ import {
   updateGanttDependency,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph } from "./flowchartUtils";
-import { getDiagramAdapter, parseErDiagram, parseClassDiagram, parseStateDiagram } from "./diagramUtils";
+import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, updateErEntity, updateErRelationship } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
 import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
@@ -1405,6 +1405,124 @@ function getIframeSrcDoc() {
         box-shadow: 0 1px 4px rgba(0,0,0,0.15);
       }
       .mf-flow-port:hover { opacity: 1 !important; transform: scale(1.1); }
+<<<<<<< HEAD
+      /* ── Custom ER Diagram Styles ── */
+      .mf-er-container {
+        font-family: "Manrope", system-ui, sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        user-select: none;
+        position: relative;
+      }
+      .mf-er-entity {
+        position: absolute;
+        background: #ffffff;
+        border: 1.5px solid #6366f1;
+        border-radius: 6px;
+        overflow: hidden;
+        cursor: grab;
+        min-width: 160px;
+        z-index: 2;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        transition: box-shadow 0.12s ease, filter 0.12s ease;
+      }
+      .mf-er-entity:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        filter: brightness(1.02);
+      }
+      .mf-er-entity:active { cursor: grabbing; }
+      .mf-er-entity.mf-selected {
+        outline: 2.5px solid #2563eb;
+        outline-offset: 2px;
+        box-shadow: 0 0 10px rgba(37, 99, 235, 0.3);
+      }
+      .mf-er-entity.mf-connect-source {
+        outline: 3px solid #16a34a;
+        outline-offset: 2px;
+        box-shadow: 0 0 10px rgba(22, 163, 74, 0.4);
+      }
+      .mf-er-header {
+        background: #6366f1;
+        color: #ffffff;
+        padding: 6px 12px;
+        font-weight: 600;
+        font-size: 13px;
+        letter-spacing: 0.02em;
+      }
+      .mf-er-attrs {
+        font-size: 12px;
+        font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+      }
+      .mf-er-attr-row {
+        display: flex;
+        gap: 8px;
+        padding: 4px 12px;
+        border-top: 1px solid #e2e8f0;
+        align-items: center;
+        cursor: default;
+        transition: background 0.1s;
+      }
+      .mf-er-attr-row:hover { background: #f1f5f9; }
+      .mf-er-constraint {
+        font-size: 10px;
+        font-weight: 700;
+        color: #6366f1;
+        min-width: 20px;
+        text-align: center;
+      }
+      .mf-er-type {
+        color: #64748b;
+        min-width: 44px;
+      }
+      .mf-er-name {
+        color: #1e293b;
+        font-weight: 500;
+      }
+      .mf-er-edges {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .mf-er-edges .mf-er-edge {
+        pointer-events: stroke;
+        cursor: pointer;
+        transition: stroke 0.1s;
+      }
+      .mf-er-edges .mf-er-edge:hover { stroke: #6366f1; }
+      .mf-er-edges .mf-er-edge-hit {
+        fill: none;
+        stroke: transparent;
+        stroke-width: 16;
+        pointer-events: stroke;
+        cursor: pointer;
+      }
+      .mf-er-edges .mf-er-edge-label-bg {
+        pointer-events: none;
+      }
+      .mf-er-edges .mf-er-edge-label {
+        pointer-events: none;
+      }
+      .mf-er-port {
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #6366f1;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 10;
+        opacity: 0.85;
+        transition: transform 0.1s, opacity 0.1s;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+      }
+      .mf-er-port:hover { opacity: 1 !important; transform: scale(1.1); }
       .mf-flow-port.mf-port-dragging { opacity: 1 !important; background: #1d4ed8; transform: scale(1.2); }
       .mf-flow-drag-line { pointer-events: none; position: absolute; top: 0; left: 0; z-index: 9; }
       .mf-flow-node.mf-connect-drop-target { outline: 2.5px solid #3b82f6; outline-offset: 3px; border-radius: 6px; }
@@ -1611,6 +1729,30 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-flow-edge text {
         fill: #9a9fb2;
       }
+<<<<<<< HEAD
+      /* Dark ER diagram styles */
+      [data-theme="dark"] .mf-er-entity {
+        background: #1c1f2b;
+        border-color: #818cf8;
+        color: #e4e6ed;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      }
+      [data-theme="dark"] .mf-er-header {
+        background: #4f46e5;
+        color: #f1f5f9;
+      }
+      [data-theme="dark"] .mf-er-attr-row {
+        border-color: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-er-attr-row:hover { background: #252838; }
+      [data-theme="dark"] .mf-er-constraint { color: #a5b4fc; }
+      [data-theme="dark"] .mf-er-type { color: #9a9fb2; }
+      [data-theme="dark"] .mf-er-name { color: #e4e6ed; }
+      [data-theme="dark"] .mf-er-edges .mf-er-edge { stroke: #4a5068; }
+      [data-theme="dark"] .mf-er-edges .mf-er-edge:hover { stroke: #818cf8; }
+      [data-theme="dark"] .mf-er-edges .mf-er-edge-label-bg { fill: #1c1f2b; stroke: #2a2e3d; }
+      [data-theme="dark"] .mf-er-edges .mf-er-edge-label { fill: #9a9fb2; }
+      [data-theme="dark"] .mf-er-port { background: #818cf8; }
       [data-theme="dark"] #mf-arrow path,
       [data-theme="dark"] #mf-arrow-rev path { fill: #6b7394; }
       [data-theme="dark"] #mf-arrow-thick path,
@@ -4124,6 +4266,738 @@ function getIframeSrcDoc() {
         canvas.appendChild(container);
       };
 
+      /* ── Custom ER Diagram Renderer ────────────────────── */
+
+      const parseErAttr = (str) => {
+        const raw = (str || "").trim();
+        const parts = raw.split(/\\s+/);
+        return { type: parts[0] || "", name: parts[1] || "", constraint: (parts[2] || "").toUpperCase(), raw };
+      };
+
+      const splitCardinality = (card) => {
+        const str = (card || "").trim();
+        const idx = str.indexOf("--");
+        if (idx < 0) return { src: "||", tgt: "o{" };
+        return { src: str.slice(0, idx), tgt: str.slice(idx + 2) };
+      };
+
+      const measureErDimensions = (entities) => {
+        const measurer = document.createElement("div");
+        measurer.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;top:-9999px;left:-9999px;font-family:'SF Mono','Fira Code',Manrope,system-ui,monospace;font-size:12px;line-height:1.4;";
+        document.body.appendChild(measurer);
+        const dims = {};
+        for (const entity of entities) {
+          const el = document.createElement("div");
+          el.style.cssText = "display:inline-block;white-space:nowrap;";
+          // Header
+          const header = document.createElement("div");
+          header.style.cssText = "padding:6px 12px;font-weight:600;font-size:13px;font-family:Manrope,system-ui,sans-serif;";
+          header.textContent = entity.id;
+          el.appendChild(header);
+          // Attributes
+          let maxAttrW = 0;
+          for (const a of entity.attributes) {
+            const row = document.createElement("div");
+            row.style.cssText = "padding:4px 12px;display:flex;gap:8px;";
+            const attr = parseErAttr(a);
+            row.innerHTML = (attr.constraint ? '<span style="min-width:20px;font-size:10px;font-weight:700;">' + attr.constraint + '</span>' : '') + '<span style="min-width:40px;">' + escapeHtml(attr.type) + '</span><span>' + escapeHtml(attr.name) + '</span>';
+            el.appendChild(row);
+          }
+          measurer.appendChild(el);
+          const w = Math.max(el.offsetWidth + 24, 180);
+          const attrCount = entity.attributes.length;
+          const h = 34 + attrCount * 28 + 8;
+          dims[entity.id] = { width: Math.min(w, 300), height: Math.max(h, 60) };
+          measurer.removeChild(el);
+        }
+        document.body.removeChild(measurer);
+        return dims;
+      };
+
+      const layoutErDiagram = (erData, nodeDims) => {
+        const g = new dagre.graphlib.Graph();
+        g.setGraph({ rankdir: "LR", nodesep: 80, ranksep: 120, marginx: 40, marginy: 40 });
+        g.setDefaultEdgeLabel(() => ({}));
+        for (const e of erData.entities) {
+          const d = nodeDims[e.id] || { width: 180, height: 60 };
+          g.setNode(e.id, { width: d.width, height: d.height });
+        }
+        for (const r of erData.relationships) {
+          if (g.hasNode(r.source) && g.hasNode(r.target)) {
+            g.setEdge(r.source, r.target, { label: r.label || "", cardinality: r.cardinality || "||--o{" });
+          }
+        }
+        dagre.layout(g);
+        return g;
+      };
+
+      const updateErEdgesForNode = (edgeSvg, relationships, nodeId, nodeEls, nodeDims) => {
+        for (const r of relationships) {
+          if (r.source !== nodeId && r.target !== nodeId) continue;
+          const pathEl = edgeSvg.querySelector('.mf-er-edge[data-source="' + CSS.escape(r.source) + '"][data-target="' + CSS.escape(r.target) + '"]');
+          const hitEl = edgeSvg.querySelector('.mf-er-edge-hit[data-source="' + CSS.escape(r.source) + '"][data-target="' + CSS.escape(r.target) + '"]');
+          if (!pathEl) continue;
+          const srcEl = nodeEls[r.source];
+          const tgtEl = nodeEls[r.target];
+          if (!srcEl || !tgtEl) continue;
+          const sDim = nodeDims[r.source] || { width: 180, height: 60 };
+          const tDim = nodeDims[r.target] || { width: 180, height: 60 };
+          const sx = parseFloat(srcEl.style.left) + sDim.width / 2;
+          const sy = parseFloat(srcEl.style.top) + sDim.height / 2;
+          const tx = parseFloat(tgtEl.style.left) + tDim.width / 2;
+          const ty = parseFloat(tgtEl.style.top) + tDim.height / 2;
+          const sp = getConnectionPt(sx, sy, sDim.width / 2, sDim.height / 2, tx, ty, "rect");
+          const tp = getConnectionPt(tx, ty, tDim.width / 2, tDim.height / 2, sx, sy, "rect");
+          const dist = Math.hypot(tp.x - sp.x, tp.y - sp.y);
+          const off = Math.max(dist * 0.35, 25);
+          const ddx = tp.x - sp.x;
+          const ddy = tp.y - sp.y;
+          let c1x, c1y, c2x, c2y;
+          if (Math.abs(ddx) > Math.abs(ddy)) {
+            c1x = sp.x + (ddx > 0 ? off : -off); c1y = sp.y;
+            c2x = tp.x - (ddx > 0 ? off : -off); c2y = tp.y;
+          } else {
+            c1x = sp.x; c1y = sp.y + (ddy > 0 ? off : -off);
+            c2x = tp.x; c2y = tp.y - (ddy > 0 ? off : -off);
+          }
+          const nd = "M " + sp.x.toFixed(1) + " " + sp.y.toFixed(1) + " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + tp.x.toFixed(1) + " " + tp.y.toFixed(1);
+          pathEl.setAttribute("d", nd);
+          if (hitEl) hitEl.setAttribute("d", nd);
+          const bg = edgeSvg.querySelector('.mf-er-edge-label-bg[data-source="' + CSS.escape(r.source) + '"][data-target="' + CSS.escape(r.target) + '"]');
+          const lbl = edgeSvg.querySelector('.mf-er-edge-label[data-source="' + CSS.escape(r.source) + '"][data-target="' + CSS.escape(r.target) + '"]');
+          if (lbl) { lbl.setAttribute("x", ((sp.x + tp.x) / 2).toFixed(1)); lbl.setAttribute("y", ((sp.y + tp.y) / 2).toFixed(1)); }
+          if (bg && lbl) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(e) {} }
+        }
+      };
+
+      const renderCustomErDiagram = (erData, styleOvr) => {
+        setGanttMode(false);
+        clearGanttOverlay();
+        canvas.innerHTML = "";
+        canvas.style.justifyContent = "center";
+
+        if (!erData || !erData.entities || !erData.entities.length) {
+          const msg = document.createElement("div");
+          msg.style.cssText = "padding:32px;color:#64748b;font-size:14px;text-align:center;";
+          msg.textContent = "No entities found in ER diagram.";
+          canvas.appendChild(msg);
+          return;
+        }
+
+        // Measure and layout
+        const nodeDims = measureErDimensions(erData.entities);
+        const g = layoutErDiagram(erData, nodeDims);
+        const graphInfo = g.graph();
+        const gw = (graphInfo.width || 600) + 80;
+        const gh = (graphInfo.height || 400) + 80;
+
+        const container = document.createElement("div");
+        container.className = "mf-er-container";
+        container.style.width = gw + "px";
+        container.style.height = gh + "px";
+
+        // SVG edge overlay
+        const ns = "http://www.w3.org/2000/svg";
+        const edgeSvg = document.createElementNS(ns, "svg");
+        edgeSvg.setAttribute("class", "mf-er-edges");
+        edgeSvg.setAttribute("width", gw);
+        edgeSvg.setAttribute("height", gh);
+        edgeSvg.style.width = gw + "px";
+        edgeSvg.style.height = gh + "px";
+
+        // Cardinality SVG markers (crow's foot notation)
+        const defs = document.createElementNS(ns, "defs");
+
+        // || exactly one: two parallel lines perpendicular to the path
+        const mkExactlyOne = (id) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "14"); m.setAttribute("markerHeight", "14");
+          m.setAttribute("refX", "12"); m.setAttribute("refY", "7"); m.setAttribute("orient", "auto");
+          const l1 = document.createElementNS(ns, "line");
+          l1.setAttribute("x1", "8"); l1.setAttribute("y1", "2"); l1.setAttribute("x2", "8"); l1.setAttribute("y2", "12");
+          l1.setAttribute("stroke", "#64748b"); l1.setAttribute("stroke-width", "1.5");
+          const l2 = document.createElementNS(ns, "line");
+          l2.setAttribute("x1", "12"); l2.setAttribute("y1", "2"); l2.setAttribute("x2", "12"); l2.setAttribute("y2", "12");
+          l2.setAttribute("stroke", "#64748b"); l2.setAttribute("stroke-width", "1.5");
+          m.appendChild(l1); m.appendChild(l2); return m;
+        };
+
+        // o| zero or one: circle + one line
+        const mkZeroOne = (id) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "20"); m.setAttribute("markerHeight", "14");
+          m.setAttribute("refX", "18"); m.setAttribute("refY", "7"); m.setAttribute("orient", "auto");
+          const c = document.createElementNS(ns, "circle");
+          c.setAttribute("cx", "6"); c.setAttribute("cy", "7"); c.setAttribute("r", "4");
+          c.setAttribute("fill", "none"); c.setAttribute("stroke", "#64748b"); c.setAttribute("stroke-width", "1.5");
+          const l = document.createElementNS(ns, "line");
+          l.setAttribute("x1", "14"); l.setAttribute("y1", "2"); l.setAttribute("x2", "14"); l.setAttribute("y2", "12");
+          l.setAttribute("stroke", "#64748b"); l.setAttribute("stroke-width", "1.5");
+          m.appendChild(c); m.appendChild(l); return m;
+        };
+
+        // |{ one or many: line + crow's foot (three prongs)
+        const mkOneMany = (id) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "18"); m.setAttribute("markerHeight", "14");
+          m.setAttribute("refX", "16"); m.setAttribute("refY", "7"); m.setAttribute("orient", "auto");
+          const l = document.createElementNS(ns, "line");
+          l.setAttribute("x1", "4"); l.setAttribute("y1", "2"); l.setAttribute("x2", "4"); l.setAttribute("y2", "12");
+          l.setAttribute("stroke", "#64748b"); l.setAttribute("stroke-width", "1.5");
+          // Crow's foot prongs
+          const p1 = document.createElementNS(ns, "line");
+          p1.setAttribute("x1", "16"); p1.setAttribute("y1", "7"); p1.setAttribute("x2", "8"); p1.setAttribute("y2", "2");
+          p1.setAttribute("stroke", "#64748b"); p1.setAttribute("stroke-width", "1.5");
+          const p2 = document.createElementNS(ns, "line");
+          p2.setAttribute("x1", "16"); p2.setAttribute("y1", "7"); p2.setAttribute("x2", "8"); p2.setAttribute("y2", "7");
+          p2.setAttribute("stroke", "#64748b"); p2.setAttribute("stroke-width", "1.5");
+          const p3 = document.createElementNS(ns, "line");
+          p3.setAttribute("x1", "16"); p3.setAttribute("y1", "7"); p3.setAttribute("x2", "8"); p3.setAttribute("y2", "12");
+          p3.setAttribute("stroke", "#64748b"); p3.setAttribute("stroke-width", "1.5");
+          m.appendChild(l); m.appendChild(p1); m.appendChild(p2); m.appendChild(p3); return m;
+        };
+
+        // o{ zero or many: circle + crow's foot
+        const mkZeroMany = (id) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "24"); m.setAttribute("markerHeight", "14");
+          m.setAttribute("refX", "22"); m.setAttribute("refY", "7"); m.setAttribute("orient", "auto");
+          const c = document.createElementNS(ns, "circle");
+          c.setAttribute("cx", "6"); c.setAttribute("cy", "7"); c.setAttribute("r", "4");
+          c.setAttribute("fill", "none"); c.setAttribute("stroke", "#64748b"); c.setAttribute("stroke-width", "1.5");
+          // Crow's foot prongs
+          const p1 = document.createElementNS(ns, "line");
+          p1.setAttribute("x1", "22"); p1.setAttribute("y1", "7"); p1.setAttribute("x2", "14"); p1.setAttribute("y2", "2");
+          p1.setAttribute("stroke", "#64748b"); p1.setAttribute("stroke-width", "1.5");
+          const p2 = document.createElementNS(ns, "line");
+          p2.setAttribute("x1", "22"); p2.setAttribute("y1", "7"); p2.setAttribute("x2", "14"); p2.setAttribute("y2", "7");
+          p2.setAttribute("stroke", "#64748b"); p2.setAttribute("stroke-width", "1.5");
+          const p3 = document.createElementNS(ns, "line");
+          p3.setAttribute("x1", "22"); p3.setAttribute("y1", "7"); p3.setAttribute("x2", "14"); p3.setAttribute("y2", "12");
+          p3.setAttribute("stroke", "#64748b"); p3.setAttribute("stroke-width", "1.5");
+          m.appendChild(c); m.appendChild(p1); m.appendChild(p2); m.appendChild(p3); return m;
+        };
+
+        // Reversed variants (for marker-start, which renders at the start of the path)
+        const mkExactlyOneRev = (id) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "14"); m.setAttribute("markerHeight", "14");
+          m.setAttribute("refX", "2"); m.setAttribute("refY", "7"); m.setAttribute("orient", "auto");
+          const l1 = document.createElementNS(ns, "line");
+          l1.setAttribute("x1", "2"); l1.setAttribute("y1", "2"); l1.setAttribute("x2", "2"); l1.setAttribute("y2", "12");
+          l1.setAttribute("stroke", "#64748b"); l1.setAttribute("stroke-width", "1.5");
+          const l2 = document.createElementNS(ns, "line");
+          l2.setAttribute("x1", "6"); l2.setAttribute("y1", "2"); l2.setAttribute("x2", "6"); l2.setAttribute("y2", "12");
+          l2.setAttribute("stroke", "#64748b"); l2.setAttribute("stroke-width", "1.5");
+          m.appendChild(l1); m.appendChild(l2); return m;
+        };
+
+        const mkZeroOneRev = (id) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "20"); m.setAttribute("markerHeight", "14");
+          m.setAttribute("refX", "2"); m.setAttribute("refY", "7"); m.setAttribute("orient", "auto");
+          const l = document.createElementNS(ns, "line");
+          l.setAttribute("x1", "2"); l.setAttribute("y1", "2"); l.setAttribute("x2", "2"); l.setAttribute("y2", "12");
+          l.setAttribute("stroke", "#64748b"); l.setAttribute("stroke-width", "1.5");
+          const c = document.createElementNS(ns, "circle");
+          c.setAttribute("cx", "14"); c.setAttribute("cy", "7"); c.setAttribute("r", "4");
+          c.setAttribute("fill", "none"); c.setAttribute("stroke", "#64748b"); c.setAttribute("stroke-width", "1.5");
+          m.appendChild(l); m.appendChild(c); return m;
+        };
+
+        const mkOneManyRev = (id) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "18"); m.setAttribute("markerHeight", "14");
+          m.setAttribute("refX", "2"); m.setAttribute("refY", "7"); m.setAttribute("orient", "auto");
+          // Crow's foot prongs (at start)
+          const p1 = document.createElementNS(ns, "line");
+          p1.setAttribute("x1", "2"); p1.setAttribute("y1", "7"); p1.setAttribute("x2", "10"); p1.setAttribute("y2", "2");
+          p1.setAttribute("stroke", "#64748b"); p1.setAttribute("stroke-width", "1.5");
+          const p2 = document.createElementNS(ns, "line");
+          p2.setAttribute("x1", "2"); p2.setAttribute("y1", "7"); p2.setAttribute("x2", "10"); p2.setAttribute("y2", "7");
+          p2.setAttribute("stroke", "#64748b"); p2.setAttribute("stroke-width", "1.5");
+          const p3 = document.createElementNS(ns, "line");
+          p3.setAttribute("x1", "2"); p3.setAttribute("y1", "7"); p3.setAttribute("x2", "10"); p3.setAttribute("y2", "12");
+          p3.setAttribute("stroke", "#64748b"); p3.setAttribute("stroke-width", "1.5");
+          const l = document.createElementNS(ns, "line");
+          l.setAttribute("x1", "14"); l.setAttribute("y1", "2"); l.setAttribute("x2", "14"); l.setAttribute("y2", "12");
+          l.setAttribute("stroke", "#64748b"); l.setAttribute("stroke-width", "1.5");
+          m.appendChild(p1); m.appendChild(p2); m.appendChild(p3); m.appendChild(l); return m;
+        };
+
+        const mkZeroManyRev = (id) => {
+          const m = document.createElementNS(ns, "marker");
+          m.setAttribute("id", id); m.setAttribute("markerWidth", "24"); m.setAttribute("markerHeight", "14");
+          m.setAttribute("refX", "2"); m.setAttribute("refY", "7"); m.setAttribute("orient", "auto");
+          // Crow's foot prongs
+          const p1 = document.createElementNS(ns, "line");
+          p1.setAttribute("x1", "2"); p1.setAttribute("y1", "7"); p1.setAttribute("x2", "10"); p1.setAttribute("y2", "2");
+          p1.setAttribute("stroke", "#64748b"); p1.setAttribute("stroke-width", "1.5");
+          const p2 = document.createElementNS(ns, "line");
+          p2.setAttribute("x1", "2"); p2.setAttribute("y1", "7"); p2.setAttribute("x2", "10"); p2.setAttribute("y2", "7");
+          p2.setAttribute("stroke", "#64748b"); p2.setAttribute("stroke-width", "1.5");
+          const p3 = document.createElementNS(ns, "line");
+          p3.setAttribute("x1", "2"); p3.setAttribute("y1", "7"); p3.setAttribute("x2", "10"); p3.setAttribute("y2", "12");
+          p3.setAttribute("stroke", "#64748b"); p3.setAttribute("stroke-width", "1.5");
+          const c = document.createElementNS(ns, "circle");
+          c.setAttribute("cx", "18"); c.setAttribute("cy", "7"); c.setAttribute("r", "4");
+          c.setAttribute("fill", "none"); c.setAttribute("stroke", "#64748b"); c.setAttribute("stroke-width", "1.5");
+          m.appendChild(p1); m.appendChild(p2); m.appendChild(p3); m.appendChild(c); return m;
+        };
+
+        // End markers (at target end of path)
+        defs.appendChild(mkExactlyOne("mf-er-one"));
+        defs.appendChild(mkZeroOne("mf-er-zero-one"));
+        defs.appendChild(mkOneMany("mf-er-one-many"));
+        defs.appendChild(mkZeroMany("mf-er-zero-many"));
+        // Start markers (at source end of path) — reversed
+        defs.appendChild(mkExactlyOneRev("mf-er-one-rev"));
+        defs.appendChild(mkZeroOneRev("mf-er-zero-one-rev"));
+        defs.appendChild(mkOneManyRev("mf-er-one-many-rev"));
+        defs.appendChild(mkZeroManyRev("mf-er-zero-many-rev"));
+        edgeSvg.appendChild(defs);
+
+        // Map cardinality token to marker id
+        const cardToMarkerId = (token, isStart) => {
+          const t = token.replace(/[{}]/g, m => m === "{" ? "{" : "}").trim();
+          const suffix = isStart ? "-rev" : "";
+          if (t === "||") return "mf-er-one" + suffix;
+          if (t === "o|" || t === "|o") return "mf-er-zero-one" + suffix;
+          if (t === "|{" || t === "}|") return "mf-er-one-many" + suffix;
+          if (t === "o{" || t === "}o") return "mf-er-zero-many" + suffix;
+          return "mf-er-one" + suffix; // default
+        };
+
+        // Render relationship edges
+        const edgeGroup = document.createElementNS(ns, "g");
+        for (const rel of (erData.relationships || [])) {
+          const de = g.edge(rel.source, rel.target);
+          if (!de || !de.points) continue;
+
+          const pts = de.points;
+          const sp = pts[0];
+          const tp = pts[pts.length - 1];
+          const dist = Math.hypot(tp.x - sp.x, tp.y - sp.y);
+          const off = Math.max(dist * 0.35, 25);
+          const ddx = tp.x - sp.x;
+          const ddy = tp.y - sp.y;
+          let c1x, c1y, c2x, c2y;
+          if (Math.abs(ddx) > Math.abs(ddy)) {
+            c1x = sp.x + (ddx > 0 ? off : -off); c1y = sp.y;
+            c2x = tp.x - (ddx > 0 ? off : -off); c2y = tp.y;
+          } else {
+            c1x = sp.x; c1y = sp.y + (ddy > 0 ? off : -off);
+            c2x = tp.x; c2y = tp.y - (ddy > 0 ? off : -off);
+          }
+          const d = "M " + sp.x.toFixed(1) + " " + sp.y.toFixed(1) + " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + tp.x.toFixed(1) + " " + tp.y.toFixed(1);
+
+          // Parse cardinality for markers
+          const card = splitCardinality(rel.cardinality);
+
+          // Invisible hit area
+          const hit = document.createElementNS(ns, "path");
+          hit.setAttribute("d", d); hit.setAttribute("class", "mf-er-edge-hit");
+          hit.setAttribute("data-source", rel.source); hit.setAttribute("data-target", rel.target);
+          edgeGroup.appendChild(hit);
+
+          // Visible path
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", d); path.setAttribute("fill", "none");
+          path.setAttribute("stroke", "#94a3b8"); path.setAttribute("stroke-width", "1.5");
+          path.setAttribute("class", "mf-er-edge");
+          path.setAttribute("data-source", rel.source); path.setAttribute("data-target", rel.target);
+          path.setAttribute("marker-start", "url(#" + cardToMarkerId(card.src, true) + ")");
+          path.setAttribute("marker-end", "url(#" + cardToMarkerId(card.tgt, false) + ")");
+          edgeGroup.appendChild(path);
+
+          // Label
+          if (rel.label) {
+            const mid = pts[Math.floor(pts.length / 2)];
+            const bg = document.createElementNS(ns, "rect");
+            bg.setAttribute("class", "mf-er-edge-label-bg");
+            bg.setAttribute("data-source", rel.source); bg.setAttribute("data-target", rel.target);
+            bg.setAttribute("rx", "4"); bg.setAttribute("fill", "#f8f9fb"); bg.setAttribute("stroke", "#e2e8f0"); bg.setAttribute("stroke-width", "0.5");
+            edgeGroup.appendChild(bg);
+            const txt = document.createElementNS(ns, "text");
+            txt.setAttribute("x", mid.x); txt.setAttribute("y", mid.y);
+            txt.setAttribute("text-anchor", "middle"); txt.setAttribute("dominant-baseline", "central");
+            txt.setAttribute("font-size", "11"); txt.setAttribute("font-family", "Manrope,system-ui,sans-serif");
+            txt.setAttribute("fill", "#475569"); txt.setAttribute("font-weight", "500");
+            txt.setAttribute("class", "mf-er-edge-label");
+            txt.setAttribute("data-source", rel.source); txt.setAttribute("data-target", rel.target);
+            txt.textContent = rel.label;
+            edgeGroup.appendChild(txt);
+          }
+
+          // Edge click handler — show cardinality selector
+          hit.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            send("element:selected", {
+              label: rel.label || "", id: rel.source + "-" + rel.target,
+              edgeSource: rel.source, edgeTarget: rel.target, elementType: "edge",
+            });
+            // Show cardinality selector popup
+            container.querySelectorAll(".mf-er-card-popup").forEach(p => p.remove());
+            const popup = document.createElement("div");
+            popup.className = "mf-er-card-popup";
+            popup.style.cssText = "position:absolute;left:" + ev.clientX + "px;top:" + ev.clientY + "px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:100;padding:4px;font-size:12px;font-family:Manrope,system-ui,sans-serif;";
+            const card = splitCardinality(rel.cardinality);
+            const options = [
+              { token: "||", label: "Exactly one", symbol: "||" },
+              { token: "o|", label: "Zero or one", symbol: "o|" },
+              { token: "|{", label: "One or many", symbol: "|{" },
+              { token: "o{", label: "Zero or many", symbol: "o{" },
+            ];
+            // Source side
+            const srcLabel = document.createElement("div");
+            srcLabel.style.cssText = "padding:4px 8px;font-weight:600;color:#64748b;font-size:11px;";
+            srcLabel.textContent = "Source (" + rel.source + ")";
+            popup.appendChild(srcLabel);
+            for (const opt of options) {
+              const btn = document.createElement("div");
+              btn.style.cssText = "padding:4px 8px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:6px;" + (card.src === opt.token ? "background:#ede9fe;color:#6366f1;font-weight:600;" : "");
+              btn.innerHTML = '<span style="font-family:monospace;font-size:13px;min-width:24px;">' + opt.symbol + '</span><span>' + opt.label + '</span>';
+              btn.addEventListener("mouseenter", () => { btn.style.background = "#f1f5f9"; });
+              btn.addEventListener("mouseleave", () => { btn.style.background = card.src === opt.token ? "#ede9fe" : ""; });
+              btn.addEventListener("click", (pe) => {
+                pe.stopPropagation();
+                const newCard = opt.token + "--" + card.tgt;
+                send("er:cardinality-changed", { source: rel.source, target: rel.target, cardinality: newCard });
+                popup.remove();
+              });
+              popup.appendChild(btn);
+            }
+            // Divider
+            const div = document.createElement("div");
+            div.style.cssText = "height:1px;background:#e2e8f0;margin:4px 0;";
+            popup.appendChild(div);
+            // Target side
+            const tgtLabel = document.createElement("div");
+            tgtLabel.style.cssText = "padding:4px 8px;font-weight:600;color:#64748b;font-size:11px;";
+            tgtLabel.textContent = "Target (" + rel.target + ")";
+            popup.appendChild(tgtLabel);
+            for (const opt of options) {
+              const btn = document.createElement("div");
+              btn.style.cssText = "padding:4px 8px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:6px;" + (card.tgt === opt.token ? "background:#ede9fe;color:#6366f1;font-weight:600;" : "");
+              btn.innerHTML = '<span style="font-family:monospace;font-size:13px;min-width:24px;">' + opt.symbol + '</span><span>' + opt.label + '</span>';
+              btn.addEventListener("mouseenter", () => { btn.style.background = "#f1f5f9"; });
+              btn.addEventListener("mouseleave", () => { btn.style.background = card.tgt === opt.token ? "#ede9fe" : ""; });
+              btn.addEventListener("click", (pe) => {
+                pe.stopPropagation();
+                const newCard = card.src + "--" + opt.token;
+                send("er:cardinality-changed", { source: rel.source, target: rel.target, cardinality: newCard });
+                popup.remove();
+              });
+              popup.appendChild(btn);
+            }
+            // Dismiss on outside click
+            const dismiss = (de) => { if (!popup.contains(de.target)) { popup.remove(); document.removeEventListener("click", dismiss); } };
+            setTimeout(() => document.addEventListener("click", dismiss), 10);
+            container.appendChild(popup);
+          });
+          hit.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault(); ev.stopPropagation();
+            send("element:context", {
+              label: rel.label || "", id: rel.source + "-" + rel.target,
+              edgeSource: rel.source, edgeTarget: rel.target, elementType: "edge",
+              pointerX: ev.clientX, pointerY: ev.clientY,
+            });
+          });
+        }
+        edgeSvg.appendChild(edgeGroup);
+        container.appendChild(edgeSvg);
+
+        // Render entity cards
+        const nodeEls = {};
+        let connectMode = null;
+
+        for (const entity of erData.entities) {
+          const pos = g.node(entity.id);
+          if (!pos) continue;
+          const dim = nodeDims[entity.id] || { width: 180, height: 60 };
+
+          const el = document.createElement("div");
+          el.className = "mf-er-entity";
+          el.setAttribute("data-node-id", entity.id);
+
+          // Apply position (with overrides)
+          const ovr = positionOverrides[entity.id] || { dx: 0, dy: 0 };
+          const baseX = pos.x - dim.width / 2;
+          const baseY = pos.y - dim.height / 2;
+          el.style.left = (baseX + (ovr.dx || 0)) + "px";
+          el.style.top = (baseY + (ovr.dy || 0)) + "px";
+          el.style.width = dim.width + "px";
+
+          // Style overrides
+          const so = (styleOvr || {})[entity.id];
+          if (so) {
+            if (so.fill) el.style.background = so.fill;
+            if (so.stroke) el.style.borderColor = so.stroke;
+          }
+
+          // Header
+          const header = document.createElement("div");
+          header.className = "mf-er-header";
+          header.textContent = entity.id;
+          el.appendChild(header);
+
+          // Attributes table
+          const attrsDiv = document.createElement("div");
+          attrsDiv.className = "mf-er-attrs";
+          for (let idx = 0; idx < entity.attributes.length; idx++) {
+            const attr = parseErAttr(entity.attributes[idx]);
+            const row = document.createElement("div");
+            row.className = "mf-er-attr-row";
+            row.setAttribute("data-attr-idx", idx);
+            if (attr.constraint) {
+              const badge = document.createElement("span");
+              badge.className = "mf-er-constraint";
+              badge.textContent = attr.constraint;
+              row.appendChild(badge);
+            }
+            const typeSpan = document.createElement("span");
+            typeSpan.className = "mf-er-type";
+            typeSpan.textContent = attr.type;
+            row.appendChild(typeSpan);
+            const nameSpan = document.createElement("span");
+            nameSpan.className = "mf-er-name";
+            nameSpan.textContent = attr.name;
+            row.appendChild(nameSpan);
+            attrsDiv.appendChild(row);
+          }
+          el.appendChild(attrsDiv);
+
+          // Tooltip
+          el.setAttribute("data-mf-tip", entity.id + " (" + entity.attributes.length + " attributes)");
+
+          // Click → select
+          el.addEventListener("click", (ev) => {
+            if (suppressClick) return;
+            ev.stopPropagation();
+            container.querySelectorAll(".mf-er-entity.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            el.classList.add("mf-selected");
+            send("element:selected", {
+              label: entity.id, id: entity.id, nodeId: entity.id, elementType: "node",
+            });
+          });
+
+          // Right-click → context menu
+          el.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault(); ev.stopPropagation();
+            container.querySelectorAll(".mf-er-entity.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            el.classList.add("mf-selected");
+            send("element:context", {
+              label: entity.id, id: entity.id, nodeId: entity.id, elementType: "node",
+              pointerX: ev.clientX, pointerY: ev.clientY,
+            });
+          });
+
+          // Drag
+          let dragInfo = null;
+          el.addEventListener("pointerdown", (ev) => {
+            if (ev.button !== 0) return;
+            if (connectMode) {
+              if (entity.id !== connectMode.sourceId) {
+                send("connect:complete", { sourceId: connectMode.sourceId, targetId: entity.id });
+              }
+              ev.preventDefault();
+              return;
+            }
+            ev.preventDefault();
+            suppressClick = false;
+            dragInfo = { startX: ev.clientX, startY: ev.clientY, origLeft: parseFloat(el.style.left), origTop: parseFloat(el.style.top), moved: false };
+            el.style.cursor = "grabbing"; el.style.zIndex = "100";
+            el.setPointerCapture(ev.pointerId);
+          });
+          el.addEventListener("pointermove", (ev) => {
+            if (!dragInfo) return;
+            const dx = ev.clientX - dragInfo.startX;
+            const dy = ev.clientY - dragInfo.startY;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragInfo.moved = true;
+            if (!dragInfo.moved) return;
+            el.style.left = (dragInfo.origLeft + dx) + "px";
+            el.style.top = (dragInfo.origTop + dy) + "px";
+            updateErEdgesForNode(edgeSvg, erData.relationships, entity.id, nodeEls, nodeDims);
+          });
+          el.addEventListener("pointerup", (ev) => {
+            if (!dragInfo) return;
+            const dx = ev.clientX - dragInfo.startX;
+            const dy = ev.clientY - dragInfo.startY;
+            el.releasePointerCapture(ev.pointerId);
+            el.style.cursor = ""; el.style.zIndex = "";
+            if (dragInfo.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+              suppressClick = true;
+              setTimeout(() => { suppressClick = false; }, 200);
+              positionOverrides[entity.id] = positionOverrides[entity.id] || { dx: 0, dy: 0 };
+              positionOverrides[entity.id].dx += dx;
+              positionOverrides[entity.id].dy += dy;
+              send("element:dragged", { label: entity.id, nodeId: entity.id, deltaX: dx, deltaY: dy, isGanttTask: false, accumulatedDx: positionOverrides[entity.id].dx, accumulatedDy: positionOverrides[entity.id].dy });
+            }
+            dragInfo = null;
+          });
+
+          // Double-click header → inline rename
+          header.addEventListener("dblclick", (ev) => {
+            ev.stopPropagation();
+            const oldName = entity.id;
+            const input = document.createElement("input");
+            input.className = "mf-er-inline-input";
+            input.value = oldName;
+            input.style.cssText = "width:100%;border:none;background:transparent;color:inherit;font:inherit;padding:0;outline:none;";
+            header.textContent = "";
+            header.appendChild(input);
+            input.focus();
+            input.select();
+            const commit = () => {
+              const newName = input.value.trim();
+              if (newName && newName !== oldName) {
+                send("er:entity-renamed", { entityId: oldName, newName });
+              }
+              header.textContent = newName || oldName;
+            };
+            input.addEventListener("blur", commit);
+            input.addEventListener("keydown", (ke) => {
+              if (ke.key === "Enter") { ke.preventDefault(); input.blur(); }
+              if (ke.key === "Escape") { input.value = oldName; input.blur(); }
+            });
+          });
+
+          // Double-click attribute row → inline edit
+          attrsDiv.querySelectorAll(".mf-er-attr-row").forEach((row) => {
+            row.addEventListener("dblclick", (ev) => {
+              ev.stopPropagation();
+              const attrIdx = parseInt(row.getAttribute("data-attr-idx"), 10);
+              const oldValue = entity.attributes[attrIdx] || "";
+              const input = document.createElement("input");
+              input.className = "mf-er-inline-input";
+              input.value = oldValue;
+              input.style.cssText = "width:100%;border:none;background:transparent;color:inherit;font:inherit;padding:0;outline:none;font-size:12px;";
+              row.innerHTML = "";
+              row.appendChild(input);
+              input.focus();
+              input.select();
+              const commit = () => {
+                const newValue = input.value.trim();
+                if (newValue !== oldValue) {
+                  send("er:attribute-edited", { entityId: entity.id, attrIdx, newValue: newValue || oldValue });
+                }
+                // Restore display
+                const attr = parseErAttr(newValue || oldValue);
+                row.innerHTML = "";
+                if (attr.constraint) {
+                  const badge = document.createElement("span");
+                  badge.className = "mf-er-constraint";
+                  badge.textContent = attr.constraint;
+                  row.appendChild(badge);
+                }
+                const ts = document.createElement("span");
+                ts.className = "mf-er-type"; ts.textContent = attr.type;
+                row.appendChild(ts);
+                const ns2 = document.createElement("span");
+                ns2.className = "mf-er-name"; ns2.textContent = attr.name;
+                row.appendChild(ns2);
+              };
+              input.addEventListener("blur", commit);
+              input.addEventListener("keydown", (ke) => {
+                if (ke.key === "Enter") { ke.preventDefault(); input.blur(); }
+                if (ke.key === "Escape") { input.value = oldValue; input.blur(); }
+              });
+            });
+          });
+
+          // Hover port indicators (for drag-to-create-relationship)
+          el.addEventListener("mouseenter", () => {
+            if (connectMode) return;
+            container.querySelectorAll(".mf-er-port").forEach(p => p.remove());
+            const left = parseFloat(el.style.left);
+            const top = parseFloat(el.style.top);
+            const w = dim.width; const h = parseFloat(el.offsetHeight || dim.height);
+            const cx = left + w / 2; const cy = top + h / 2;
+            const portPositions = [
+              { name: "top", x: cx - 9, y: top - 22 },
+              { name: "bottom", x: cx - 9, y: top + h + 4 },
+              { name: "left", x: left - 22, y: cy - 9 },
+              { name: "right", x: left + w + 4, y: cy - 9 },
+            ];
+            for (const pp of portPositions) {
+              const port = document.createElement("div");
+              port.className = "mf-er-port";
+              port.style.left = pp.x + "px"; port.style.top = pp.y + "px";
+              port.textContent = "+";
+              port.addEventListener("click", (pe) => {
+                pe.stopPropagation();
+                send("port:clicked", { nodeId: entity.id, port: pp.name });
+                container.querySelectorAll(".mf-er-port").forEach(p => p.remove());
+              });
+              container.appendChild(port);
+            }
+          });
+
+          nodeEls[entity.id] = el;
+          container.appendChild(el);
+        }
+
+        // Remove ports on mouse leave
+        container.addEventListener("mouseleave", () => {
+          container.querySelectorAll(".mf-er-port").forEach(p => p.remove());
+        });
+
+        // Canvas click → deselect
+        container.addEventListener("click", (ev) => {
+          if (ev.target === container || ev.target === edgeSvg) {
+            container.querySelectorAll(".mf-er-entity.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            send("element:selected", null);
+          }
+        });
+
+        // Canvas right-click
+        container.addEventListener("contextmenu", (ev) => {
+          if (ev.target === container || ev.target === edgeSvg) {
+            ev.preventDefault();
+            send("element:context", { elementType: "canvas", pointerX: ev.clientX, pointerY: ev.clientY });
+          }
+        });
+
+        // Fix label backgrounds after render
+        requestAnimationFrame(() => {
+          edgeSvg.querySelectorAll(".mf-er-edge-label").forEach((lbl) => {
+            const src = lbl.getAttribute("data-source");
+            const tgt = lbl.getAttribute("data-target");
+            const bg = edgeSvg.querySelector('.mf-er-edge-label-bg[data-source="' + CSS.escape(src) + '"][data-target="' + CSS.escape(tgt) + '"]');
+            if (bg) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(e) {} }
+          });
+        });
+
+        // Listen for connect mode and selection messages
+        const handleErMsg = (msgEv) => {
+          const d = msgEv.data;
+          if (!d || d.channel !== "mermaidflow") return;
+          if (d.type === "mode:connect") {
+            connectMode = d.payload || null;
+            container.querySelectorAll(".mf-er-entity").forEach(n => n.classList.remove("mf-connect-source"));
+            if (connectMode?.sourceId) {
+              const nd = container.querySelector('[data-node-id="' + CSS.escape(connectMode.sourceId) + '"]');
+              if (nd) nd.classList.add("mf-connect-source");
+            }
+          }
+          if (d.type === "mode:connect-cancel") {
+            connectMode = null;
+            container.querySelectorAll(".mf-er-entity").forEach(n => n.classList.remove("mf-connect-source"));
+          }
+          if (d.type === "er:select") {
+            const nid = d.payload?.nodeId || "";
+            container.querySelectorAll(".mf-er-entity.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            if (nid) {
+              const nd = container.querySelector('[data-node-id="' + CSS.escape(nid) + '"]');
+              if (nd) nd.classList.add("mf-selected");
+            }
+          }
+        };
+        window.addEventListener("message", handleErMsg);
+
+        canvas.appendChild(container);
+      };
+
       const isDarkFill = (el) => {
         if (!el) return false;
         const fill = (window.getComputedStyle(el).fill || el.getAttribute("fill") || "").trim();
@@ -5820,6 +6694,7 @@ function getIframeSrcDoc() {
           const dtLower = (currentDiagramType || "").toLowerCase();
           const isGantt = dtLower.includes("gantt");
           const isFlowchart = dtLower.includes("flow") || dtLower === "graph";
+          const isEr = dtLower.includes("er");
 
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
@@ -5831,6 +6706,11 @@ function getIframeSrcDoc() {
             const fd = data.payload?.flowchartData || {};
             renderCustomFlowchart(fd.parsed || {}, fd.classDefs || [], fd.classAssignments || {}, fd.styleOverrides || {}, fd.styleDirectives || {});
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomFlowchart: true });
+          } else if (isEr) {
+            // Custom HTML ER Diagram renderer — bypass Mermaid SVG
+            const ed = data.payload?.erData || {};
+            renderCustomErDiagram(ed.parsed || { entities: [], relationships: [] }, ed.styleOverrides || {});
+            send("render:success", { diagramType: currentDiagramType, svg: "", isCustomEr: true });
           } else {
             setGanttMode(false);
             // Standard Mermaid SVG rendering
@@ -6150,6 +7030,9 @@ function App() {
   const [edgeLabelEdit, setEdgeLabelEdit] = useState(null);
   const [nodeEditModal, setNodeEditModal] = useState(null); // { type: "node"|"edge", nodeId?, label, shape?, edgeSource?, edgeTarget?, arrowType? }
   const [nodeCreationForm, setNodeCreationForm] = useState(null); // { sourceNodeId, port, label, description }
+  const [sqlImportOpen, setSqlImportOpen] = useState(false);
+  const [sqlImportValue, setSqlImportValue] = useState("");
+  const [sqlExportContent, setSqlExportContent] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [styleToolbar, setStyleToolbar] = useState(null); // { nodeId, x, y, yBottom, activeDropdown }
   const contextMenuRef = useRef(null);
@@ -6665,6 +7548,12 @@ function App() {
       styleOverrides,
     };
 
+    // Pre-compute ER data so the iframe can render custom HTML ER diagram
+    const erPayload = {
+      parsed: parseErDiagram(code),
+      styleOverrides,
+    };
+
     frame.contentWindow.postMessage(
       {
         channel: CHANNEL,
@@ -6674,6 +7563,7 @@ function App() {
           config: mermaidRenderConfig,
           ganttData,
           flowchartData: flowchartPayload,
+          erData: erPayload,
         },
       },
       "*"
@@ -6944,7 +7834,8 @@ function App() {
         // Custom renderers already handled everything inside the iframe; skip SVG post-processing.
         const isCustomGantt = payload.isCustomGantt || false;
         const isCustomFlowchart = payload.isCustomFlowchart || false;
-        const isCustomRenderer = isCustomGantt || isCustomFlowchart;
+        const isCustomEr = payload.isCustomEr || false;
+        const isCustomRenderer = isCustomGantt || isCustomFlowchart || isCustomEr;
 
         // Apply position overrides after re-render (SVG diagrams only)
         if (!isCustomRenderer && Object.keys(positionOverrides).length > 0) {
@@ -7206,14 +8097,60 @@ function App() {
         const payload = data.payload || {};
         if (payload.sourceId && payload.targetId) {
           commitSnapshotNow();
-          setCode((prev) => addFlowchartEdge(prev, { source: payload.sourceId, target: payload.targetId }));
-          setRenderMessage(`Added edge ${payload.sourceId} --> ${payload.targetId}`);
+          if (toolsetKey === "erDiagram") {
+            setCode((prev) => {
+              const parsed = parseErDiagram(prev);
+              const exists = parsed.relationships.some(r =>
+                (r.source === payload.sourceId && r.target === payload.targetId) ||
+                (r.source === payload.targetId && r.target === payload.sourceId)
+              );
+              if (exists) return prev;
+              return prev + "\n    " + payload.sourceId + " ||--o{ " + payload.targetId + " : relates";
+            });
+            setRenderMessage(`Added relationship ${payload.sourceId} --> ${payload.targetId}`);
+          } else {
+            setCode((prev) => addFlowchartEdge(prev, { source: payload.sourceId, target: payload.targetId }));
+            setRenderMessage(`Added edge ${payload.sourceId} --> ${payload.targetId}`);
+          }
         }
         setConnectMode(null);
         // Tell iframe to exit connect mode
         const frame = iframeRef.current;
         if (frame?.contentWindow) {
           frame.contentWindow.postMessage({ channel: CHANNEL, type: "mode:normal" }, "*");
+        }
+      }
+
+      // ER diagram inline editing messages
+      if (data.type === "er:entity-renamed") {
+        const { entityId, newName } = data.payload || {};
+        if (entityId && newName) {
+          setCode((prev) => updateErEntity(prev, entityId, { newName }));
+          setPositionOverrides({});
+          setRenderMessage(`Renamed entity "${entityId}" → "${newName}"`);
+        }
+      }
+
+      if (data.type === "er:attribute-edited") {
+        const { entityId, attrIdx, newValue } = data.payload || {};
+        if (entityId && newValue !== undefined && attrIdx >= 0) {
+          setCode((prev) => {
+            const parsed = parseErDiagram(prev);
+            const entity = parsed.entities.find(e => e.id === entityId);
+            if (!entity) return prev;
+            const attrs = [...entity.attributes];
+            attrs[attrIdx] = newValue;
+            return updateErEntity(prev, entityId, { attributes: attrs });
+          });
+          setRenderMessage(`Updated attribute on "${entityId}"`);
+        }
+      }
+
+      if (data.type === "er:cardinality-changed") {
+        const { source, target, cardinality } = data.payload || {};
+        if (source && target && cardinality) {
+          setCode((prev) => updateErRelationship(prev, source, target, { cardinality }));
+          setRenderMessage(`Changed cardinality on ${source} → ${target}`);
         }
       }
 
@@ -9020,7 +9957,20 @@ function App() {
         {/* Snippet buttons */}
         <div className="tool-grid">
           {quickTools.map((tool) => (
-            <button key={tool.label} className="tool-btn" onClick={() => insertSnippet(tool.snippet)}>
+            <button key={tool.label} className="tool-btn" onClick={() => {
+              if (tool.action === "er:import-sql") {
+                setSqlImportOpen(true);
+              } else if (tool.action === "er:export-sql") {
+                const ddl = erDiagramToSql(code);
+                if (ddl) {
+                  setSqlExportContent(ddl);
+                } else {
+                  setRenderMessage("No entities to export");
+                }
+              } else if (tool.snippet) {
+                insertSnippet(tool.snippet);
+              }
+            }}>
               {tool.label}
             </button>
           ))}
@@ -9778,6 +10728,82 @@ function App() {
           </div>
         );
       })()}
+
+      {/* ── SQL Import Modal ─────────────────────────────── */}
+      {sqlImportOpen && (
+        <div className="modal-backdrop" onClick={() => { setSqlImportOpen(false); setSqlImportValue(""); }}>
+          <div className="node-edit-modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className="task-modal-header">
+              <h2>Import SQL</h2>
+              <button className="drawer-close-btn" onClick={() => { setSqlImportOpen(false); setSqlImportValue(""); }}>&times;</button>
+            </div>
+            <div className="task-modal-body">
+              <label>
+                Paste CREATE TABLE statements
+                <textarea
+                  className="task-notes-input"
+                  value={sqlImportValue}
+                  onChange={(e) => setSqlImportValue(e.target.value)}
+                  placeholder={"CREATE TABLE users (\n  id INT PRIMARY KEY,\n  name VARCHAR(100),\n  email VARCHAR(255) UNIQUE\n);\n\nCREATE TABLE orders (\n  id INT PRIMARY KEY,\n  user_id INT REFERENCES users(id),\n  total DECIMAL(10,2)\n);"}
+                  rows={12}
+                  autoFocus
+                  style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", fontSize: 12 }}
+                />
+              </label>
+            </div>
+            <div className="task-modal-actions">
+              <button className="soft-btn" onClick={() => { setSqlImportOpen(false); setSqlImportValue(""); }}>Cancel</button>
+              <button className="soft-btn primary" onClick={() => {
+                const result = sqlToErDiagram(sqlImportValue);
+                if (result) {
+                  setCode(result);
+                  setPositionOverrides({});
+                  setRenderMessage("Imported SQL as ER diagram");
+                } else {
+                  setRenderMessage("No CREATE TABLE statements found");
+                }
+                setSqlImportOpen(false);
+                setSqlImportValue("");
+              }}>
+                Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SQL Export Modal ──────────────────────────────── */}
+      {sqlExportContent && (
+        <div className="modal-backdrop" onClick={() => setSqlExportContent(null)}>
+          <div className="node-edit-modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className="task-modal-header">
+              <h2>Export as SQL (PostgreSQL)</h2>
+              <button className="drawer-close-btn" onClick={() => setSqlExportContent(null)}>&times;</button>
+            </div>
+            <div className="task-modal-body">
+              <textarea
+                className="task-notes-input"
+                value={sqlExportContent}
+                readOnly
+                rows={16}
+                style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", fontSize: 12 }}
+                onClick={(e) => e.target.select()}
+              />
+            </div>
+            <div className="task-modal-actions">
+              <button className="soft-btn" onClick={() => setSqlExportContent(null)}>Close</button>
+              <button className="soft-btn primary" onClick={() => {
+                navigator.clipboard.writeText(sqlExportContent).then(() => {
+                  setRenderMessage("SQL copied to clipboard");
+                  setSqlExportContent(null);
+                });
+              }}>
+                Copy to Clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Floating Style Toolbar ─────────────────────── */}
       {styleToolbar && (() => {

@@ -297,6 +297,197 @@ export function updateErEntity(code, entityName, { newName, attributes }) {
   return lines.join("\n");
 }
 
+/**
+ * Parse a single ER attribute string like "int id PK" into structured parts.
+ * Returns { type, name, constraint, raw }.
+ */
+export function parseErAttribute(attrStr) {
+  const raw = (attrStr || "").trim();
+  const parts = raw.split(/\s+/);
+  const type = parts[0] || "";
+  const name = parts[1] || "";
+  const constraint = (parts[2] || "").toUpperCase();
+  const validConstraints = ["PK", "FK", "UK"];
+  return {
+    type,
+    name,
+    constraint: validConstraints.includes(constraint) ? constraint : "",
+    raw,
+  };
+}
+
+/**
+ * Parse a cardinality string like "||--o{" into source and target markers.
+ */
+export function parseCardinality(card) {
+  const str = (card || "").trim();
+  const idx = str.indexOf("--");
+  if (idx < 0) return { source: "||", target: "o{" };
+  return { source: str.slice(0, idx), target: str.slice(idx + 2) };
+}
+
+/**
+ * Convert SQL CREATE TABLE statements into Mermaid ER diagram syntax.
+ */
+export function sqlToErDiagram(sql) {
+  const tables = [];
+  const relationships = [];
+
+  // Match CREATE TABLE blocks
+  const tableRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?(\w+)["`]?\s*\(([\s\S]*?)\)\s*;/gi;
+  let tableMatch;
+  while ((tableMatch = tableRe.exec(sql)) !== null) {
+    const tableName = tableMatch[1].toUpperCase();
+    const body = tableMatch[2];
+    const attrs = [];
+    const pkCols = new Set();
+    const fkRefs = [];
+
+    // Find inline PRIMARY KEY constraints
+    const pkConstraintRe = /PRIMARY\s+KEY\s*\(([^)]+)\)/gi;
+    let pkMatch;
+    while ((pkMatch = pkConstraintRe.exec(body)) !== null) {
+      pkMatch[1].split(",").forEach((c) => pkCols.add(c.trim().replace(/["`]/g, "").toLowerCase()));
+    }
+
+    // Find FOREIGN KEY constraints
+    const fkRe = /FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+["`]?(\w+)["`]?\s*\(([^)]+)\)/gi;
+    let fkMatch;
+    while ((fkMatch = fkRe.exec(body)) !== null) {
+      const fkCol = fkMatch[1].trim().replace(/["`]/g, "").toLowerCase();
+      const refTable = fkMatch[2].toUpperCase();
+      fkRefs.push({ col: fkCol, refTable });
+    }
+
+    // Parse individual columns
+    const colLines = body.split(",").map((l) => l.trim()).filter(Boolean);
+    for (const line of colLines) {
+      // Skip constraint-only lines
+      if (/^\s*(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|CONSTRAINT|INDEX)\b/i.test(line)) continue;
+
+      const colMatch = line.match(/^["`]?(\w+)["`]?\s+(\w[\w()]*(?:\s*\(\s*\d+\s*(?:,\s*\d+\s*)?\))?)/i);
+      if (!colMatch) continue;
+
+      const colName = colMatch[1].toLowerCase();
+      const colType = colMatch[2].toLowerCase().replace(/\s+/g, "");
+      const isPk = pkCols.has(colName) || /\bPRIMARY\s+KEY\b/i.test(line);
+      const isFk = fkRefs.some((f) => f.col === colName);
+      const isUnique = /\bUNIQUE\b/i.test(line) && !isPk;
+
+      // Map SQL types to simpler ER types
+      let erType = colType;
+      if (/^(varchar|char|text|clob|nvarchar|nchar|ntext)/i.test(colType)) erType = "string";
+      else if (/^(int|integer|bigint|smallint|tinyint|serial|bigserial)/i.test(colType)) erType = "int";
+      else if (/^(float|double|decimal|numeric|real)/i.test(colType)) erType = "float";
+      else if (/^(bool|boolean)/i.test(colType)) erType = "boolean";
+      else if (/^(date|timestamp|datetime|time)/i.test(colType)) erType = "datetime";
+      else if (/^(uuid)/i.test(colType)) erType = "string";
+      else if (/^(json|jsonb)/i.test(colType)) erType = "json";
+
+      let constraint = "";
+      if (isPk) { constraint = " PK"; pkCols.add(colName); }
+      else if (isFk) constraint = " FK";
+      else if (isUnique) constraint = " UK";
+
+      attrs.push(`${erType} ${colName}${constraint}`);
+    }
+
+    tables.push({ name: tableName, attrs });
+
+    // Create relationships from FK references
+    for (const fk of fkRefs) {
+      relationships.push({ source: tableName, target: fk.refTable, cardinality: "}o--||", label: "references" });
+    }
+
+    // Check for inline REFERENCES on columns
+    const inlineRefRe = /["`]?(\w+)["`]?\s+\w[\w()]*\s+.*?\bREFERENCES\s+["`]?(\w+)["`]?/gi;
+    let inlineMatch;
+    const bodyForInline = body;
+    while ((inlineMatch = inlineRefRe.exec(bodyForInline)) !== null) {
+      const refTable = inlineMatch[2].toUpperCase();
+      if (!fkRefs.some((f) => f.refTable === refTable)) {
+        relationships.push({ source: tableName, target: refTable, cardinality: "}o--||", label: "references" });
+      }
+    }
+  }
+
+  if (!tables.length) return "";
+
+  let out = "erDiagram\n";
+  for (const t of tables) {
+    out += `    ${t.name} {\n`;
+    for (const a of t.attrs) {
+      out += `        ${a}\n`;
+    }
+    out += `    }\n`;
+  }
+  // Deduplicate relationships
+  const seen = new Set();
+  for (const r of relationships) {
+    const key = `${r.source}-${r.target}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out += `    ${r.source} ${r.cardinality} ${r.target} : ${r.label}\n`;
+  }
+  return out.trimEnd();
+}
+
+/**
+ * Convert an ER diagram to SQL DDL (PostgreSQL dialect).
+ */
+export function erDiagramToSql(code) {
+  const parsed = parseErDiagram(code);
+  const stmts = [];
+
+  // Type mapping: ER type → PostgreSQL type
+  const typeMap = {
+    string: "VARCHAR(255)", int: "INTEGER", float: "NUMERIC", boolean: "BOOLEAN",
+    datetime: "TIMESTAMP", date: "DATE", json: "JSONB", text: "TEXT",
+  };
+
+  for (const entity of parsed.entities) {
+    const colDefs = [];
+    const pkCols = [];
+    const fkCols = [];
+
+    for (const attrRaw of entity.attributes) {
+      const attr = parseErAttribute(attrRaw);
+      const sqlType = typeMap[attr.type.toLowerCase()] || attr.type.toUpperCase();
+      let colDef = `    ${attr.name} ${sqlType}`;
+      if (attr.constraint === "PK") {
+        colDef += " NOT NULL";
+        pkCols.push(attr.name);
+      }
+      if (attr.constraint === "UK") {
+        colDef += " UNIQUE";
+      }
+      if (attr.constraint === "FK") {
+        fkCols.push(attr.name);
+      }
+      colDefs.push(colDef);
+    }
+
+    if (pkCols.length) {
+      colDefs.push(`    PRIMARY KEY (${pkCols.join(", ")})`);
+    }
+
+    // Resolve FK targets from relationships
+    for (const fkCol of fkCols) {
+      const rel = parsed.relationships.find(
+        (r) => r.source === entity.id || r.target === entity.id
+      );
+      if (rel) {
+        const refTable = rel.source === entity.id ? rel.target : rel.source;
+        colDefs.push(`    FOREIGN KEY (${fkCol}) REFERENCES ${refTable.toLowerCase()} (id)`);
+      }
+    }
+
+    stmts.push(`CREATE TABLE ${entity.id.toLowerCase()} (\n${colDefs.join(",\n")}\n);`);
+  }
+
+  return stmts.join("\n\n");
+}
+
 export function addErRelationship(code, { source, target, cardinality = "||--o{", label = "relates" }) {
   return code + `\n    ${source} ${cardinality} ${target} : ${label}`;
 }
