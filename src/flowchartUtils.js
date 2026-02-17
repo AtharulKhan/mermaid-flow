@@ -943,6 +943,14 @@ export function parseClassDefs(code) {
     if (dashMatch) style.strokeDasharray = dashMatch[1].trim();
     const widthMatch = raw.match(/stroke-width:\s*([^,;]+)/);
     if (widthMatch) style.strokeWidth = widthMatch[1].trim();
+    const fontSizeMatch = raw.match(/font-size:\s*([^,;]+)/i);
+    if (fontSizeMatch) style.fontSize = fontSizeMatch[1].trim();
+    const fontWeightMatch = raw.match(/font-weight:\s*([^,;]+)/i);
+    if (fontWeightMatch) style.fontWeight = fontWeightMatch[1].trim();
+    const fontStyleMatch = raw.match(/font-style:\s*([^,;]+)/i);
+    if (fontStyleMatch) style.fontStyle = fontStyleMatch[1].trim();
+    const fontFamilyMatch = raw.match(/font-family:\s*([^,;]+)/i);
+    if (fontFamilyMatch) style.fontFamily = fontFamilyMatch[1].trim();
     result.push(style);
   }
   return result;
@@ -1001,4 +1009,130 @@ export function parseClassAssignments(code) {
     }
   }
   return result;
+}
+
+/* ── Subgraph Mutation Functions ──────────────────────── */
+
+/**
+ * Find which subgraph a node belongs to (by line index range).
+ * Returns the subgraph id, or null if the node is at the top level.
+ */
+export function findNodeSubgraph(code, nodeId) {
+  const parsed = parseFlowchart(code);
+  const node = parsed.nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+  for (const sg of parsed.subgraphs) {
+    if (sg.endLineIndex < 0) continue;
+    if (node.lineIndex > sg.lineIndex && node.lineIndex < sg.endLineIndex) {
+      return sg.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Move a node's declaration line into a target subgraph (before its `end` line).
+ */
+export function moveNodeToSubgraph(code, nodeId, subgraphId) {
+  const parsed = parseFlowchart(code);
+  const node = parsed.nodes.find((n) => n.id === nodeId);
+  const sg = parsed.subgraphs.find((s) => s.id === subgraphId);
+  if (!node || !sg || sg.endLineIndex < 0) return code;
+
+  const lines = code.split("\n");
+  const nodeLine = lines[node.lineIndex];
+  lines.splice(node.lineIndex, 1);
+  const newEndIdx = node.lineIndex < sg.endLineIndex ? sg.endLineIndex - 1 : sg.endLineIndex;
+  const indented = "    " + nodeLine.trim();
+  lines.splice(newEndIdx, 0, indented);
+  return lines.join("\n");
+}
+
+/**
+ * Move a node's declaration line out of its parent subgraph to the top level.
+ */
+export function moveNodeOutOfSubgraph(code, nodeId) {
+  const parsed = parseFlowchart(code);
+  const node = parsed.nodes.find((n) => n.id === nodeId);
+  if (!node) return code;
+  const parentSg = parsed.subgraphs.find(
+    (sg) => sg.endLineIndex >= 0 && node.lineIndex > sg.lineIndex && node.lineIndex < sg.endLineIndex
+  );
+  if (!parentSg) return code;
+
+  const lines = code.split("\n");
+  const nodeLine = lines[node.lineIndex];
+  lines.splice(node.lineIndex, 1);
+  const insertIdx = node.lineIndex < parentSg.endLineIndex ? parentSg.endLineIndex : parentSg.endLineIndex + 1;
+  lines.splice(insertIdx, 0, "    " + nodeLine.trim());
+  return lines.join("\n");
+}
+
+/**
+ * Wrap selected nodes' declaration lines in a new subgraph block.
+ */
+export function createSubgraph(code, nodeIds, label) {
+  const parsed = parseFlowchart(code);
+  const lines = code.split("\n");
+  const nodeLines = parsed.nodes
+    .filter((n) => nodeIds.includes(n.id))
+    .map((n) => n.lineIndex)
+    .sort((a, b) => a - b);
+  if (nodeLines.length === 0) return code;
+
+  const existingIds = new Set(parsed.subgraphs.map((s) => s.id));
+  let sgId = label.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase() || "group";
+  let counter = 2;
+  while (existingIds.has(sgId)) {
+    sgId = label.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase() + counter;
+    counter++;
+  }
+
+  const extractedLines = [];
+  for (let i = nodeLines.length - 1; i >= 0; i--) {
+    extractedLines.unshift("      " + lines[nodeLines[i]].trim());
+    lines.splice(nodeLines[i], 1);
+  }
+
+  const insertIdx = Math.min(nodeLines[0], lines.length);
+  const subgraphBlock = [
+    `    subgraph ${sgId} [${label}]`,
+    ...extractedLines,
+    `    end`,
+  ];
+  lines.splice(insertIdx, 0, ...subgraphBlock);
+  return lines.join("\n");
+}
+
+/**
+ * Remove a subgraph wrapper (keep contents at top level).
+ */
+export function removeSubgraph(code, subgraphId) {
+  const parsed = parseFlowchart(code);
+  const sg = parsed.subgraphs.find((s) => s.id === subgraphId);
+  if (!sg || sg.endLineIndex < 0) return code;
+
+  const lines = code.split("\n");
+  lines.splice(sg.endLineIndex, 1);
+  lines.splice(sg.lineIndex, 1);
+  for (let i = sg.lineIndex; i < sg.endLineIndex - 1 && i < lines.length; i++) {
+    lines[i] = lines[i].replace(/^    /, "");
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Rename a subgraph's label.
+ */
+export function renameSubgraph(code, subgraphId, newLabel) {
+  const parsed = parseFlowchart(code);
+  const sg = parsed.subgraphs.find((s) => s.id === subgraphId);
+  if (!sg) return code;
+
+  const lines = code.split("\n");
+  lines[sg.lineIndex] = lines[sg.lineIndex].replace(
+    /^(\s*subgraph\s+\S+)(?:\s*\[.*?\])?\s*$/,
+    `$1 [${newLabel}]`
+  );
+  return lines.join("\n");
 }

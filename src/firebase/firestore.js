@@ -401,7 +401,7 @@ export async function deleteFlow(flowId) {
 
 const MAX_VERSIONS = 10;
 
-export async function saveFlowVersion(flowId, { code, diagramType }) {
+export async function saveFlowVersion(flowId, { code, diagramType, tabs }) {
   return runFirestoreOperation(
     "saveFlowVersion",
     { flowId, diagramType, codeLength: code?.length || 0 },
@@ -417,12 +417,16 @@ export async function saveFlowVersion(flowId, { code, diagramType }) {
         return null;
       }
 
-      // Create new version
-      const ref = await addDoc(collection(db, "flows", flowId, "versions"), {
+      // Create new version (includes all tabs if present)
+      const versionData = {
         code,
         diagramType,
         createdAt: serverTimestamp(),
-      });
+      };
+      if (tabs && tabs.length > 0) {
+        versionData.tabs = tabs.map((t) => ({ id: t.id, label: t.label, code: t.code }));
+      }
+      const ref = await addDoc(collection(db, "flows", flowId, "versions"), versionData);
 
       // Enforce cap: delete versions beyond MAX_VERSIONS
       const allQ = query(

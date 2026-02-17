@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
+import logoSvg from "./assets/logo.svg";
 import {
   findTaskByLabel,
   parseGanttTasks,
@@ -28,7 +29,7 @@ import {
   detectConflicts,
   updateGanttDependency,
 } from "./ganttUtils";
-import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives } from "./flowchartUtils";
+import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, updateErEntity, updateErRelationship } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
@@ -1053,6 +1054,8 @@ function getIframeSrcDoc() {
         line-height: 1.4;
         user-select: none;
         position: relative;
+        background-image: radial-gradient(circle, #d1d5db 0.5px, transparent 0.5px);
+        background-size: 20px 20px;
       }
       .mf-flow-node {
         position: absolute;
@@ -1099,6 +1102,18 @@ function getIframeSrcDoc() {
         outline: 3px solid #16a34a;
         outline-offset: 2px;
         box-shadow: 0 0 10px rgba(22, 163, 74, 0.4);
+      }
+      .mf-marquee {
+        position: absolute;
+        border: 1.5px dashed #2563eb;
+        background: rgba(37, 99, 235, 0.08);
+        pointer-events: none;
+        z-index: 9999;
+      }
+      .mf-flow-subgraph.mf-subgraph-drop-target {
+        outline: 2.5px dashed #2563eb;
+        outline-offset: 2px;
+        background: rgba(37, 99, 235, 0.06);
       }
       .mf-shape-rect { border-radius: 4px; }
       .mf-shape-rounded { border-radius: 12px; }
@@ -1390,6 +1405,7 @@ function getIframeSrcDoc() {
         box-shadow: 0 1px 4px rgba(0,0,0,0.15);
       }
       .mf-flow-port:hover { opacity: 1 !important; transform: scale(1.1); }
+<<<<<<< HEAD
       /* ── Custom ER Diagram Styles ── */
       .mf-er-container {
         font-family: "Manrope", system-ui, sans-serif;
@@ -1507,6 +1523,10 @@ function getIframeSrcDoc() {
         box-shadow: 0 1px 4px rgba(0,0,0,0.15);
       }
       .mf-er-port:hover { opacity: 1 !important; transform: scale(1.1); }
+      .mf-flow-port.mf-port-dragging { opacity: 1 !important; background: #1d4ed8; transform: scale(1.2); }
+      .mf-flow-drag-line { pointer-events: none; position: absolute; top: 0; left: 0; z-index: 9; }
+      .mf-flow-node.mf-connect-drop-target { outline: 2.5px solid #3b82f6; outline-offset: 3px; border-radius: 6px; }
+      [data-theme="dark"] .mf-flow-node.mf-connect-drop-target { outline-color: #60a5fa; }
       /* ── General Diagram Styling ── */
       .node rect, .node circle, .node ellipse, .node polygon { rx: 8; ry: 8; }
       .node rect { stroke-width: 1.5px !important; }
@@ -1691,6 +1711,9 @@ function getIframeSrcDoc() {
         color: #e4e6ed;
         box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       }
+      [data-theme="dark"] .mf-flow-container {
+        background-image: radial-gradient(circle, #2a2e3d 0.5px, transparent 0.5px);
+      }
       [data-theme="dark"] .mf-shape-rect { background: #1c1f2b; border-color: #818cf8; }
       [data-theme="dark"] .mf-shape-rounded { background: #172554; border-color: #60a5fa; }
       [data-theme="dark"] .mf-shape-stadium { background: #14532d; border-color: #4ade80; }
@@ -1706,6 +1729,7 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-flow-edge text {
         fill: #9a9fb2;
       }
+<<<<<<< HEAD
       /* Dark ER diagram styles */
       [data-theme="dark"] .mf-er-entity {
         background: #1c1f2b;
@@ -1729,6 +1753,16 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-er-edges .mf-er-edge-label-bg { fill: #1c1f2b; stroke: #2a2e3d; }
       [data-theme="dark"] .mf-er-edges .mf-er-edge-label { fill: #9a9fb2; }
       [data-theme="dark"] .mf-er-port { background: #818cf8; }
+      [data-theme="dark"] #mf-arrow path,
+      [data-theme="dark"] #mf-arrow-rev path { fill: #6b7394; }
+      [data-theme="dark"] #mf-arrow-thick path,
+      [data-theme="dark"] #mf-arrow-thick-rev path { fill: #818cf8; }
+      [data-theme="dark"] #mf-circle circle { fill: #6b7394; }
+      [data-theme="dark"] #mf-cross path { stroke: #6b7394; }
+      [data-theme="dark"] .mf-edge-label-bg {
+        fill: #1c1f2b !important;
+        stroke: #2a2e3d !important;
+      }
       /* Dark gantt header rows */
       [data-theme="dark"] .mf-gh-row {
         background: #1c1f2b;
@@ -2554,7 +2588,7 @@ function getIframeSrcDoc() {
               bar.style.top = top + "px";
               bar.style.height = barHeight + "px";
             }
-            bar.setAttribute("data-label", task.label || "");
+            bar.setAttribute("data-task-label", task.label || "");
             const rawTaskLink = String(task.link || "").trim();
             const openableTaskLink = buildOpenableTaskUrl(rawTaskLink);
             const hasTaskLink = Boolean(rawTaskLink);
@@ -2603,7 +2637,7 @@ function getIframeSrcDoc() {
               // Create temporary SVG drag line
               const svgNS = "http://www.w3.org/2000/svg";
               const dragSvg = document.createElementNS(svgNS, "svg");
-              dragSvg.className = "mf-dep-drag-line";
+              dragSvg.setAttribute("class", "mf-dep-drag-line");
               dragSvg.style.width = canvas.scrollWidth + "px";
               dragSvg.style.height = canvas.scrollHeight + "px";
               const dragLine = document.createElementNS(svgNS, "line");
@@ -2653,7 +2687,7 @@ function getIframeSrcDoc() {
                 if (!dragging) return;
                 if (currentTarget) {
                   currentTarget.classList.remove("mf-dep-drop-target");
-                  const targetLabel = currentTarget.getAttribute("data-label") || "";
+                  const targetLabel = currentTarget.getAttribute("data-task-label") || currentTarget.getAttribute("data-label") || "";
                   if (targetLabel && targetLabel !== fromLabel) {
                     send("gantt:dep-created", { fromId, fromLabel, targetLabel });
                   }
@@ -3364,15 +3398,41 @@ function getIframeSrcDoc() {
 
       const buildEdgeSvgPath = (points) => {
         if (!points || points.length < 2) return "";
-        let d = "M " + points[0].x.toFixed(1) + " " + points[0].y.toFixed(1);
         if (points.length === 2) {
-          d += " L " + points[1].x.toFixed(1) + " " + points[1].y.toFixed(1);
-        } else {
-          for (let i = 1; i < points.length; i++) {
-            d += " L " + points[i].x.toFixed(1) + " " + points[i].y.toFixed(1);
+          const sp = points[0], tp = points[1];
+          const ddx = tp.x - sp.x, ddy = tp.y - sp.y;
+          const off = Math.max(Math.hypot(ddx, ddy) * 0.35, 25);
+          let c1x, c1y, c2x, c2y;
+          if (Math.abs(ddx) > Math.abs(ddy)) {
+            c1x = sp.x + (ddx > 0 ? off : -off); c1y = sp.y;
+            c2x = tp.x - (ddx > 0 ? off : -off); c2y = tp.y;
+          } else {
+            c1x = sp.x; c1y = sp.y + (ddy > 0 ? off : -off);
+            c2x = tp.x; c2y = tp.y - (ddy > 0 ? off : -off);
           }
+          return "M " + sp.x.toFixed(1) + " " + sp.y.toFixed(1) + " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + tp.x.toFixed(1) + " " + tp.y.toFixed(1);
+        }
+        // Multi-point: Catmull-Rom to cubic bezier
+        const pts = [points[0], ...points, points[points.length - 1]];
+        let d = "M " + points[0].x.toFixed(1) + " " + points[0].y.toFixed(1);
+        for (let i = 1; i < points.length; i++) {
+          const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2];
+          const t = 1 / 6;
+          const c1x = p1.x + t * (p2.x - p0.x);
+          const c1y = p1.y + t * (p2.y - p0.y);
+          const c2x = p2.x - t * (p3.x - p1.x);
+          const c2y = p2.y - t * (p3.y - p1.y);
+          d += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + p2.x.toFixed(1) + " " + p2.y.toFixed(1);
         }
         return d;
+      };
+
+      const buildSelfLoopPath = (nodeEl) => {
+        const nx = parseFloat(nodeEl.style.left), ny = parseFloat(nodeEl.style.top);
+        const nw = nodeEl.offsetWidth || 100, nh = nodeEl.offsetHeight || 40;
+        const cx = nx + nw / 2, topY = ny;
+        const loopH = 40, loopW = 30;
+        return "M " + (cx - loopW) + " " + topY + " C " + (cx - loopW) + " " + (topY - loopH) + " " + (cx + loopW) + " " + (topY - loopH) + " " + (cx + loopW) + " " + topY;
       };
 
       const updateFlowEdgesForNode = (edgeSvg, edges, nodeId, nodeEls, nodeDims) => {
@@ -3384,6 +3444,21 @@ function getIframeSrcDoc() {
           const srcEl = nodeEls[e.source];
           const tgtEl = nodeEls[e.target];
           if (!srcEl || !tgtEl) continue;
+          // Self-loop
+          if (e.source === e.target) {
+            const nd = buildSelfLoopPath(srcEl);
+            pathEl.setAttribute("d", nd);
+            if (hitEl) hitEl.setAttribute("d", nd);
+            const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
+            const lbl = edgeSvg.querySelector('.mf-edge-label[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
+            if (lbl) {
+              const nx = parseFloat(srcEl.style.left), ny = parseFloat(srcEl.style.top);
+              const nw = srcEl.offsetWidth || 100;
+              lbl.setAttribute("x", (nx + nw / 2).toFixed(1)); lbl.setAttribute("y", (ny - 25).toFixed(1));
+            }
+            if (bg && lbl) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(ex) {} }
+            continue;
+          }
           const sDim = nodeDims[e.source] || { width: 100, height: 40 };
           const tDim = nodeDims[e.target] || { width: 100, height: 40 };
           const sx = parseFloat(srcEl.style.left) + sDim.width / 2;
@@ -3409,11 +3484,15 @@ function getIframeSrcDoc() {
           const nd = "M " + sp.x.toFixed(1) + " " + sp.y.toFixed(1) + " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + tp.x.toFixed(1) + " " + tp.y.toFixed(1);
           pathEl.setAttribute("d", nd);
           if (hitEl) hitEl.setAttribute("d", nd);
-          // Update label position
+          // Update label position — bezier midpoint at t=0.5
           const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
           const lbl = edgeSvg.querySelector('.mf-edge-label[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
-          if (lbl) { lbl.setAttribute("x", ((sp.x + tp.x) / 2).toFixed(1)); lbl.setAttribute("y", ((sp.y + tp.y) / 2).toFixed(1)); }
-          if (bg && lbl) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(e) {} }
+          if (lbl) {
+            const mx = 0.125 * sp.x + 0.375 * c1x + 0.375 * c2x + 0.125 * tp.x;
+            const my = 0.125 * sp.y + 0.375 * c1y + 0.375 * c2y + 0.125 * tp.y;
+            lbl.setAttribute("x", mx.toFixed(1)); lbl.setAttribute("y", my.toFixed(1));
+          }
+          if (bg && lbl) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(ex) {} }
         }
       };
 
@@ -3422,6 +3501,34 @@ function getIframeSrcDoc() {
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "center";
+
+        const GRID_SIZE = 20;
+        const snapToGrid = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
+
+        let multiSelected = new Set();
+        let marqueeState = null;
+
+        const sendMultiSelection = () => {
+          const nodeIds = [...multiSelected];
+          const screenBoxes = {};
+          const nodePositions = {};
+          for (const nid of nodeIds) {
+            const el = nodeEls[nid];
+            if (!el) continue;
+            const rect = el.getBoundingClientRect();
+            screenBoxes[nid] = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+            nodePositions[nid] = { x: parseFloat(el.style.left) || 0, y: parseFloat(el.style.top) || 0 };
+          }
+          send("elements:selected", { nodeIds, screenBoxes, nodePositions });
+        };
+
+        const highlightMultiSelected = () => {
+          container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+          for (const nid of multiSelected) {
+            const el = nodeEls[nid];
+            if (el) el.classList.add("mf-selected");
+          }
+        };
 
         if (!flowData || !flowData.nodes || !flowData.nodes.length) {
           const msg = document.createElement("div");
@@ -3448,11 +3555,13 @@ function getIframeSrcDoc() {
         container.style.height = gh + "px";
 
         // Subgraphs
+        const subgraphEls = {};
         for (const sg of (flowData.subgraphs || [])) {
           const sgNode = g.node(sg.id);
           if (!sgNode || !sgNode.width) continue;
           const div = document.createElement("div");
           div.className = "mf-flow-subgraph";
+          div.setAttribute("data-subgraph-id", sg.id);
           div.style.left = (sgNode.x - sgNode.width / 2) + "px";
           div.style.top = (sgNode.y - sgNode.height / 2) + "px";
           div.style.width = sgNode.width + "px";
@@ -3460,8 +3569,20 @@ function getIframeSrcDoc() {
           const lbl = document.createElement("div");
           lbl.className = "mf-flow-subgraph-label";
           lbl.textContent = sg.label || sg.id;
+          // Double-click to rename
+          lbl.addEventListener("dblclick", (ev) => {
+            ev.stopPropagation();
+            send("subgraph:rename-intent", { subgraphId: sg.id, currentLabel: sg.label || sg.id });
+          });
+          // Right-click context menu
+          lbl.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            send("subgraph:context", { subgraphId: sg.id, label: sg.label || sg.id, pointerX: ev.clientX, pointerY: ev.clientY });
+          });
           div.appendChild(lbl);
           container.appendChild(div);
+          subgraphEls[sg.id] = div;
         }
 
         // SVG edge overlay
@@ -3523,10 +3644,50 @@ function getIframeSrcDoc() {
         // Render edges
         const edgeGroup = document.createElementNS(ns, "g");
         for (const edge of (flowData.edges || [])) {
+          const at = edge.arrowType || "-->";
+          // Self-loop: use dagre node position to draw arc
+          if (edge.source === edge.target) {
+            const selfNode = g.node(edge.source);
+            if (!selfNode) continue;
+            const selfDim = nodeDims[edge.source] || { width: 100, height: 40 };
+            const ovr = positionOverrides[edge.source] || { dx: 0, dy: 0 };
+            const selfLeft = (selfNode.x - selfDim.width / 2) + (ovr.absX != null ? (ovr.absX - (selfNode.x - selfDim.width / 2)) : (ovr.dx || 0));
+            const selfTop = (selfNode.y - selfDim.height / 2) + (ovr.absX != null ? (ovr.absY - (selfNode.y - selfDim.height / 2)) : (ovr.dy || 0));
+            const selfCx = selfLeft + selfDim.width / 2;
+            const loopH = 40, loopW = 30;
+            const d = "M " + (selfCx - loopW) + " " + selfTop + " C " + (selfCx - loopW) + " " + (selfTop - loopH) + " " + (selfCx + loopW) + " " + (selfTop - loopH) + " " + (selfCx + loopW) + " " + selfTop;
+            const hit = document.createElementNS(ns, "path");
+            hit.setAttribute("d", d); hit.setAttribute("class", "mf-edge-hit");
+            hit.setAttribute("data-source", edge.source); hit.setAttribute("data-target", edge.target);
+            edgeGroup.appendChild(hit);
+            const path = document.createElementNS(ns, "path");
+            path.setAttribute("d", d); path.setAttribute("fill", "none");
+            path.setAttribute("stroke", "#8b9dc3"); path.setAttribute("stroke-width", "1.5");
+            path.setAttribute("marker-end", "url(#mf-arrow)");
+            path.setAttribute("class", "mf-edge");
+            path.setAttribute("data-source", edge.source); path.setAttribute("data-target", edge.target);
+            edgeGroup.appendChild(path);
+            if (edge.label) {
+              const bg = document.createElementNS(ns, "rect");
+              bg.setAttribute("class", "mf-edge-label-bg");
+              bg.setAttribute("data-source", edge.source); bg.setAttribute("data-target", edge.target);
+              bg.setAttribute("rx", "4"); bg.setAttribute("fill", "#f8f9fb"); bg.setAttribute("stroke", "#e2e8f0"); bg.setAttribute("stroke-width", "0.5");
+              edgeGroup.appendChild(bg);
+              const txt = document.createElementNS(ns, "text");
+              txt.setAttribute("x", selfCx); txt.setAttribute("y", selfTop - 25);
+              txt.setAttribute("text-anchor", "middle"); txt.setAttribute("dominant-baseline", "central");
+              txt.setAttribute("font-size", "11"); txt.setAttribute("font-family", "Manrope,system-ui,sans-serif");
+              txt.setAttribute("fill", "#475569"); txt.setAttribute("font-weight", "500");
+              txt.setAttribute("class", "mf-edge-label");
+              txt.setAttribute("data-source", edge.source); txt.setAttribute("data-target", edge.target);
+              txt.textContent = edge.label;
+              edgeGroup.appendChild(txt);
+            }
+            continue;
+          }
           const de = g.edge(edge.source, edge.target);
           if (!de || !de.points) continue;
           const d = buildEdgeSvgPath(de.points);
-          const at = edge.arrowType || "-->";
           const hasArrow = at === "-->" || at === "--->" || at === "==>" || at === "-.->";
           const isThick = at === "==>" || at === "===" || at === "<==>";
           const isDashed = at === "-.->" || at === "-.-" || at === "<-.->";
@@ -3601,12 +3762,17 @@ function getIframeSrcDoc() {
           el.setAttribute("data-node-id", node.id);
           el.setAttribute("data-shape", shape);
 
-          // Apply position (with overrides)
-          const ovr = positionOverrides[node.id] || { dx: 0, dy: 0 };
+          // Apply position (with overrides — absolute or delta)
+          const ovr = positionOverrides[node.id];
           const baseX = pos.x - dim.width / 2;
           const baseY = pos.y - dim.height / 2;
-          el.style.left = (baseX + (ovr.dx || 0)) + "px";
-          el.style.top = (baseY + (ovr.dy || 0)) + "px";
+          if (ovr && ovr.absX != null) {
+            el.style.left = ovr.absX + "px";
+            el.style.top = ovr.absY + "px";
+          } else {
+            el.style.left = (baseX + (ovr?.dx || 0)) + "px";
+            el.style.top = (baseY + (ovr?.dy || 0)) + "px";
+          }
           el.style.width = dim.width + "px";
           el.style.height = dim.height + "px";
 
@@ -3618,6 +3784,11 @@ function getIframeSrcDoc() {
             if (cd.stroke) { el.style.borderColor = cd.stroke; el.style.setProperty("--node-stroke", cd.stroke); }
             if (cd.color) el.style.color = cd.color;
             if (cd.strokeWidth) el.style.borderWidth = cd.strokeWidth;
+            if (cd.strokeDasharray) el.style.borderStyle = "dashed";
+            if (cd.fontSize) el.style.fontSize = cd.fontSize;
+            if (cd.fontWeight) el.style.fontWeight = cd.fontWeight;
+            if (cd.fontStyle) el.style.fontStyle = cd.fontStyle;
+            if (cd.fontFamily) el.style.fontFamily = cd.fontFamily;
           }
           // Per-node style directives (e.g. "style id1 fill:#f9f,stroke:#333")
           const sd = (styleDirectives || {})[node.id];
@@ -3660,19 +3831,47 @@ function getIframeSrcDoc() {
           el.appendChild(labelDiv);
 
           // Tooltip
-          el.setAttribute("data-mf-tip", (node.label || node.id) + " [" + node.id + "]");
+          // Rich tooltip
+          {
+            let tip = node.label || node.id;
+            tip += "\\nID: " + node.id;
+            const shapeNames = { rect: "Rectangle", rounded: "Rounded", diamond: "Decision", circle: "Circle", stadium: "Stadium", hexagon: "Hexagon", parallelogram: "Parallelogram", trapezoid: "Trapezoid", "double-circle": "Double Circle", cylinder: "Cylinder", subroutine: "Subroutine", asymmetric: "Asymmetric" };
+            tip += "\\nShape: " + (shapeNames[shape] || shape);
+            const inE = (flowData.edges || []).filter(e => e.target === node.id);
+            const outE = (flowData.edges || []).filter(e => e.source === node.id);
+            if (inE.length) tip += "\\nInputs: " + inE.map(e => e.source).join(", ");
+            if (outE.length) tip += "\\nOutputs: " + outE.map(e => e.target).join(", ");
+            const parentSg = (flowData.subgraphs || []).find(sg => (sg.nodeIds || []).includes(node.id));
+            if (parentSg) tip += "\\nGroup: " + (parentSg.label || parentSg.id);
+            if (assignedClass) tip += "\\nClass: " + assignedClass;
+            el.setAttribute("data-mf-tip", tip);
+          }
 
-          // Click
+          // Click (with shift-click multi-select)
           el.addEventListener("click", (ev) => {
             if (suppressClick) return;
             ev.stopPropagation();
-            container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
-            el.classList.add("mf-selected");
-            const rect = el.getBoundingClientRect();
-            send("element:selected", {
-              label: node.label || node.id, id: node.id, nodeId: node.id, elementType: "node",
-              screenBox: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
-            });
+            if (ev.shiftKey) {
+              // Toggle this node in multi-selection
+              if (multiSelected.has(node.id)) {
+                multiSelected.delete(node.id);
+              } else {
+                multiSelected.add(node.id);
+              }
+              highlightMultiSelected();
+              sendMultiSelection();
+            } else {
+              // Single select — clear multi-select
+              multiSelected.clear();
+              multiSelected.add(node.id);
+              container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+              el.classList.add("mf-selected");
+              const rect = el.getBoundingClientRect();
+              send("element:selected", {
+                label: node.label || node.id, id: node.id, nodeId: node.id, elementType: "node",
+                screenBox: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+              });
+            }
           });
 
           // Context menu
@@ -3686,7 +3885,7 @@ function getIframeSrcDoc() {
             });
           });
 
-          // Drag
+          // Drag (supports group drag when multiple nodes selected)
           let dragInfo = null;
           el.addEventListener("pointerdown", (ev) => {
             if (ev.button !== 0) return;
@@ -3699,7 +3898,15 @@ function getIframeSrcDoc() {
             }
             ev.preventDefault();
             suppressClick = false;
-            dragInfo = { startX: ev.clientX, startY: ev.clientY, origLeft: parseFloat(el.style.left), origTop: parseFloat(el.style.top), moved: false };
+            const isGroupDrag = multiSelected.has(node.id) && multiSelected.size > 1;
+            const groupOrigins = {};
+            if (isGroupDrag) {
+              for (const nid of multiSelected) {
+                const nel = nodeEls[nid];
+                if (nel) groupOrigins[nid] = { left: parseFloat(nel.style.left), top: parseFloat(nel.style.top) };
+              }
+            }
+            dragInfo = { startX: ev.clientX, startY: ev.clientY, origLeft: parseFloat(el.style.left), origTop: parseFloat(el.style.top), moved: false, isGroupDrag, groupOrigins };
             el.style.cursor = "grabbing"; el.style.zIndex = "100";
             el.setPointerCapture(ev.pointerId);
           });
@@ -3709,9 +3916,38 @@ function getIframeSrcDoc() {
             const dy = ev.clientY - dragInfo.startY;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragInfo.moved = true;
             if (!dragInfo.moved) return;
-            el.style.left = (dragInfo.origLeft + dx) + "px";
-            el.style.top = (dragInfo.origTop + dy) + "px";
-            updateFlowEdgesForNode(edgeSvg, flowData.edges, node.id, nodeEls, nodeDims);
+            if (dragInfo.isGroupDrag) {
+              for (const [nid, orig] of Object.entries(dragInfo.groupOrigins)) {
+                const nel = nodeEls[nid];
+                if (nel) {
+                  nel.style.left = snapToGrid(orig.left + dx) + "px";
+                  nel.style.top = snapToGrid(orig.top + dy) + "px";
+                  updateFlowEdgesForNode(edgeSvg, flowData.edges, nid, nodeEls, nodeDims);
+                }
+              }
+              updateSubgraphBounds();
+            } else {
+              el.style.left = snapToGrid(dragInfo.origLeft + dx) + "px";
+              el.style.top = snapToGrid(dragInfo.origTop + dy) + "px";
+              updateFlowEdgesForNode(edgeSvg, flowData.edges, node.id, nodeEls, nodeDims);
+              updateSubgraphBounds();
+              // Subgraph drop target highlighting (single drag only)
+              const nodeCx = (dragInfo.origLeft + dx) + el.offsetWidth / 2;
+              const nodeCy = (dragInfo.origTop + dy) + el.offsetHeight / 2;
+              container.querySelectorAll(".mf-flow-subgraph.mf-subgraph-drop-target").forEach(s => s.classList.remove("mf-subgraph-drop-target"));
+              dragInfo.dropSubgraphId = null;
+              for (const [sgId, sgEl] of Object.entries(subgraphEls)) {
+                const sl = parseFloat(sgEl.style.left);
+                const st = parseFloat(sgEl.style.top);
+                const sw = sgEl.offsetWidth;
+                const sh = sgEl.offsetHeight;
+                if (nodeCx > sl && nodeCx < sl + sw && nodeCy > st && nodeCy < st + sh) {
+                  sgEl.classList.add("mf-subgraph-drop-target");
+                  dragInfo.dropSubgraphId = sgId;
+                  break;
+                }
+              }
+            }
           });
           el.addEventListener("pointerup", (ev) => {
             if (!dragInfo) return;
@@ -3719,18 +3955,34 @@ function getIframeSrcDoc() {
             const dy = ev.clientY - dragInfo.startY;
             el.releasePointerCapture(ev.pointerId);
             el.style.cursor = ""; el.style.zIndex = "";
+            container.querySelectorAll(".mf-flow-subgraph.mf-subgraph-drop-target").forEach(s => s.classList.remove("mf-subgraph-drop-target"));
             if (dragInfo.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
               suppressClick = true;
               setTimeout(() => { suppressClick = false; }, 200);
-              positionOverrides[node.id] = positionOverrides[node.id] || { dx: 0, dy: 0 };
-              positionOverrides[node.id].dx += dx;
-              positionOverrides[node.id].dy += dy;
-              send("element:dragged", { label: node.label || node.id, nodeId: node.id, deltaX: dx, deltaY: dy, isGanttTask: false });
+              if (dragInfo.isGroupDrag) {
+                const moves = {};
+                for (const nid of Object.keys(dragInfo.groupOrigins)) {
+                  const nel = nodeEls[nid];
+                  if (nel) {
+                    positionOverrides[nid] = { absX: parseFloat(nel.style.left), absY: parseFloat(nel.style.top) };
+                  }
+                  moves[nid] = { deltaX: dx, deltaY: dy, absX: positionOverrides[nid]?.absX, absY: positionOverrides[nid]?.absY };
+                }
+                send("elements:dragged", { moves });
+              } else {
+                positionOverrides[node.id] = { absX: parseFloat(el.style.left), absY: parseFloat(el.style.top) };
+                // Check for subgraph drop
+                if (dragInfo.dropSubgraphId) {
+                  send("node:dropped-into-subgraph", { nodeId: node.id, subgraphId: dragInfo.dropSubgraphId });
+                } else {
+                  send("element:dragged", { label: node.label || node.id, nodeId: node.id, deltaX: dx, deltaY: dy, absX: positionOverrides[node.id].absX, absY: positionOverrides[node.id].absY, isGanttTask: false });
+                }
+              }
             }
             dragInfo = null;
           });
 
-          // Hover port indicators
+          // Hover port indicators with drag-to-connect
           el.addEventListener("mouseenter", () => {
             if (connectMode) return;
             container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
@@ -3739,27 +3991,102 @@ function getIframeSrcDoc() {
             const w = dim.width; const h = dim.height;
             const cx = left + w / 2; const cy = top + h / 2;
             const portPositions = [
-              { name: "top", x: cx - 9, y: top - 22 },
-              { name: "bottom", x: cx - 9, y: top + h + 4 },
-              { name: "left", x: left - 22, y: cy - 9 },
-              { name: "right", x: left + w + 4, y: cy - 9 },
+              { name: "top", x: cx - 9, y: top - 22, anchorX: cx, anchorY: top },
+              { name: "bottom", x: cx - 9, y: top + h + 4, anchorX: cx, anchorY: top + h },
+              { name: "left", x: left - 22, y: cy - 9, anchorX: left, anchorY: cy },
+              { name: "right", x: left + w + 4, y: cy - 9, anchorX: left + w, anchorY: cy },
             ];
             for (const pp of portPositions) {
               const port = document.createElement("div");
               port.className = "mf-flow-port";
               port.style.left = pp.x + "px"; port.style.top = pp.y + "px"; port.style.opacity = "1";
               port.textContent = "+";
-              port.addEventListener("click", (pe) => {
+
+              // Drag-to-connect
+              let portDrag = null;
+              port.addEventListener("pointerdown", (pe) => {
                 pe.stopPropagation();
-                send("port:clicked", { nodeId: node.id, port: pp.name });
+                pe.preventDefault();
+                port.setPointerCapture(pe.pointerId);
+                port.classList.add("mf-port-dragging");
+
+                // Create temporary SVG drag line
+                const svgNS = "http://www.w3.org/2000/svg";
+                const dragSvg = document.createElementNS(svgNS, "svg");
+                dragSvg.setAttribute("class", "mf-flow-drag-line");
+                dragSvg.style.width = container.scrollWidth + "px";
+                dragSvg.style.height = container.scrollHeight + "px";
+                const dragLine = document.createElementNS(svgNS, "line");
+                dragLine.setAttribute("x1", pp.anchorX);
+                dragLine.setAttribute("y1", pp.anchorY);
+                dragLine.setAttribute("x2", pp.anchorX);
+                dragLine.setAttribute("y2", pp.anchorY);
+                dragLine.setAttribute("stroke", "#3b82f6");
+                dragLine.setAttribute("stroke-width", "2");
+                dragLine.setAttribute("stroke-dasharray", "6 3");
+                dragSvg.appendChild(dragLine);
+                container.appendChild(dragSvg);
+
+                portDrag = { dragSvg, dragLine, dragging: false, currentTarget: null };
+              });
+              port.addEventListener("pointermove", (pe) => {
+                if (!portDrag) return;
+                portDrag.dragging = true;
+                const cr = container.getBoundingClientRect();
+                const mx = pe.clientX - cr.left + container.scrollLeft;
+                const my = pe.clientY - cr.top + container.scrollTop;
+                portDrag.dragLine.setAttribute("x2", mx);
+                portDrag.dragLine.setAttribute("y2", my);
+
+                // Hit-test: hide SVG to find element underneath
+                portDrag.dragSvg.style.display = "none";
+                const hitEl = document.elementFromPoint(pe.clientX, pe.clientY);
+                portDrag.dragSvg.style.display = "";
+                const targetNode = hitEl?.closest(".mf-flow-node");
+                if (portDrag.currentTarget && portDrag.currentTarget !== targetNode) {
+                  portDrag.currentTarget.classList.remove("mf-connect-drop-target");
+                }
+                if (targetNode && targetNode !== el) {
+                  targetNode.classList.add("mf-connect-drop-target");
+                  portDrag.currentTarget = targetNode;
+                } else {
+                  portDrag.currentTarget = null;
+                }
+              });
+              port.addEventListener("pointerup", (pe) => {
+                if (!portDrag) return;
+                try { port.releasePointerCapture(pe.pointerId); } catch(_) {}
+                port.classList.remove("mf-port-dragging");
+                portDrag.dragSvg.remove();
+                if (portDrag.dragging && portDrag.currentTarget) {
+                  portDrag.currentTarget.classList.remove("mf-connect-drop-target");
+                  const targetId = portDrag.currentTarget.getAttribute("data-node-id");
+                  if (targetId && targetId !== node.id) {
+                    send("connect:complete", { sourceId: node.id, targetId: targetId });
+                  }
+                } else if (!portDrag.dragging) {
+                  // Plain click (no drag) — open node creation form
+                  send("port:clicked", { nodeId: node.id, port: pp.name });
+                }
+                portDrag = null;
                 container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
               });
+              // Also handle pointer leaving without up (cancel)
+              port.addEventListener("pointercancel", (pe) => {
+                if (!portDrag) return;
+                try { port.releasePointerCapture(pe.pointerId); } catch(_) {}
+                port.classList.remove("mf-port-dragging");
+                portDrag.dragSvg.remove();
+                if (portDrag.currentTarget) portDrag.currentTarget.classList.remove("mf-connect-drop-target");
+                portDrag = null;
+              });
+
               container.appendChild(port);
             }
           });
           el.addEventListener("mouseleave", () => {
             setTimeout(() => {
-              if (!container.querySelector(".mf-flow-port:hover")) {
+              if (!container.querySelector(".mf-flow-port:hover") && !container.querySelector(".mf-flow-port.mf-port-dragging")) {
                 container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
               }
             }, 200);
@@ -3768,6 +4095,40 @@ function getIframeSrcDoc() {
           container.appendChild(el);
           nodeEls[node.id] = el;
         }
+
+        // Dynamic subgraph bounds
+        const updateSubgraphBounds = () => {
+          for (const sg of (flowData.subgraphs || [])) {
+            const sgEl = subgraphEls[sg.id];
+            if (!sgEl) continue;
+            const childNodes = (sg.nodeIds || []).map(id => nodeEls[id]).filter(Boolean);
+            if (childNodes.length === 0) continue;
+            const pad = 20;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const ch of childNodes) {
+              const l = parseFloat(ch.style.left), t = parseFloat(ch.style.top);
+              minX = Math.min(minX, l); minY = Math.min(minY, t);
+              maxX = Math.max(maxX, l + ch.offsetWidth);
+              maxY = Math.max(maxY, t + ch.offsetHeight);
+            }
+            sgEl.style.left = (minX - pad) + "px";
+            sgEl.style.top = (minY - pad - 24) + "px";
+            sgEl.style.width = (maxX - minX + 2 * pad) + "px";
+            sgEl.style.height = (maxY - minY + 2 * pad + 24) + "px";
+          }
+        };
+        updateSubgraphBounds();
+
+        // Adjust edge label backgrounds after render
+        edgeSvg.querySelectorAll(".mf-edge-label").forEach(lbl => {
+          try {
+            const bb = lbl.getBBox();
+            const src = lbl.getAttribute("data-source");
+            const tgt = lbl.getAttribute("data-target");
+            const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + CSS.escape(src) + '"][data-target="' + CSS.escape(tgt) + '"]');
+            if (bg) { bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); }
+          } catch(ex) {}
+        });
 
         // Edge click/context handlers
         edgeSvg.addEventListener("click", (ev) => {
@@ -3791,7 +4152,8 @@ function getIframeSrcDoc() {
 
         // Empty area handlers
         container.addEventListener("click", (ev) => {
-          if (ev.target === container) {
+          if (ev.target === container && !marqueeState) {
+            multiSelected.clear();
             container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
             send("element:selected", null);
           }
@@ -3801,6 +4163,57 @@ function getIframeSrcDoc() {
             ev.preventDefault();
             send("element:context", { label: "", id: "", nodeId: "", elementType: "canvas", pointerX: ev.clientX, pointerY: ev.clientY });
           }
+        });
+
+        // Marquee (box) select
+        container.addEventListener("pointerdown", (ev) => {
+          if (ev.target !== container || ev.button !== 0 || connectMode) return;
+          const cr = container.getBoundingClientRect();
+          marqueeState = { startX: ev.clientX - cr.left, startY: ev.clientY - cr.top, el: null, active: false };
+        });
+        container.addEventListener("pointermove", (ev) => {
+          if (!marqueeState) return;
+          const cr = container.getBoundingClientRect();
+          const curX = ev.clientX - cr.left;
+          const curY = ev.clientY - cr.top;
+          const dx = Math.abs(curX - marqueeState.startX);
+          const dy = Math.abs(curY - marqueeState.startY);
+          if (!marqueeState.active && (dx > 5 || dy > 5)) {
+            marqueeState.active = true;
+            const mEl = document.createElement("div");
+            mEl.className = "mf-marquee";
+            container.appendChild(mEl);
+            marqueeState.el = mEl;
+          }
+          if (!marqueeState.active) return;
+          const left = Math.min(marqueeState.startX, curX);
+          const top = Math.min(marqueeState.startY, curY);
+          const w = Math.abs(curX - marqueeState.startX);
+          const h = Math.abs(curY - marqueeState.startY);
+          marqueeState.el.style.left = left + "px";
+          marqueeState.el.style.top = top + "px";
+          marqueeState.el.style.width = w + "px";
+          marqueeState.el.style.height = h + "px";
+          // Check overlap with nodes
+          multiSelected.clear();
+          for (const [nid, nel] of Object.entries(nodeEls)) {
+            const nl = parseFloat(nel.style.left);
+            const nt = parseFloat(nel.style.top);
+            const nw = nel.offsetWidth;
+            const nh = nel.offsetHeight;
+            if (nl + nw > left && nl < left + w && nt + nh > top && nt < top + h) {
+              multiSelected.add(nid);
+            }
+          }
+          highlightMultiSelected();
+        });
+        container.addEventListener("pointerup", (ev) => {
+          if (!marqueeState) return;
+          if (marqueeState.el) marqueeState.el.remove();
+          if (marqueeState.active && multiSelected.size > 0) {
+            sendMultiSelection();
+          }
+          marqueeState = null;
         });
 
         // Size edge label backgrounds after DOM paint
@@ -3830,10 +4243,22 @@ function getIframeSrcDoc() {
           if (d.type === "flowchart:select") {
             const nid = d.payload?.nodeId || "";
             container.querySelectorAll(".mf-flow-node.mf-selected").forEach(n => n.classList.remove("mf-selected"));
+            multiSelected.clear();
             if (nid) {
               const nd = container.querySelector('[data-node-id="' + CSS.escape(nid) + '"]');
               if (nd) nd.classList.add("mf-selected");
+              multiSelected.add(nid);
             }
+          }
+          if (d.type === "layout:reset") {
+            // Clear iframe-side position overrides so dagre layout takes effect on re-render
+            for (const key of Object.keys(positionOverrides)) delete positionOverrides[key];
+          }
+          if (d.type === "flowchart:multiselect") {
+            const ids = d.payload?.nodeIds || [];
+            multiSelected.clear();
+            for (const nid of ids) multiSelected.add(nid);
+            highlightMultiSelected();
           }
         };
         window.addEventListener("message", handleConnectMsg);
@@ -6244,7 +6669,7 @@ function getIframeSrcDoc() {
           const label = data.payload?.label || "";
           canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
           if (label) {
-            const bar = canvas.querySelector('.mf-gantt-bar[data-label="' + CSS.escape(label) + '"], .mf-gantt-milestone[data-label="' + CSS.escape(label) + '"]');
+            const bar = canvas.querySelector('.mf-gantt-bar[data-task-label="' + CSS.escape(label) + '"], .mf-gantt-milestone[data-task-label="' + CSS.escape(label) + '"]');
             if (bar) bar.classList.add("mf-selected");
           }
           return;
@@ -6333,6 +6758,20 @@ const IconExport = () => (
   </svg>
 );
 
+const IconUndo = () => (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="7 11 3 7 7 3" />
+    <path d="M16 16v-5.5a3.5 3.5 0 00-3.5-3.5H3" />
+  </svg>
+);
+
+const IconRedo = () => (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="13 11 17 7 13 3" />
+    <path d="M4 16v-5.5a3.5 3.5 0 013.5-3.5H17" />
+  </svg>
+);
+
 /* ── URL params & embed helpers ────────────────────────── */
 function getUrlParams() {
   const params = new URLSearchParams(window.location.search);
@@ -6385,12 +6824,28 @@ function deleteDiagramFromStorage(name) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(diagrams));
 }
 
-function saveLastDiagram(code) {
-  try { localStorage.setItem(LAST_DIAGRAM_KEY, code); } catch {}
+function saveLastDiagram(code, tabs, activeTabId) {
+  try {
+    if (tabs && tabs.length > 0) {
+      localStorage.setItem(LAST_DIAGRAM_KEY, JSON.stringify({ code, tabs, activeTabId }));
+    } else {
+      localStorage.setItem(LAST_DIAGRAM_KEY, code);
+    }
+  } catch {}
 }
 
 function loadLastDiagram() {
-  try { return localStorage.getItem(LAST_DIAGRAM_KEY); } catch { return null; }
+  try {
+    const raw = localStorage.getItem(LAST_DIAGRAM_KEY);
+    if (!raw) return null;
+    // Try parsing as JSON (new format with tabs)
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && parsed.code) return parsed;
+    } catch {}
+    // Fallback: plain string (old format)
+    return raw;
+  } catch { return null; }
 }
 
 /* ── Main App ─────────────────────────────────────────── */
@@ -6403,6 +6858,13 @@ function App() {
   const ganttViewMenuRef = useRef(null);
   const ganttAnalysisMenuRef = useRef(null);
   const ganttAssigneeMenuRef = useRef(null);
+
+  // Undo/redo history
+  const historyRef = useRef({ past: [], future: [] });
+  const lastCommitTimeRef = useRef(0);
+  const skipNextHistoryPushRef = useRef(false);
+  const typingTimerRef = useRef(null);
+  const pendingTypingSnapshotRef = useRef(null);
 
   // Router integration
   const params = useParams();
@@ -6418,13 +6880,23 @@ function App() {
   const isEditable = urlParams.current.editableParam;
 
   // Resolve initial code: URL param > localStorage > default
+  const lastDiagramData = useRef(loadLastDiagram());
   const initialCode = (() => {
     if (urlParams.current.codeParam) {
       const decoded = decodeCodeParam(urlParams.current.codeParam);
       if (decoded) return decoded;
     }
-    const last = loadLastDiagram();
-    if (last && !urlParams.current.embed) return last;
+    const last = lastDiagramData.current;
+    if (last && !urlParams.current.embed) {
+      if (typeof last === "object" && last.tabs && last.tabs.length > 0) {
+        // Restore the active tab's code (or first tab if activeTabId not found)
+        const savedActiveId = last.activeTabId;
+        const activeTab = savedActiveId && last.tabs.find((t) => t.id === savedActiveId);
+        return activeTab ? activeTab.code : last.tabs[0].code;
+      }
+      if (typeof last === "object" && last.code) return last.code;
+      return last;
+    }
     return DEFAULT_CODE;
   })();
 
@@ -6454,6 +6926,37 @@ function App() {
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [resourcePanelOpen, setResourcePanelOpen] = useState(false);
   const [notionSyncOpen, setNotionSyncOpen] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiChartType, setAiChartType] = useState("gantt");
+  const [aiContext, setAiContext] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [convertModalOpen, setConvertModalOpen] = useState(false);
+  const [convertTargetType, setConvertTargetType] = useState("flowchart");
+  const [convertLoading, setConvertLoading] = useState(false);
+  const [convertError, setConvertError] = useState("");
+  const [aiPreview, setAiPreview] = useState(null); // { code, title, summary, source }
+  const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
+  const [diagramTabs, setDiagramTabs] = useState(() => {
+    const last = lastDiagramData.current;
+    if (last && typeof last === "object" && last.tabs && last.tabs.length > 0 && !urlParams.current.embed && !urlParams.current.codeParam) {
+      return last.tabs;
+    }
+    return [{ id: "tab-0", label: "Main", code: initialCode }];
+  });
+  const [activeTabId, setActiveTabId] = useState(() => {
+    const last = lastDiagramData.current;
+    if (last && typeof last === "object" && last.tabs && last.tabs.length > 0 && !urlParams.current.embed && !urlParams.current.codeParam) {
+      // Restore the saved active tab, or fall back to first tab
+      if (last.activeTabId && last.tabs.some((t) => t.id === last.activeTabId)) {
+        return last.activeTabId;
+      }
+      return last.tabs[0].id;
+    }
+    return "tab-0";
+  });
+  const [renamingTabId, setRenamingTabId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -6464,6 +6967,9 @@ function App() {
   const [renderStatus, setRenderStatus] = useState("idle");
   const [renderMessage, setRenderMessage] = useState("");
   const [selectedElement, setSelectedElement] = useState(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState(new Set());
+  const [multiNodePositions, setMultiNodePositions] = useState({});
+  const [flowClipboard, setFlowClipboard] = useState(null);
   const [labelDraft, setLabelDraft] = useState("");
   const [highlightLine, setHighlightLine] = useState(null);
   const [templateId, setTemplateId] = useState("flowchart");
@@ -6507,6 +7013,7 @@ function App() {
   const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
   const [showRisks, setShowRisks] = useState(false);
   const [selectedAssignees, setSelectedAssignees] = useState([]);
+  const [assigneeFilterQuery, setAssigneeFilterQuery] = useState("");
   const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis" | "assignees"
   const [showChainView, setShowChainView] = useState(false);
   const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
@@ -6530,9 +7037,17 @@ function App() {
   const [styleToolbar, setStyleToolbar] = useState(null); // { nodeId, x, y, yBottom, activeDropdown }
   const contextMenuRef = useRef(null);
 
+  // Undo/redo button state + ref mirrors for stale-closure safety
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const codeRef = useRef(code);
+  const positionOverridesRef = useRef(positionOverrides);
+  const styleOverridesRef = useRef(styleOverrides);
+
   // Derived
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
   const lineCount = code.split("\n").length;
+  const flowHeaderName = String(flowMeta?.name || "").trim();
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
   const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
@@ -6694,6 +7209,11 @@ function App() {
     }
     return merged.sort((a, b) => a.localeCompare(b));
   }, [allAssignees, selectedAssignees]);
+  const filteredAssigneeOptions = useMemo(() => {
+    const query = assigneeFilterQuery.trim().toLowerCase();
+    if (!query) return assigneeFilterOptions;
+    return assigneeFilterOptions.filter((name) => name.toLowerCase().includes(query));
+  }, [assigneeFilterOptions, assigneeFilterQuery]);
   const hasAssigneeFilter = selectedAssignees.length > 0;
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
@@ -6749,6 +7269,97 @@ function App() {
       return [...normalized, target];
     });
   };
+
+  /* ── Undo / Redo engine ─────────────────────────────── */
+  useEffect(() => { codeRef.current = code; }, [code]);
+  useEffect(() => { positionOverridesRef.current = positionOverrides; }, [positionOverrides]);
+  useEffect(() => { styleOverridesRef.current = styleOverrides; }, [styleOverrides]);
+
+  const commitSnapshot = useCallback((snapCode, snapPos, snapStyle, opts = {}) => {
+    if (skipNextHistoryPushRef.current) return;
+    const now = Date.now();
+    const history = historyRef.current;
+    if (opts.dragBatch && history.past.length > 0 && (now - lastCommitTimeRef.current) < 500) {
+      lastCommitTimeRef.current = now;
+      return;
+    }
+    history.past.push({ code: snapCode, positionOverrides: snapPos, styleOverrides: snapStyle });
+    if (history.past.length > 50) history.past.shift();
+    history.future = [];
+    lastCommitTimeRef.current = now;
+    setCanUndo(history.past.length > 0);
+    setCanRedo(false);
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    historyRef.current = { past: [], future: [] };
+    setCanUndo(false);
+    setCanRedo(false);
+    pendingTypingSnapshotRef.current = null;
+    clearTimeout(typingTimerRef.current);
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    const history = historyRef.current;
+    if (history.past.length === 0) return;
+    history.future.unshift({
+      code: codeRef.current,
+      positionOverrides: positionOverridesRef.current,
+      styleOverrides: styleOverridesRef.current,
+    });
+    const snapshot = history.past.pop();
+    skipNextHistoryPushRef.current = true;
+    pendingTypingSnapshotRef.current = null;
+    clearTimeout(typingTimerRef.current);
+    setCode(snapshot.code);
+    setPositionOverrides(snapshot.positionOverrides);
+    setStyleOverrides(snapshot.styleOverrides);
+    window.setTimeout(() => { skipNextHistoryPushRef.current = false; }, 0);
+    setCanUndo(history.past.length > 0);
+    setCanRedo(history.future.length > 0);
+    window.requestAnimationFrame(() => {
+      const frame = iframeRef.current;
+      if (frame?.contentWindow) {
+        frame.contentWindow.postMessage(
+          { channel: CHANNEL, type: "apply:styles", payload: { overrides: snapshot.styleOverrides } },
+          "*"
+        );
+      }
+    });
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    const history = historyRef.current;
+    if (history.future.length === 0) return;
+    history.past.push({
+      code: codeRef.current,
+      positionOverrides: positionOverridesRef.current,
+      styleOverrides: styleOverridesRef.current,
+    });
+    const snapshot = history.future.shift();
+    skipNextHistoryPushRef.current = true;
+    pendingTypingSnapshotRef.current = null;
+    clearTimeout(typingTimerRef.current);
+    setCode(snapshot.code);
+    setPositionOverrides(snapshot.positionOverrides);
+    setStyleOverrides(snapshot.styleOverrides);
+    window.setTimeout(() => { skipNextHistoryPushRef.current = false; }, 0);
+    setCanUndo(history.past.length > 0);
+    setCanRedo(history.future.length > 0);
+    window.requestAnimationFrame(() => {
+      const frame = iframeRef.current;
+      if (frame?.contentWindow) {
+        frame.contentWindow.postMessage(
+          { channel: CHANNEL, type: "apply:styles", payload: { overrides: snapshot.styleOverrides } },
+          "*"
+        );
+      }
+    });
+  }, []);
+
+  const commitSnapshotNow = useCallback((opts = {}) => {
+    commitSnapshot(codeRef.current, positionOverridesRef.current, styleOverridesRef.current, opts);
+  }, [commitSnapshot]);
 
   // Get connected nodes for any diagram type (for edit modal navigation)
   const getNodeConnections = (nodeId) => {
@@ -6993,6 +7604,8 @@ function App() {
 
   /* ── Load flow from Firestore ────────────────────────── */
   const flowLoadedRef = useRef(false);
+  const lastVersionSaveRef = useRef(0);
+  const lastVersionCodeRef = useRef("");
   useEffect(() => {
     if (!flowId) {
       lastSavedGanttViewStateRef.current = "";
@@ -7019,7 +7632,23 @@ function App() {
           const savedViewState = normalizeGanttViewState(flow.ganttViewState, defaultViewState);
           lastSavedGanttViewStateRef.current = JSON.stringify(savedViewState);
 
-          setCode(flow.code || DEFAULT_CODE);
+          const flowCode = flow.code || DEFAULT_CODE;
+          clearHistory();
+          if (flow.tabs && flow.tabs.length > 0) {
+            setDiagramTabs(flow.tabs);
+            // Restore the active tab, or default to first tab
+            const restoredTabId = flow.activeTabId && flow.tabs.some((t) => t.id === flow.activeTabId)
+              ? flow.activeTabId : flow.tabs[0].id;
+            const restoredTab = flow.tabs.find((t) => t.id === restoredTabId);
+            setActiveTabId(restoredTabId);
+            setCode(restoredTab.code);
+            lastVersionCodeRef.current = restoredTab.code;
+          } else {
+            setDiagramTabs([{ id: "tab-0", label: "Main", code: flowCode }]);
+            setActiveTabId("tab-0");
+            setCode(flowCode);
+            lastVersionCodeRef.current = flowCode;
+          }
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
           setBaselineCode(flow.baselineCode || null);
@@ -7060,8 +7689,15 @@ function App() {
     if (!isOwner && userRole !== "edit" && !canPubliclyEdit) return;
     const handle = window.setTimeout(async () => {
       try {
-        await updateFlow(flowId, { code, diagramType });
-        saveFlowVersion(flowId, { code, diagramType }).catch(() => {});
+        const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
+        await updateFlow(flowId, { code, diagramType, tabs: tabsSnapshot, activeTabId });
+        const now = Date.now();
+        if (now - lastVersionSaveRef.current >= 10 * 60 * 1000 && code !== lastVersionCodeRef.current) {
+          lastVersionSaveRef.current = now;
+          lastVersionCodeRef.current = code;
+          const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
+          saveFlowVersion(flowId, { code, diagramType, tabs: tabsSnapshot }).catch(() => {});
+        }
       } catch (err) {
         logAppFirestoreError("autoSave/updateFlow", err, {
           flowId,
@@ -7073,6 +7709,11 @@ function App() {
     }, 2000);
     return () => window.clearTimeout(handle);
   }, [code, flowId, diagramType, flowMeta, currentUser]);
+
+  useEffect(() => {
+    if (ganttDropdown === "assignees" || mobileViewMenuOpen) return;
+    setAssigneeFilterQuery("");
+  }, [ganttDropdown, mobileViewMenuOpen]);
 
   /* ── Persist gantt view preferences ─────────────────── */
   useEffect(() => {
@@ -7105,9 +7746,13 @@ function App() {
   /* ── Auto-save to localStorage ─────────────────────── */
   useEffect(() => {
     if (isEmbed) return; // don't save in embed mode
-    const handle = window.setTimeout(() => saveLastDiagram(code), 500);
+    const handle = window.setTimeout(() => {
+      // Save current tab's code into diagramTabs before persisting
+      const updatedTabs = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
+      saveLastDiagram(code, updatedTabs, activeTabId);
+    }, 500);
     return () => window.clearTimeout(handle);
-  }, [code]);
+  }, [code, diagramTabs, activeTabId]);
 
   /* ── Parent frame postMessage API (for Notion etc.) ── */
   useEffect(() => {
@@ -7119,6 +7764,7 @@ function App() {
 
       if (msg.type === "set-code" && typeof msg.code === "string") {
         setCode(msg.code);
+        clearHistory();
       }
       if (msg.type === "get-code") {
         window.parent.postMessage({
@@ -7244,6 +7890,19 @@ function App() {
             }, 100);
           }
         }
+
+        // Re-send multi-select highlight after custom flowchart re-render
+        if (isCustomFlowchart && selectedNodeIds.size > 0) {
+          const frame = iframeRef.current;
+          if (frame?.contentWindow) {
+            setTimeout(() => {
+              frame.contentWindow.postMessage(
+                { channel: CHANNEL, type: "flowchart:multiselect", payload: { nodeIds: [...selectedNodeIds] } },
+                "*"
+              );
+            }, 50);
+          }
+        }
       }
 
       if (data.type === "render:error") {
@@ -7258,6 +7917,7 @@ function App() {
         setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
 
         if (selected?.elementType === "node" && selected?.screenBox && selected?.nodeId) {
+          setSelectedNodeIds(new Set([selected.nodeId]));
           const ir = iframeRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
           setStyleToolbar({
             nodeId: selected.nodeId,
@@ -7267,8 +7927,72 @@ function App() {
             activeDropdown: null,
           });
         } else {
+          setSelectedNodeIds(new Set());
           setStyleToolbar(null);
         }
+      }
+
+      if (data.type === "elements:selected") {
+        const { nodeIds = [], screenBoxes = {}, nodePositions = {} } = data.payload || {};
+        const ids = new Set(nodeIds);
+        setSelectedNodeIds(ids);
+        setMultiNodePositions(nodePositions);
+        if (ids.size > 1) {
+          // Multi-select: show toolbar above bounding box of all selected
+          setSelectedElement({ elementType: "multi", nodeIds: [...ids] });
+          const ir = iframeRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const nid of ids) {
+            const box = screenBoxes[nid];
+            if (!box) continue;
+            if (box.left < minX) minX = box.left;
+            if (box.top < minY) minY = box.top;
+            if (box.right > maxX) maxX = box.right;
+            if (box.bottom > maxY) maxY = box.bottom;
+          }
+          setStyleToolbar({
+            nodeId: [...ids][0],
+            multiNodeIds: [...ids],
+            x: ir.left + (minX + maxX) / 2,
+            y: ir.top + minY,
+            yBottom: ir.top + maxY,
+            activeDropdown: null,
+          });
+        } else if (ids.size === 1) {
+          const nid = [...ids][0];
+          const box = screenBoxes[nid];
+          if (box) {
+            const ir = iframeRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
+            setSelectedElement({ elementType: "node", nodeId: nid, label: nid, id: nid });
+            setStyleToolbar({
+              nodeId: nid,
+              x: ir.left + (box.left + box.right) / 2,
+              y: ir.top + box.top,
+              yBottom: ir.top + box.bottom,
+              activeDropdown: null,
+            });
+          }
+        } else {
+          setSelectedElement(null);
+          setStyleToolbar(null);
+        }
+      }
+
+      if (data.type === "elements:dragged") {
+        commitSnapshotNow({ dragBatch: true });
+        setStyleToolbar(null);
+        const moves = data.payload?.moves || {};
+        setPositionOverrides((prev) => {
+          const next = { ...prev };
+          for (const [nid, m] of Object.entries(moves)) {
+            if (m.absX != null) {
+              next[nid] = { absX: m.absX, absY: m.absY };
+            } else {
+              next[nid] = { dx: m.accumulatedDx || 0, dy: m.accumulatedDy || 0 };
+            }
+          }
+          return next;
+        });
       }
 
       if (data.type === "element:context") {
@@ -7320,16 +8044,15 @@ function App() {
       }
 
       if (data.type === "element:dragged") {
+        commitSnapshotNow({ dragBatch: true });
         setStyleToolbar(null);
         const payload = data.payload || {};
         if (!payload.isGanttTask && payload.nodeId) {
-          // Store accumulated position override from iframe (SVG-space values)
           setPositionOverrides((prev) => ({
             ...prev,
-            [payload.nodeId]: {
-              dx: payload.accumulatedDx || 0,
-              dy: payload.accumulatedDy || 0,
-            },
+            [payload.nodeId]: payload.absX != null
+              ? { absX: payload.absX, absY: payload.absY }
+              : { dx: payload.accumulatedDx || 0, dy: payload.accumulatedDy || 0 },
           }));
         }
         setDragFeedback(
@@ -7357,6 +8080,7 @@ function App() {
         if (!srcNodeId || !tgtNodeId || !newNodeId) return;
         if (newNodeId === srcNodeId || newNodeId === tgtNodeId) return;
         if (toolsetKey === "flowchart") {
+          commitSnapshotNow();
           let updated = removeFlowchartEdge(code, srcNodeId, tgtNodeId);
           if (end === "source") {
             updated = addFlowchartEdge(updated, { source: newNodeId, target: tgtNodeId });
@@ -7366,13 +8090,13 @@ function App() {
             setRenderMessage("Reconnected edge: " + srcNodeId + " --> " + newNodeId);
           }
           setCode(updated);
-          setPositionOverrides({});
         }
       }
 
       if (data.type === "connect:complete") {
         const payload = data.payload || {};
         if (payload.sourceId && payload.targetId) {
+          commitSnapshotNow();
           if (toolsetKey === "erDiagram") {
             setCode((prev) => {
               const parsed = parseErDiagram(prev);
@@ -7443,6 +8167,7 @@ function App() {
         if (nextSection == null) return;
         const normalized = nextSection.trim();
         if (!normalized || normalized === currentSection) return;
+        commitSnapshotNow();
         setCode((prev) => renameGanttSection(prev, currentSection, normalized));
         setRenderMessage(`Renamed "${currentSection}" to "${normalized}"`);
         return;
@@ -7460,12 +8185,14 @@ function App() {
           setRenderMessage(`Category "${normalized}" already exists`);
           return;
         }
+        commitSnapshotNow();
         setCode((prev) => addGanttSection(prev, normalized));
         setRenderMessage(`Added category "${normalized}"`);
         return;
       }
 
       if (data.type === "gantt:dragged") {
+        commitSnapshotNow({ dragBatch: true });
         const payload = data.payload || {};
         const task = findTaskByLabel(ganttTasks, payload.label || "");
         if (!task) {
@@ -7517,6 +8244,7 @@ function App() {
       if (data.type === "gantt:dep-created") {
         const { fromId, fromLabel, targetLabel } = data.payload || {};
         if (!fromLabel || !targetLabel) return;
+        commitSnapshotNow();
         // Find the target task (the one that will depend on fromId)
         const targetTask = findTaskByLabel(ganttTasks, targetLabel);
         if (!targetTask) {
@@ -7544,6 +8272,7 @@ function App() {
       }
 
       if (data.type === "gantt:add-between") {
+        commitSnapshotNow();
         const afterLabel = (data.payload?.afterLabel || "").trim();
         const afterTask = findTaskByLabel(ganttTasks, afterLabel);
         if (!afterTask) {
@@ -7592,6 +8321,42 @@ function App() {
           setSelectedElement({ label: insertedTask.label, id: "" });
         }
         setRenderMessage(`Inserted "${nextLabel}" after "${afterTask.label}"`);
+        return;
+      }
+
+      // ── Subgraph management messages ──────────────────
+      if (data.type === "node:dropped-into-subgraph") {
+        const { nodeId, subgraphId } = data.payload || {};
+        if (!nodeId || !subgraphId) return;
+        commitSnapshotNow();
+        setCode((prev) => moveNodeToSubgraph(prev, nodeId, subgraphId));
+        setPositionOverrides({});
+        setRenderMessage(`Moved "${nodeId}" into subgraph "${subgraphId}"`);
+        return;
+      }
+
+      if (data.type === "subgraph:rename-intent") {
+        const { subgraphId, currentLabel } = data.payload || {};
+        if (!subgraphId) return;
+        const newLabel = window.prompt("Rename subgraph", currentLabel || subgraphId);
+        if (newLabel == null || !newLabel.trim() || newLabel.trim() === currentLabel) return;
+        commitSnapshotNow();
+        setCode((prev) => renameSubgraph(prev, subgraphId, newLabel.trim()));
+        setRenderMessage(`Renamed subgraph to "${newLabel.trim()}"`);
+        return;
+      }
+
+      if (data.type === "subgraph:context") {
+        const { subgraphId, label, pointerX, pointerY } = data.payload || {};
+        if (!subgraphId) return;
+        const ir = iframeRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
+        setContextMenu({
+          type: "subgraph",
+          subgraphId,
+          label: label || subgraphId,
+          x: ir.left + (pointerX || 0),
+          y: ir.top + (pointerY || 0),
+        });
         return;
       }
     };
@@ -7659,13 +8424,212 @@ function App() {
     return () => document.removeEventListener("pointerdown", handler);
   }, [exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, ganttDropdown]);
 
-  /* ── Escape key handler ──────────────────────────────── */
+  /* ── Keyboard shortcuts ──────────────────────────────── */
   useEffect(() => {
     const handler = (e) => {
-      // Ctrl+D: toggle chain view
-      if (e.key === "d" && (e.ctrlKey || e.metaKey) && !e.shiftKey && toolsetKey === "gantt") {
+      const isInputFocused = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)
+        || document.activeElement?.contentEditable === "true";
+
+      // Ctrl+Z / Cmd+Z: Undo
+      if (e.key === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !isInputFocused) {
         e.preventDefault();
-        setShowChainView((prev) => !prev);
+        handleUndo();
+        return;
+      }
+      // Ctrl+Shift+Z / Cmd+Shift+Z / Ctrl+Y: Redo
+      if (((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && e.shiftKey && !isInputFocused)
+        || (e.key === "y" && (e.ctrlKey || e.metaKey) && !isInputFocused)) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+      // Delete / Backspace: delete selected flowchart node(s)
+      if ((e.key === "Delete" || e.key === "Backspace") && !isInputFocused && toolsetKey === "flowchart") {
+        if (selectedNodeIds.size > 1) {
+          e.preventDefault();
+          commitSnapshotNow();
+          setCode((prev) => {
+            let c = prev;
+            for (const nid of selectedNodeIds) c = removeFlowchartNode(c, nid);
+            return c;
+          });
+          setPositionOverrides({});
+          setStyleToolbar(null);
+          setSelectedElement(null);
+          setSelectedNodeIds(new Set());
+          setRenderMessage(`Deleted ${selectedNodeIds.size} nodes`);
+          return;
+        }
+        const nodeId = styleToolbar?.nodeId || selectedElement?.nodeId;
+        if (nodeId && selectedElement?.elementType === "node") {
+          e.preventDefault();
+          commitSnapshotNow();
+          setCode((prev) => removeFlowchartNode(prev, nodeId));
+          setPositionOverrides({});
+          setStyleToolbar(null);
+          setSelectedElement(null);
+          setSelectedNodeIds(new Set());
+          setRenderMessage(`Deleted "${nodeId}"`);
+          return;
+        }
+      }
+      // Ctrl+D / Cmd+D: duplicate node(s) (flowchart) or toggle chain view (gantt)
+      if (e.key === "d" && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+        if (toolsetKey === "gantt") {
+          e.preventDefault();
+          setShowChainView((prev) => !prev);
+          return;
+        }
+        if (toolsetKey === "flowchart" && !isInputFocused) {
+          // Multi-select duplicate
+          if (selectedNodeIds.size > 1) {
+            e.preventDefault();
+            commitSnapshotNow();
+            const ids = [...selectedNodeIds];
+            const nodes = flowchartData.nodes.filter((n) => selectedNodeIds.has(n.id));
+            const edges = flowchartData.edges.filter((ed) => selectedNodeIds.has(ed.source) && selectedNodeIds.has(ed.target));
+            const idMap = {};
+            let currentCode = codeRef.current;
+            let allNodes = [...flowchartData.nodes];
+            for (const n of nodes) {
+              const newId = generateNodeId(allNodes);
+              idMap[n.id] = newId;
+              currentCode = addFlowchartNode(currentCode, { id: newId, label: n.label || "Node", shape: n.shape || "rect" });
+              allNodes.push({ id: newId });
+            }
+            for (const ed of edges) {
+              const ns = idMap[ed.source]; const nt = idMap[ed.target];
+              if (ns && nt) currentCode = addFlowchartEdge(currentCode, { source: ns, target: nt, label: ed.label, arrowType: ed.arrowType });
+            }
+            const newPosOverrides = { ...positionOverridesRef.current };
+            const newStyleOverrides = { ...styleOverridesRef.current };
+            for (const [oldId, newId] of Object.entries(idMap)) {
+              const orig = positionOverrides[oldId] || {};
+              if (orig.absX != null) {
+                newPosOverrides[newId] = { absX: orig.absX + 40, absY: orig.absY + 40 };
+              } else {
+                newPosOverrides[newId] = { dx: (orig.dx || 0) + 40, dy: (orig.dy || 0) + 40 };
+              }
+              if (styleOverrides[oldId]) newStyleOverrides[newId] = { ...styleOverrides[oldId] };
+            }
+            setCode(currentCode);
+            setPositionOverrides(newPosOverrides);
+            setStyleOverrides(newStyleOverrides);
+            setSelectedNodeIds(new Set(Object.values(idMap)));
+            setRenderMessage(`Duplicated ${ids.length} nodes`);
+            return;
+          }
+          // Single node duplicate
+          const nodeId = styleToolbar?.nodeId || selectedElement?.nodeId;
+          if (nodeId) {
+            e.preventDefault();
+            const node = flowchartData.nodes.find((n) => n.id === nodeId);
+            if (node) {
+              commitSnapshotNow();
+              const newId = generateNodeId(flowchartData.nodes);
+              setCode((prev) => addFlowchartNode(prev, { id: newId, label: node.label || nodeId, shape: node.shape || "rect" }));
+              setPositionOverrides({});
+              setRenderMessage(`Duplicated "${nodeId}" as "${newId}"`);
+            }
+            return;
+          }
+        }
+        return;
+      }
+      // Arrow keys: nudge selected node(s) (10px, Shift: 1px)
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && !isInputFocused && toolsetKey === "flowchart") {
+        const nodesToNudge = selectedNodeIds.size > 0 ? [...selectedNodeIds] : (selectedElement?.nodeId ? [selectedElement.nodeId] : []);
+        if (nodesToNudge.length > 0) {
+          e.preventDefault();
+          const step = e.shiftKey ? 1 : 10;
+          let dx = 0, dy = 0;
+          if (e.key === "ArrowUp") dy = -step;
+          if (e.key === "ArrowDown") dy = step;
+          if (e.key === "ArrowLeft") dx = -step;
+          if (e.key === "ArrowRight") dx = step;
+          commitSnapshotNow({ dragBatch: true });
+          setPositionOverrides((prev) => {
+            const next = { ...prev };
+            for (const nid of nodesToNudge) {
+              const p = prev[nid];
+              if (p && p.absX != null) {
+                next[nid] = { absX: p.absX + dx, absY: p.absY + dy };
+              } else {
+                next[nid] = { dx: ((p?.dx) || 0) + dx, dy: ((p?.dy) || 0) + dy };
+              }
+            }
+            return next;
+          });
+          return;
+        }
+      }
+      // Ctrl+A / Cmd+A: select all nodes (flowchart only)
+      if (e.key === "a" && (e.ctrlKey || e.metaKey) && !isInputFocused && toolsetKey === "flowchart") {
+        e.preventDefault();
+        const allIds = new Set(flowchartData.nodes.map((n) => n.id));
+        setSelectedNodeIds(allIds);
+        setSelectedElement({ elementType: "multi", nodeIds: [...allIds] });
+        const frame = iframeRef.current;
+        if (frame?.contentWindow) {
+          frame.contentWindow.postMessage({ channel: CHANNEL, type: "flowchart:multiselect", payload: { nodeIds: [...allIds] } }, "*");
+        }
+        return;
+      }
+      // Ctrl+C / Cmd+C: copy selected flowchart nodes
+      if (e.key === "c" && (e.ctrlKey || e.metaKey) && !isInputFocused && toolsetKey === "flowchart" && selectedNodeIds.size > 0) {
+        e.preventDefault();
+        const ids = [...selectedNodeIds];
+        const nodes = flowchartData.nodes.filter((n) => selectedNodeIds.has(n.id));
+        const edges = flowchartData.edges.filter((e) => selectedNodeIds.has(e.source) && selectedNodeIds.has(e.target));
+        const relativePositions = {};
+        const styleSnapshot = {};
+        for (const nid of ids) {
+          relativePositions[nid] = multiNodePositions[nid] || positionOverrides[nid] || { dx: 0, dy: 0, x: 0, y: 0 };
+          if (styleOverrides[nid]) styleSnapshot[nid] = { ...styleOverrides[nid] };
+        }
+        setFlowClipboard({ nodes: nodes.map((n) => ({ id: n.id, label: n.label, shape: n.shape })), edges: edges.map((e) => ({ source: e.source, target: e.target, label: e.label, arrowType: e.arrowType })), relativePositions, styleSnapshot });
+        setRenderMessage(`Copied ${ids.length} node${ids.length > 1 ? "s" : ""}`);
+        return;
+      }
+      // Ctrl+V / Cmd+V: paste flowchart clipboard
+      if (e.key === "v" && (e.ctrlKey || e.metaKey) && !isInputFocused && toolsetKey === "flowchart" && flowClipboard) {
+        e.preventDefault();
+        commitSnapshotNow();
+        const idMap = {};
+        let currentCode = codeRef.current;
+        const currentParsed = parseFlowchart(currentCode);
+        let allNodes = [...currentParsed.nodes];
+        for (const n of flowClipboard.nodes) {
+          const newId = generateNodeId(allNodes);
+          idMap[n.id] = newId;
+          currentCode = addFlowchartNode(currentCode, { id: newId, label: n.label || "Node", shape: n.shape || "rect" });
+          allNodes.push({ id: newId });
+        }
+        for (const e of flowClipboard.edges) {
+          const newSrc = idMap[e.source]; const newTgt = idMap[e.target];
+          if (newSrc && newTgt) currentCode = addFlowchartEdge(currentCode, { source: newSrc, target: newTgt, label: e.label, arrowType: e.arrowType });
+        }
+        // Position overrides offset by 40px
+        const newPosOverrides = { ...positionOverridesRef.current };
+        for (const [oldId, newId] of Object.entries(idMap)) {
+          const orig = flowClipboard.relativePositions[oldId] || {};
+          if (orig.absX != null) {
+            newPosOverrides[newId] = { absX: orig.absX + 40, absY: orig.absY + 40 };
+          } else {
+            newPosOverrides[newId] = { dx: (orig.dx || 0) + 40, dy: (orig.dy || 0) + 40 };
+          }
+        }
+        // Style overrides
+        const newStyleOverrides = { ...styleOverridesRef.current };
+        for (const [oldId, newId] of Object.entries(idMap)) {
+          if (flowClipboard.styleSnapshot[oldId]) newStyleOverrides[newId] = { ...flowClipboard.styleSnapshot[oldId] };
+        }
+        setCode(currentCode);
+        setPositionOverrides(newPosOverrides);
+        setStyleOverrides(newStyleOverrides);
+        const newIds = new Set(Object.values(idMap));
+        setSelectedNodeIds(newIds);
+        setRenderMessage(`Pasted ${flowClipboard.nodes.length} node${flowClipboard.nodes.length > 1 ? "s" : ""}`);
         return;
       }
       if (e.key === "Escape") {
@@ -7695,10 +8659,11 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, ganttDropdown, showChainView, toolsetKey]);
+  }, [contextMenu, presentMode, settingsOpen, drawerOpen, exportMenuOpen, mobileActionsOpen, mobileViewMenuOpen, connectMode, shapePickerNode, edgeLabelEdit, nodeEditModal, nodeCreationForm, styleToolbar, ganttDropdown, showChainView, toolsetKey, handleUndo, handleRedo, selectedElement, selectedNodeIds, flowchartData, commitSnapshotNow, flowClipboard, multiNodePositions, positionOverrides, styleOverrides]);
 
   /* ── Style Toolbar ──────────────────────────────────── */
   const applyToolbarStyle = (nodeId, stylePatch) => {
+    commitSnapshotNow();
     setStyleOverrides((prev) => {
       const current = { ...(prev[nodeId] || {}) };
       for (const [k, v] of Object.entries(stylePatch)) {
@@ -7721,6 +8686,7 @@ function App() {
 
   /* ── Actions ─────────────────────────────────────────── */
   const insertSnippet = (snippet) => {
+    commitSnapshotNow();
     const editor = editorRef.current;
     if (!editor) {
       setCode((prev) => `${prev}\n${snippet}`);
@@ -7739,12 +8705,14 @@ function App() {
   };
 
   const applyLabelPatch = () => {
+    commitSnapshotNow();
     if (!selectedElement?.label || !labelDraft.trim()) return;
     const updated = replaceFirstLabel(code, selectedElement.label, labelDraft.trim());
     setCode(updated);
   };
 
   const applyGanttTaskPatch = () => {
+    commitSnapshotNow();
     if (!selectedGanttTask) return;
     const nextLabel = ganttDraft.label.trim();
     if (!nextLabel) return;
@@ -7830,6 +8798,7 @@ function App() {
   };
 
   const handleDeleteGanttTask = (label) => {
+    commitSnapshotNow();
     const task = findTaskByLabel(ganttTasks, label);
     if (!task) return;
     const updated = deleteGanttTask(code, task);
@@ -7842,6 +8811,7 @@ function App() {
   };
 
   const handleStatusToggle = (flag) => {
+    commitSnapshotNow();
     const label = contextMenu?.label || selectedElement?.label;
     const task = findTaskByLabel(ganttTasks, label);
     if (!task) return;
@@ -7852,6 +8822,7 @@ function App() {
   };
 
   const handleStatusClear = () => {
+    commitSnapshotNow();
     const label = contextMenu?.label || selectedElement?.label;
     const task = findTaskByLabel(ganttTasks, label);
     if (!task) return;
@@ -7864,6 +8835,7 @@ function App() {
   const replaceWithTemplate = () => {
     if (!activeTemplate?.starter) return;
     setCode(activeTemplate.starter);
+    clearHistory();
     setSelectedElement(null);
     setHighlightLine(null);
     setDragFeedback("");
@@ -7962,6 +8934,7 @@ function App() {
         flowMeta?.name || "Imported Timeline"
       );
       setCode(ganttCode);
+      clearHistory();
       setRenderMessage("Imported from Notion");
     } catch (err) {
       setRenderMessage("Notion import error: " + err.message);
@@ -8002,9 +8975,180 @@ function App() {
 
   const handleLoadDiagram = (diagram) => {
     setCode(diagram.code);
+    clearHistory();
     setSelectedElement(null);
     setHighlightLine(null);
     setRenderMessage(`Loaded "${diagram.name}"`);
+  };
+
+  const handleAiGenerate = async () => {
+    if (!aiContext.trim()) {
+      setAiError("Please describe your project or requirements.");
+      return;
+    }
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const res = await fetch("https://us-central1-mermaidflow-487516.cloudfunctions.net/aiGenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chartType: aiChartType,
+          context: aiContext.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Request failed (${res.status})`);
+      }
+      const data = await res.json();
+      setAiModalOpen(false);
+      setAiPreview({ code: data.code, title: data.title || "Untitled", summary: data.summary || "", source: "generate" });
+      setAiPreviewOpen(true);
+    } catch (err) {
+      setAiError(err.message || "Generation failed. Please try again.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleAiConvert = async () => {
+    setConvertLoading(true);
+    setConvertError("");
+    try {
+      const res = await fetch("https://us-central1-mermaidflow-487516.cloudfunctions.net/aiConvert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceCode: code,
+          targetChartType: convertTargetType,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Request failed (${res.status})`);
+      }
+      const data = await res.json();
+      setConvertModalOpen(false);
+      setAiPreview({ code: data.code, title: data.title || "Converted diagram", summary: data.summary || "", source: "convert" });
+      setAiPreviewOpen(true);
+    } catch (err) {
+      setConvertError(err.message || "Conversion failed. Please try again.");
+    } finally {
+      setConvertLoading(false);
+    }
+  };
+
+  const handleAiPreviewAccept = () => {
+    if (!aiPreview) return;
+    // Save current tab code before adding new tab
+    setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code } : t));
+    const newTab = {
+      id: Date.now().toString(),
+      label: aiPreview.title || (aiPreview.source === "convert" ? "Conversion" : "AI Generated"),
+      code: aiPreview.code,
+    };
+    setDiagramTabs((prev) => [...prev, newTab]);
+    setCode(newTab.code);
+    setActiveTabId(newTab.id);
+    setSelectedElement(null);
+    setHighlightLine(null);
+    setPositionOverrides({});
+    const label = aiPreview.source === "convert" ? "Converted" : "AI generated";
+    setRenderMessage(`${label}: ${aiPreview.title}`);
+    setAiPreviewOpen(false);
+    setAiPreview(null);
+    setAiContext("");
+  };
+
+  const handleAiPreviewReject = () => {
+    setAiPreviewOpen(false);
+    setAiPreview(null);
+  };
+
+  const switchTab = (tabId) => {
+    if (tabId === activeTabId) return;
+    // Save current tab's code before switching
+    setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code } : t));
+    // Load new tab's code
+    const tab = diagramTabs.find((t) => t.id === tabId);
+    if (tab) {
+      setCode(tab.code);
+      setActiveTabId(tabId);
+    }
+    setSelectedElement(null);
+    setHighlightLine(null);
+    setPositionOverrides({});
+  };
+
+  const closeTab = (tabId) => {
+    if (diagramTabs.length <= 1) return; // always keep at least one tab
+    const idx = diagramTabs.findIndex((t) => t.id === tabId);
+    setDiagramTabs((prev) => prev.filter((t) => t.id !== tabId));
+    if (activeTabId === tabId) {
+      // Switch to adjacent tab
+      const nextTab = diagramTabs[idx === 0 ? 1 : idx - 1];
+      if (nextTab) {
+        setCode(nextTab.code);
+        setActiveTabId(nextTab.id);
+      }
+      setSelectedElement(null);
+      setHighlightLine(null);
+      setPositionOverrides({});
+    }
+  };
+
+  const addNewTab = () => {
+    // Save current tab's code first
+    setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code } : t));
+    const newTab = {
+      id: Date.now().toString(),
+      label: `Tab ${diagramTabs.length + 1}`,
+      code: "",
+    };
+    setDiagramTabs((prev) => [...prev, newTab]);
+    setCode(newTab.code);
+    setActiveTabId(newTab.id);
+    setSelectedElement(null);
+    setHighlightLine(null);
+    setPositionOverrides({});
+  };
+
+  const startRenameTab = (tabId) => {
+    const tab = diagramTabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    setRenamingTabId(tabId);
+    setRenameValue(tab.label);
+  };
+
+  const commitRenameTab = () => {
+    if (renamingTabId && renameValue.trim()) {
+      setDiagramTabs((prev) => prev.map((t) => t.id === renamingTabId ? { ...t, label: renameValue.trim() } : t));
+    }
+    setRenamingTabId(null);
+    setRenameValue("");
+  };
+
+  const dragTabRef = useRef(null);
+  const handleTabDragStart = (e, tabId) => {
+    dragTabRef.current = tabId;
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleTabDragOver = (e, tabId) => {
+    e.preventDefault();
+    if (!dragTabRef.current || dragTabRef.current === tabId) return;
+    setDiagramTabs((prev) => {
+      const fromIdx = prev.findIndex((t) => t.id === dragTabRef.current);
+      const toIdx = prev.findIndex((t) => t.id === tabId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  };
+  const handleTabDragEnd = () => {
+    dragTabRef.current = null;
   };
 
   const handleDeleteDiagram = (name) => {
@@ -8092,7 +9236,7 @@ function App() {
         {isEditable && (
           <header className="embed-toolbar">
             <div className="brand">
-              <div className="brand-mark">MF</div>
+              <img src={logoSvg} alt="MF" className="brand-mark" />
               <span className="embed-title">Mermaid Flow</span>
             </div>
             <div className="toolbar">
@@ -8128,8 +9272,15 @@ function App() {
           title="Go to home"
           onClick={() => navigate(currentUser ? "/dashboard" : "/")}
         >
-          <div className="brand-mark">MF</div>
-          <h1>Mermaid Flow</h1>
+          <img src={logoSvg} alt="MF" className="brand-mark" />
+          <div className="brand-text">
+            <h1>Mermaid Flow</h1>
+            {flowHeaderName && (
+              <span className="flow-name-badge" title={flowHeaderName}>
+                · {flowHeaderName}
+              </span>
+            )}
+          </div>
         </button>
 
         <div className="toolbar">
@@ -8146,6 +9297,13 @@ function App() {
               Render
             </button>
           )}
+
+          <button className="icon-btn desktop-only" title="Undo (Ctrl+Z)" onClick={handleUndo} disabled={!canUndo}>
+            <IconUndo />
+          </button>
+          <button className="icon-btn desktop-only" title="Redo (Ctrl+Shift+Z)" onClick={handleRedo} disabled={!canRedo}>
+            <IconRedo />
+          </button>
 
           <button
             className="soft-btn primary desktop-only"
@@ -8317,7 +9475,60 @@ function App() {
         >
           <div className="panel-header">
             <h2>Code</h2>
-            <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                className="soft-btn small ai-btn"
+                onClick={() => setAiModalOpen(true)}
+              >
+                Create with AI
+              </button>
+              <button
+                className="soft-btn small ai-btn convert-btn"
+                onClick={() => setConvertModalOpen(true)}
+              >
+                Convert
+              </button>
+              <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
+            </div>
+          </div>
+          <div className="editor-tab-bar">
+            {diagramTabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={`editor-tab ${activeTabId === tab.id ? "active" : ""}`}
+                onClick={() => switchTab(tab.id)}
+                onDoubleClick={() => startRenameTab(tab.id)}
+                draggable={renamingTabId !== tab.id}
+                onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                onDragOver={(e) => handleTabDragOver(e, tab.id)}
+                onDragEnd={handleTabDragEnd}
+              >
+                {renamingTabId === tab.id ? (
+                  <input
+                    className="editor-tab-rename"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={commitRenameTab}
+                    onKeyDown={(e) => { if (e.key === "Enter") commitRenameTab(); if (e.key === "Escape") { setRenamingTabId(null); } }}
+                    onClick={(e) => e.stopPropagation()}
+                    autoFocus
+                  />
+                ) : (
+                  <span className="editor-tab-label">{tab.label}</span>
+                )}
+                {diagramTabs.length > 1 && (
+                  <span
+                    className="editor-tab-close"
+                    onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+                  >
+                    &times;
+                  </span>
+                )}
+              </button>
+            ))}
+            <button className="editor-tab editor-tab-add" onClick={addNewTab} title="New tab">
+              +
+            </button>
           </div>
           <div className="editor-wrap">
             <pre className="line-gutter" aria-hidden="true">
@@ -8333,7 +9544,20 @@ function App() {
             <textarea
               ref={editorRef}
               value={code}
-              onChange={(e) => { setCode(e.target.value); setPositionOverrides({}); }}
+              onChange={(e) => {
+                if (!pendingTypingSnapshotRef.current) {
+                  pendingTypingSnapshotRef.current = { code: codeRef.current, positionOverrides: positionOverridesRef.current, styleOverrides: styleOverridesRef.current };
+                }
+                clearTimeout(typingTimerRef.current);
+                typingTimerRef.current = setTimeout(() => {
+                  if (pendingTypingSnapshotRef.current) {
+                    commitSnapshot(pendingTypingSnapshotRef.current.code, pendingTypingSnapshotRef.current.positionOverrides, pendingTypingSnapshotRef.current.styleOverrides);
+                    pendingTypingSnapshotRef.current = null;
+                  }
+                }, 800);
+                setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code: e.target.value } : t));
+                setCode(e.target.value); setPositionOverrides({});
+              }}
               spellCheck={false}
               className="code-area"
             />
@@ -8392,8 +9616,17 @@ function App() {
                     {showRisks ? "Hide risks" : "Show risks"}
                   </button>
                   <div className="dropdown-sep" />
-                  {assigneeFilterOptions.length > 0 ? (
-                    assigneeFilterOptions.map((assignee) => {
+                  <div className="dropdown-search-wrap">
+                    <input
+                      type="search"
+                      className="dropdown-search-input"
+                      placeholder="Search assignee..."
+                      value={assigneeFilterQuery}
+                      onChange={(e) => setAssigneeFilterQuery(e.target.value)}
+                    />
+                  </div>
+                  {filteredAssigneeOptions.length > 0 ? (
+                    filteredAssigneeOptions.map((assignee) => {
                       const checked = selectedAssignees.some(
                         (name) => name.toLowerCase() === assignee.toLowerCase()
                       );
@@ -8411,7 +9644,9 @@ function App() {
                       );
                     })
                   ) : (
-                    <div className="dropdown-item-empty">No assignees found</div>
+                    <div className="dropdown-item-empty">
+                      {assigneeFilterQuery.trim() ? "No matching assignees" : "No assignees found"}
+                    </div>
                   )}
                   {hasAssigneeFilter && (
                     <button className="dropdown-item" onClick={() => { setSelectedAssignees([]); setMobileViewMenuOpen(false); }}>
@@ -8519,8 +9754,17 @@ function App() {
                       {hasAssigneeFilter ? `Assignees (${selectedAssignees.length})` : "Assignees"} &#x25BE;
                     </button>
                     <div className={`dropdown-menu gantt-assignee-menu${ganttDropdown === "assignees" ? " open" : ""}`}>
-                      {assigneeFilterOptions.length > 0 ? (
-                        assigneeFilterOptions.map((assignee) => {
+                      <div className="dropdown-search-wrap">
+                        <input
+                          type="search"
+                          className="dropdown-search-input"
+                          placeholder="Search assignee..."
+                          value={assigneeFilterQuery}
+                          onChange={(e) => setAssigneeFilterQuery(e.target.value)}
+                        />
+                      </div>
+                      {filteredAssigneeOptions.length > 0 ? (
+                        filteredAssigneeOptions.map((assignee) => {
                           const checked = selectedAssignees.some(
                             (name) => name.toLowerCase() === assignee.toLowerCase()
                           );
@@ -8535,7 +9779,9 @@ function App() {
                           );
                         })
                       ) : (
-                        <div className="dropdown-item-empty">No assignees found</div>
+                        <div className="dropdown-item-empty">
+                          {assigneeFilterQuery.trim() ? "No matching assignees" : "No assignees found"}
+                        </div>
                       )}
                       {hasAssigneeFilter && (
                         <>
@@ -9284,6 +10530,7 @@ function App() {
                   Connect to...
                 </button>
                 <button className="soft-btn danger" onClick={() => {
+                  commitSnapshotNow();
                   if (isFlowchart) {
                     setCode((prev) => removeFlowchartNode(prev, nodeEditModal.nodeId));
                   } else if (adapter?.removeNode) {
@@ -9296,6 +10543,7 @@ function App() {
                   Delete
                 </button>
                 <button className="soft-btn primary" onClick={() => {
+                  commitSnapshotNow();
                   if (isFlowchart) {
                     // Recombine label + description with <br> tags
                     let combinedLabel = nodeEditModal.label || "";
@@ -9359,6 +10607,7 @@ function App() {
             <div className="task-modal-actions">
               <button className="soft-btn" onClick={() => setNodeCreationForm(null)}>Cancel</button>
               <button className="soft-btn primary" onClick={() => {
+                commitSnapshotNow();
                 if (toolsetKey === "flowchart") {
                   const parsed = parseFlowchart(code);
                   const newId = generateNodeId(parsed.nodes);
@@ -9441,6 +10690,7 @@ function App() {
               <div className="task-modal-actions">
                 <button className="soft-btn" onClick={() => setNodeEditModal(null)}>Cancel</button>
                 <button className="soft-btn danger" onClick={() => {
+                  commitSnapshotNow();
                   if (toolsetKey === "flowchart") {
                     setCode((prev) => removeFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget));
                     setPositionOverrides({});
@@ -9456,6 +10706,7 @@ function App() {
                   Delete
                 </button>
                 <button className="soft-btn primary" onClick={() => {
+                  commitSnapshotNow();
                   const updates = {};
                   if (nodeEditModal.label !== undefined) updates.label = nodeEditModal.label;
                   if (nodeEditModal.arrowType) updates.arrowType = nodeEditModal.arrowType;
@@ -9558,6 +10809,7 @@ function App() {
       {styleToolbar && (() => {
         const existingStyle = styleOverrides[styleToolbar.nodeId] || {};
         const isFlowchart = toolsetKey === "flowchart";
+        const isMulti = !!(styleToolbar.multiNodeIds && styleToolbar.multiNodeIds.length > 1);
         const toolbarHeight = 40;
         const gap = 8;
         let top = styleToolbar.y - toolbarHeight - gap;
@@ -9565,14 +10817,29 @@ function App() {
         const left = styleToolbar.x;
         const classDefs = isFlowchart ? parseClassDefs(code) : [];
 
+        const applyStyleToSelection = (patch) => {
+          if (isMulti) {
+            commitSnapshotNow();
+            for (const nid of styleToolbar.multiNodeIds) applyToolbarStyle(nid, patch);
+          } else {
+            applyToolbarStyle(styleToolbar.nodeId, patch);
+          }
+        };
+
         return (
           <div
             className="style-toolbar"
             style={{ top, left, transform: "translateX(-50%)" }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Edit */}
-            <button
+            {/* Multi-select count */}
+            {isMulti && (
+              <span className="style-toolbar-count" title={styleToolbar.multiNodeIds.length + " nodes selected"}>
+                {styleToolbar.multiNodeIds.length}
+              </span>
+            )}
+            {/* Edit (hidden for multi-select) */}
+            {!isMulti && <button
               className="style-toolbar-btn"
               title="Edit label & description"
               onClick={() => {
@@ -9585,7 +10852,7 @@ function App() {
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
-            </button>
+            </button>}
 
             <div className="style-toolbar-sep" />
 
@@ -9648,6 +10915,7 @@ function App() {
                 onClick={() => {
                   const node = flowchartData.nodes.find((n) => n.id === styleToolbar.nodeId);
                   if (node) {
+                    commitSnapshotNow();
                     const newId = generateNodeId(flowchartData.nodes);
                     setCode((prev) => addFlowchartNode(prev, { id: newId, label: node.label || styleToolbar.nodeId, shape: node.shape || "rect" }));
                     setPositionOverrides({});
@@ -9666,16 +10934,29 @@ function App() {
             {/* Delete */}
             <button
               className="style-toolbar-btn danger"
-              title="Delete node"
+              title={isMulti ? `Delete ${styleToolbar.multiNodeIds.length} nodes` : "Delete node"}
               onClick={() => {
-                const adapter = getDiagramAdapter(toolsetKey);
-                if (isFlowchart) {
-                  setCode((prev) => removeFlowchartNode(prev, styleToolbar.nodeId));
-                } else if (adapter?.removeNode) {
-                  setCode((prev) => adapter.removeNode(prev, styleToolbar.nodeId));
+                commitSnapshotNow();
+                if (isMulti && isFlowchart) {
+                  setCode((prev) => {
+                    let c = prev;
+                    for (const nid of styleToolbar.multiNodeIds) c = removeFlowchartNode(c, nid);
+                    return c;
+                  });
+                  setPositionOverrides({});
+                  setRenderMessage(`Deleted ${styleToolbar.multiNodeIds.length} nodes`);
+                  setSelectedNodeIds(new Set());
+                  setSelectedElement(null);
+                } else {
+                  const adapter = getDiagramAdapter(toolsetKey);
+                  if (isFlowchart) {
+                    setCode((prev) => removeFlowchartNode(prev, styleToolbar.nodeId));
+                  } else if (adapter?.removeNode) {
+                    setCode((prev) => adapter.removeNode(prev, styleToolbar.nodeId));
+                  }
+                  setPositionOverrides({});
+                  setRenderMessage(`Deleted "${styleToolbar.nodeId}"`);
                 }
-                setPositionOverrides({});
-                setRenderMessage(`Deleted "${styleToolbar.nodeId}"`);
                 setStyleToolbar(null);
               }}
             >
@@ -9696,12 +10977,12 @@ function App() {
                       className={`color-swatch${existingStyle.fill === color ? " active" : ""}`}
                       style={{ backgroundColor: color }}
                       title={color}
-                      onClick={() => applyToolbarStyle(styleToolbar.nodeId, { fill: color })}
+                      onClick={() => applyStyleToSelection({ fill: color })}
                     />
                   ))}
                 </div>
                 {existingStyle.fill && (
-                  <button className="style-toolbar-clear" onClick={() => applyToolbarStyle(styleToolbar.nodeId, { fill: null })}>
+                  <button className="style-toolbar-clear" onClick={() => applyStyleToSelection({ fill: null })}>
                     Clear fill
                   </button>
                 )}
@@ -9719,7 +11000,7 @@ function App() {
                             if (cd.fill) patch.fill = cd.fill;
                             if (cd.stroke) patch.stroke = cd.stroke;
                             if (cd.color) patch.textColor = cd.color;
-                            applyToolbarStyle(styleToolbar.nodeId, patch);
+                            applyStyleToSelection(patch);
                           }}
                         >
                           <span className="classdef-preview" style={{ backgroundColor: cd.fill || "#e2e8f0", borderColor: cd.stroke || "#94a3b8" }} />
@@ -9741,12 +11022,12 @@ function App() {
                       className={`color-swatch${existingStyle.stroke === color ? " active" : ""}`}
                       style={{ backgroundColor: color }}
                       title={color}
-                      onClick={() => applyToolbarStyle(styleToolbar.nodeId, { stroke: color })}
+                      onClick={() => applyStyleToSelection({ stroke: color })}
                     />
                   ))}
                 </div>
                 {existingStyle.stroke && (
-                  <button className="style-toolbar-clear" onClick={() => applyToolbarStyle(styleToolbar.nodeId, { stroke: null })}>
+                  <button className="style-toolbar-clear" onClick={() => applyStyleToSelection({ stroke: null })}>
                     Clear border color
                   </button>
                 )}
@@ -9764,7 +11045,7 @@ function App() {
                     <button
                       key={value}
                       className={`border-style-btn${(existingStyle.strokeStyle || "solid") === value ? " active" : ""}`}
-                      onClick={() => applyToolbarStyle(styleToolbar.nodeId, { strokeStyle: value })}
+                      onClick={() => applyStyleToSelection({ strokeStyle: value })}
                     >
                       <span className="border-style-icon">{icon}</span>
                       <span>{label}</span>
@@ -9783,12 +11064,12 @@ function App() {
                       className={`color-swatch${existingStyle.textColor === color ? " active" : ""}`}
                       style={{ backgroundColor: color }}
                       title={color}
-                      onClick={() => applyToolbarStyle(styleToolbar.nodeId, { textColor: color })}
+                      onClick={() => applyStyleToSelection({ textColor: color })}
                     />
                   ))}
                 </div>
                 {existingStyle.textColor && (
-                  <button className="style-toolbar-clear" onClick={() => applyToolbarStyle(styleToolbar.nodeId, { textColor: null })}>
+                  <button className="style-toolbar-clear" onClick={() => applyStyleToSelection({ textColor: null })}>
                     Clear text color
                   </button>
                 )}
@@ -9812,6 +11093,7 @@ function App() {
               {isFlowchart && (
                 <>
                   <button className="context-menu-item" onClick={() => {
+                    commitSnapshotNow();
                     const newId = generateNodeId(flowchartData.nodes);
                     setCode((prev) => addFlowchartNode(prev, { id: newId, label: "New Node", shape: "rect" }));
                     setPositionOverrides({});
@@ -9821,6 +11103,7 @@ function App() {
                     Add node
                   </button>
                   <button className="context-menu-item" onClick={() => {
+                    commitSnapshotNow();
                     const newId = generateNodeId(flowchartData.nodes);
                     setCode((prev) => addFlowchartNode(prev, { id: newId, label: "Decision?", shape: "diamond" }));
                     setPositionOverrides({});
@@ -9833,6 +11116,7 @@ function App() {
               )}
               {adapter && !isFlowchart && (
                 <button className="context-menu-item" onClick={() => {
+                  commitSnapshotNow();
                   const newId = `New${Date.now().toString(36).slice(-4)}`;
                   if (adapter.addNode) {
                     setCode((prev) => adapter.addNode(prev, { id: newId, name: newId, label: `New ${adapter.nodeLabel}`, type: "participant" }));
@@ -9842,6 +11126,21 @@ function App() {
                   setContextMenu(null);
                 }}>
                   Add {adapter.nodeLabel}
+                </button>
+              )}
+              {isFlowchart && selectedNodeIds.size > 1 && (
+                <button className="context-menu-item" onClick={() => {
+                  const label = window.prompt("Subgraph name");
+                  if (label && label.trim()) {
+                    commitSnapshotNow();
+                    setCode((prev) => createSubgraph(prev, [...selectedNodeIds], label.trim()));
+                    setPositionOverrides({});
+                    setSelectedNodeIds(new Set());
+                    setRenderMessage(`Grouped ${selectedNodeIds.size} nodes into "${label.trim()}"`);
+                  }
+                  setContextMenu(null);
+                }}>
+                  Group into subgraph
                 </button>
               )}
               {!isFlowchart && !adapter && (
@@ -9856,6 +11155,38 @@ function App() {
           </div>
         );
       })()}
+
+      {/* ── Subgraph Context Menu ────────────────────────── */}
+      {contextMenu?.type === "subgraph" && (
+        <div className="context-menu-backdrop" onClick={() => setContextMenu(null)}>
+          <div
+            className="context-menu"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button className="context-menu-item" onClick={() => {
+              const newLabel = window.prompt("Rename subgraph", contextMenu.label);
+              if (newLabel && newLabel.trim() && newLabel.trim() !== contextMenu.label) {
+                commitSnapshotNow();
+                setCode((prev) => renameSubgraph(prev, contextMenu.subgraphId, newLabel.trim()));
+                setRenderMessage(`Renamed subgraph to "${newLabel.trim()}"`);
+              }
+              setContextMenu(null);
+            }}>
+              Rename
+            </button>
+            <button className="context-menu-item" onClick={() => {
+              commitSnapshotNow();
+              setCode((prev) => removeSubgraph(prev, contextMenu.subgraphId));
+              setPositionOverrides({});
+              setRenderMessage(`Ungrouped "${contextMenu.label}"`);
+              setContextMenu(null);
+            }}>
+              Ungroup (keep nodes)
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Shape Picker Modal ──────────────────────────── */}
       {shapePickerNode && (
@@ -9892,6 +11223,7 @@ function App() {
                   key={shape}
                   className="shape-btn"
                   onClick={() => {
+                    commitSnapshotNow();
                     setCode((prev) => updateFlowchartNode(prev, shapePickerNode, { shape }));
                     setPositionOverrides({});
                     setRenderMessage(`Changed "${shapePickerNode}" to ${label}`);
@@ -9927,6 +11259,7 @@ function App() {
             <div className="modal-actions">
               <button className="soft-btn" onClick={() => setEdgeLabelEdit(null)}>Cancel</button>
               <button className="soft-btn primary" onClick={() => {
+                commitSnapshotNow();
                 setCode((prev) => updateFlowchartEdge(prev, edgeLabelEdit.source, edgeLabelEdit.target, { label: edgeLabelEdit.label }));
                 setRenderMessage(`Updated edge label`);
                 setEdgeLabelEdit(null);
@@ -10047,8 +11380,17 @@ function App() {
         <VersionHistoryPanel
           flowId={flowId}
           currentCode={code}
-          onRestore={(restoredCode, restoredType) => {
-            setCode(restoredCode);
+          onRestore={(restoredCode, restoredType, restoredTabs) => {
+            if (restoredTabs && restoredTabs.length > 0) {
+              setDiagramTabs(restoredTabs);
+              setActiveTabId(restoredTabs[0].id);
+              setCode(restoredTabs[0].code);
+            } else {
+              setDiagramTabs([{ id: "tab-0", label: "Main", code: restoredCode }]);
+              setActiveTabId("tab-0");
+              setCode(restoredCode);
+            }
+            clearHistory();
             if (restoredType) setDiagramType(restoredType);
             setVersionPanelOpen(false);
             setRenderMessage("Version restored");
@@ -10121,6 +11463,199 @@ function App() {
               Note: Direct Notion API calls require a server proxy due to CORS.
               If proxy sync fails, payloads are copied so you can send them from your own server.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI Generate Modal ────────────────────────── */}
+      {aiModalOpen && (
+        <div className="modal-overlay" onClick={() => !aiLoading && setAiModalOpen(false)}>
+          <div className="modal save-modal ai-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create with AI</h3>
+            <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+              Describe your project and we'll generate a Mermaid diagram for you.
+            </p>
+
+            <div className="settings-field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Chart type</label>
+              <select
+                className="modal-input"
+                value={aiChartType}
+                onChange={(e) => setAiChartType(e.target.value)}
+                disabled={aiLoading}
+                style={{ padding: "6px 10px" }}
+              >
+                <option value="gantt">Gantt Chart</option>
+                <option value="flowchart">Flowchart</option>
+                <option value="sequenceDiagram">Sequence Diagram</option>
+                <option value="erDiagram">ER Diagram</option>
+                <option value="classDiagram">Class Diagram</option>
+                <option value="stateDiagram">State Diagram</option>
+                <option value="mindmap">Mindmap</option>
+                <option value="timeline">Timeline</option>
+                <option value="pie">Pie Chart</option>
+                <option value="journey">User Journey</option>
+              </select>
+            </div>
+
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Describe your project</label>
+              <textarea
+                className="modal-input ai-context-input"
+                placeholder={"e.g. A 3-month product launch plan with design, development,\nQA, and marketing phases. Team of 5 people. Launch date is June 15."}
+                value={aiContext}
+                onChange={(e) => setAiContext(e.target.value)}
+                disabled={aiLoading}
+                rows={6}
+                style={{ resize: "vertical", minHeight: 100 }}
+              />
+            </div>
+
+            {aiError && (
+              <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8 }}>{aiError}</p>
+            )}
+
+            {aiLoading && (
+              <p style={{ fontSize: 13, color: "var(--accent)", marginTop: 12 }}>
+                Generating your diagram...
+              </p>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button
+                className="soft-btn"
+                onClick={() => { setAiModalOpen(false); setAiError(""); }}
+                disabled={aiLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="soft-btn primary"
+                onClick={handleAiGenerate}
+                disabled={aiLoading || !aiContext.trim()}
+              >
+                {aiLoading ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aiPreviewOpen && aiPreview && (
+        <div className="modal-overlay" onClick={handleAiPreviewReject}>
+          <div className="modal save-modal ai-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{aiPreview.title}</h3>
+            {aiPreview.summary && (
+              <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+                {aiPreview.summary}
+              </p>
+            )}
+
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Generated code</label>
+              <pre className="ai-preview-code">
+                {aiPreview.code}
+              </pre>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="soft-btn" onClick={handleAiPreviewReject}>
+                Reject
+              </button>
+              <button className="soft-btn primary" onClick={handleAiPreviewAccept}>
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {convertModalOpen && (
+        <div className="modal-overlay" onClick={() => !convertLoading && setConvertModalOpen(false)}>
+          <div className="modal save-modal ai-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Convert Diagram</h3>
+            <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+              Convert your current {diagramType || "diagram"} to a different chart type.
+            </p>
+
+            <div className="settings-field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Current type</label>
+              <input
+                className="modal-input"
+                value={diagramType || "unknown"}
+                disabled
+                style={{ padding: "6px 10px", opacity: 0.7 }}
+              />
+            </div>
+
+            <div className="settings-field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Convert to</label>
+              <select
+                className="modal-input"
+                value={convertTargetType}
+                onChange={(e) => setConvertTargetType(e.target.value)}
+                disabled={convertLoading}
+                style={{ padding: "6px 10px" }}
+              >
+                <option value="gantt">Gantt Chart</option>
+                <option value="flowchart">Flowchart</option>
+                <option value="sequenceDiagram">Sequence Diagram</option>
+                <option value="erDiagram">ER Diagram</option>
+                <option value="classDiagram">Class Diagram</option>
+                <option value="stateDiagram">State Diagram</option>
+                <option value="mindmap">Mindmap</option>
+                <option value="timeline">Timeline</option>
+                <option value="pie">Pie Chart</option>
+                <option value="journey">User Journey</option>
+              </select>
+            </div>
+
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Code preview</label>
+              <pre
+                style={{
+                  fontSize: 11,
+                  background: "var(--bg)",
+                  border: "1px solid var(--line)",
+                  borderRadius: 6,
+                  padding: 10,
+                  maxHeight: 120,
+                  overflow: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                  color: "var(--ink-soft)",
+                }}
+              >
+                {code.length > 500 ? code.slice(0, 500) + "\n..." : code}
+              </pre>
+            </div>
+
+            {convertError && (
+              <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8 }}>{convertError}</p>
+            )}
+
+            {convertLoading && (
+              <p style={{ fontSize: 13, color: "var(--accent)", marginTop: 12 }}>
+                Converting your diagram...
+              </p>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button
+                className="soft-btn"
+                onClick={() => { setConvertModalOpen(false); setConvertError(""); }}
+                disabled={convertLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="soft-btn primary"
+                onClick={handleAiConvert}
+                disabled={convertLoading || !code.trim()}
+              >
+                {convertLoading ? "Converting..." : "Convert"}
+              </button>
+            </div>
           </div>
         </div>
       )}
