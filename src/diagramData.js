@@ -206,11 +206,19 @@ export const DIAGRAM_LIBRARY = [
     USER ||--o{ PROJECT : owns
     PROJECT ||--o{ TASK : contains
     USER {
-      string id
-      string email
+      int id PK
+      string email UK
+      string name
+    }
+    PROJECT {
+      int id PK
+      int owner_id FK
+      string title
+      string status
     }
     TASK {
-      string id
+      int id PK
+      int project_id FK
       string title
       string status
     }
@@ -218,6 +226,8 @@ export const DIAGRAM_LIBRARY = [
     quickTools: [
       { label: "Add entity", snippet: "\n    TEAM {\n      string id\n      string name\n    }\n" },
       { label: "Add relationship", snippet: "\n    TEAM ||--o{ USER : includes\n" },
+      { label: "Import SQL", action: "er:import-sql" },
+      { label: "Export SQL", action: "er:export-sql" },
     ],
   },
   {
