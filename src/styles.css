@@ -201,14 +201,9 @@ body {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-xs);
-  background: var(--accent);
-  color: #ffffff;
-  font-family: "Chakra Petch", sans-serif;
-  font-weight: 700;
-  font-size: 0.75rem;
-  display: grid;
-  place-items: center;
-  letter-spacing: 0.04em;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
 }
 
 .brand h1 {

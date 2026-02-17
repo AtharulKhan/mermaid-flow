@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
+import logoSvg from "./assets/logo.svg";
 import {
   findTaskByLabel,
   parseGanttTasks,
@@ -7217,7 +7218,7 @@ function App() {
         {isEditable && (
           <header className="embed-toolbar">
             <div className="brand">
-              <div className="brand-mark">MF</div>
+              <img src={logoSvg} alt="MF" className="brand-mark" />
               <span className="embed-title">Mermaid Flow</span>
             </div>
             <div className="toolbar">
@@ -7253,7 +7254,7 @@ function App() {
           title="Go to home"
           onClick={() => navigate(currentUser ? "/dashboard" : "/")}
         >
-          <div className="brand-mark">MF</div>
+          <img src={logoSvg} alt="MF" className="brand-mark" />
           <div className="brand-text">
             <h1>Mermaid Flow</h1>
             {flowHeaderName && (
