@@ -5702,68 +5702,22 @@ function getIframeSrcDoc() {
           }
         }
 
-        // Draw block overlays (alt/loop/opt/break/par) — minimal: left bar + label only
+        // Block overlays skipped — structure is visible in the code editor.
+        // Only render divider lines (else/and) as subtle horizontal dashes.
         for (const block of (blocks || [])) {
-          const startMsgIdx = messages.findIndex((m) => m.lineIndex > block.startLine);
-          let endMsgIdx = messages.length - 1;
-          if (block.endLine >= 0) {
-            for (let i = messages.length - 1; i >= 0; i--) {
-              if (messages[i].lineIndex < block.endLine) { endMsgIdx = i; break; }
-            }
-          }
-          if (startMsgIdx < 0) continue;
-
-          const y1 = msgStartY + startMsgIdx * rowHeight - 16;
-          const y2 = msgStartY + (endMsgIdx + 1) * rowHeight + 8;
-          const barX = MARGIN / 2 + block.depth * 6;
-
-          // Thin left accent bar instead of full border rectangle
-          const bar = document.createElementNS("http://www.w3.org/2000/svg", "line");
-          bar.setAttribute("x1", barX);
-          bar.setAttribute("y1", y1);
-          bar.setAttribute("x2", barX);
-          bar.setAttribute("y2", y2);
-          bar.setAttribute("stroke", "var(--border, #d1d5db)");
-          bar.setAttribute("stroke-width", "2");
-          bar.setAttribute("stroke-linecap", "round");
-          svg.appendChild(bar);
-
-          // Block type label (small inline text next to bar)
-          const labelText = block.type + (block.label ? " " + block.label : "");
-          const blkLabelEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
-          blkLabelEl.setAttribute("x", barX + 8);
-          blkLabelEl.setAttribute("y", y1 + 4);
-          blkLabelEl.setAttribute("font-size", "10");
-          blkLabelEl.setAttribute("font-weight", "600");
-          blkLabelEl.setAttribute("fill", "var(--ink-soft, #9ca3af)");
-          blkLabelEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
-          blkLabelEl.textContent = labelText;
-          svg.appendChild(blkLabelEl);
-
-          // Divider lines (else / and)
-          for (const div of (block.dividers || [])) {
+          if (!block.dividers || !block.dividers.length) continue;
+          for (const div of block.dividers) {
             const divMsgIdx = messages.findIndex((m) => m.lineIndex > div.lineIndex);
             if (divMsgIdx < 0) continue;
             const divY = msgStartY + divMsgIdx * rowHeight - 12;
             const divLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            divLine.setAttribute("x1", barX);
+            divLine.setAttribute("x1", MARGIN);
             divLine.setAttribute("y1", divY);
-            divLine.setAttribute("x2", totalWidth - barX);
+            divLine.setAttribute("x2", totalWidth - MARGIN);
             divLine.setAttribute("y2", divY);
             divLine.setAttribute("stroke", "var(--border, #e5e7eb)");
             divLine.setAttribute("stroke-dasharray", "4,3");
             svg.appendChild(divLine);
-
-            if (div.label) {
-              const dLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
-              dLabel.setAttribute("x", barX + 8);
-              dLabel.setAttribute("y", divY - 3);
-              dLabel.setAttribute("font-size", "10");
-              dLabel.setAttribute("fill", "var(--ink-soft, #9ca3af)");
-              dLabel.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
-              dLabel.textContent = "[" + div.label + "]";
-              svg.appendChild(dLabel);
-            }
           }
         }
 
