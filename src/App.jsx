@@ -5658,6 +5658,7 @@ function App() {
   // Derived
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
   const lineCount = code.split("\n").length;
+  const flowHeaderName = String(flowMeta?.name || "").trim();
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
   const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
@@ -7245,7 +7246,14 @@ function App() {
           onClick={() => navigate(currentUser ? "/dashboard" : "/")}
         >
           <div className="brand-mark">MF</div>
-          <h1>Mermaid Flow</h1>
+          <div className="brand-text">
+            <h1>Mermaid Flow</h1>
+            {flowHeaderName && (
+              <span className="flow-name-badge" title={flowHeaderName}>
+                · {flowHeaderName}
+              </span>
+            )}
+          </div>
         </button>
 
         <div className="toolbar">

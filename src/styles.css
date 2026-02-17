@@ -177,6 +177,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .brand-home-btn {
@@ -217,6 +218,26 @@ body {
   line-height: 1.1;
   font-weight: 600;
   color: var(--ink);
+}
+
+.brand-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flow-name-badge {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(44vw, 460px);
+}
+
+.brand-home-btn:hover .flow-name-badge {
+  color: var(--accent);
 }
 
 .toolbar {
@@ -1992,6 +2013,11 @@ input:focus {
 
   .brand h1 {
     font-size: 0.98rem;
+  }
+
+  .flow-name-badge {
+    font-size: 0.78rem;
+    max-width: min(58vw, 260px);
   }
 
   .toolbar {
