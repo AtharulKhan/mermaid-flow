@@ -8442,7 +8442,7 @@ function App() {
     dependsOn: [],
   });
   const [ganttDeleteConfirm, setGanttDeleteConfirm] = useState(null);
-  const skipDraftSyncRef = useRef(false);
+  const ganttDraftLockedRef = useRef(false);
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(() => {
@@ -9283,7 +9283,6 @@ function App() {
   // ganttTasks is recomputed and the object reference happens to differ.
   const selectedGanttTaskFingerprint = selectedGanttTask
     ? [
-        selectedGanttTask.lineIndex,
         selectedGanttTask.label,
         selectedGanttTask.startDate,
         selectedGanttTask.endDate,
@@ -9297,14 +9296,16 @@ function App() {
         (selectedGanttTask.afterDeps || []).join(","),
       ].join("|")
     : "";
+  // Unlock the gantt draft when the modal closes so syncing can resume.
+  // Declared before the sync useEffect so it fires first in the same commit.
   useEffect(() => {
-    // After applyGanttTaskPatch, the draft is already correct — skip the
-    // automatic reset so the useEffect doesn't accidentally overwrite it
-    // with stale data from a mid-render selectedGanttTask.
-    if (skipDraftSyncRef.current) {
-      skipDraftSyncRef.current = false;
-      return;
+    if (contextMenu?.type !== "gantt") {
+      ganttDraftLockedRef.current = false;
     }
+  }, [contextMenu]);
+  useEffect(() => {
+    // While the Gantt modal is open, don't overwrite user edits to ganttDraft
+    if (ganttDraftLockedRef.current) return;
     if (!selectedGanttTask) {
       setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", progress: "", dependsOn: [] });
       return;
@@ -9328,6 +9329,11 @@ function App() {
       progress: selectedGanttTask.progress !== null && selectedGanttTask.progress !== undefined ? String(selectedGanttTask.progress) : "",
       dependsOn: selectedGanttTask.afterDeps || [],
     });
+    // Lock the draft while the modal is open to prevent future syncs
+    // from overwriting user edits (e.g., dep removal via X button)
+    if (contextMenu?.type === "gantt") {
+      ganttDraftLockedRef.current = true;
+    }
   }, [selectedGanttTaskFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── PostMessage listener ────────────────────────────── */
@@ -10329,9 +10335,6 @@ function App() {
     const finalTasks = parseGanttTasks(updated);
     const finalTask = findTaskByLabel(finalTasks, nextLabel);
 
-    // Prevent the draft-sync useEffect from resetting the draft after this
-    // code change — the draft already reflects the user's intended state.
-    skipDraftSyncRef.current = true;
     setCode(updated);
     setRenderMessage(`Updated "${nextLabel}"`);
     setHighlightLine(finalTask ? finalTask.lineIndex + 1 : null);
