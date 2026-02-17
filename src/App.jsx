@@ -11967,8 +11967,8 @@ function App() {
                   </label>
                 </div>
 
-                <label>
-                  Depends on
+                <div className="dep-field">
+                  <span className="dep-field-label">Depends on</span>
                   <div className="dep-picker">
                     {ganttDraft.dependsOn.map((depId, depIdx) => {
                       const depTask = ganttTasks.find((t) => (t.idToken || "").toLowerCase() === depId.toLowerCase() || (t.label || "").toLowerCase() === depId.toLowerCase());
@@ -12043,7 +12043,7 @@ function App() {
                       );
                     })()}
                   </div>
-                </label>
+                </div>
 
                 <label>
                   Notes

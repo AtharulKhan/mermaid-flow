@@ -942,7 +942,8 @@ input:focus {
   gap: 16px;
 }
 
-.task-modal-body > label {
+.task-modal-body > label,
+.task-modal-body > .dep-field {
   display: grid;
   gap: 6px;
   font-size: 0.78rem;
