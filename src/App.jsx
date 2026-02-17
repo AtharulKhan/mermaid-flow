@@ -5944,10 +5944,10 @@ function deleteDiagramFromStorage(name) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(diagrams));
 }
 
-function saveLastDiagram(code, tabs) {
+function saveLastDiagram(code, tabs, activeTabId) {
   try {
     if (tabs && tabs.length > 0) {
-      localStorage.setItem(LAST_DIAGRAM_KEY, JSON.stringify({ code, tabs }));
+      localStorage.setItem(LAST_DIAGRAM_KEY, JSON.stringify({ code, tabs, activeTabId }));
     } else {
       localStorage.setItem(LAST_DIAGRAM_KEY, code);
     }
@@ -6008,6 +6008,12 @@ function App() {
     }
     const last = lastDiagramData.current;
     if (last && !urlParams.current.embed) {
+      if (typeof last === "object" && last.tabs && last.tabs.length > 0) {
+        // Restore the active tab's code (or first tab if activeTabId not found)
+        const savedActiveId = last.activeTabId;
+        const activeTab = savedActiveId && last.tabs.find((t) => t.id === savedActiveId);
+        return activeTab ? activeTab.code : last.tabs[0].code;
+      }
       if (typeof last === "object" && last.code) return last.code;
       return last;
     }
@@ -6061,6 +6067,10 @@ function App() {
   const [activeTabId, setActiveTabId] = useState(() => {
     const last = lastDiagramData.current;
     if (last && typeof last === "object" && last.tabs && last.tabs.length > 0 && !urlParams.current.embed && !urlParams.current.codeParam) {
+      // Restore the saved active tab, or fall back to first tab
+      if (last.activeTabId && last.tabs.some((t) => t.id === last.activeTabId)) {
+        return last.activeTabId;
+      }
       return last.tabs[0].id;
     }
     return "tab-0";
@@ -6733,15 +6743,21 @@ function App() {
           lastSavedGanttViewStateRef.current = JSON.stringify(savedViewState);
 
           const flowCode = flow.code || DEFAULT_CODE;
-          setCode(flowCode);
           clearHistory();
-          lastVersionCodeRef.current = flowCode;
           if (flow.tabs && flow.tabs.length > 0) {
             setDiagramTabs(flow.tabs);
-            setActiveTabId(flow.tabs[0].id);
+            // Restore the active tab, or default to first tab
+            const restoredTabId = flow.activeTabId && flow.tabs.some((t) => t.id === flow.activeTabId)
+              ? flow.activeTabId : flow.tabs[0].id;
+            const restoredTab = flow.tabs.find((t) => t.id === restoredTabId);
+            setActiveTabId(restoredTabId);
+            setCode(restoredTab.code);
+            lastVersionCodeRef.current = restoredTab.code;
           } else {
             setDiagramTabs([{ id: "tab-0", label: "Main", code: flowCode }]);
             setActiveTabId("tab-0");
+            setCode(flowCode);
+            lastVersionCodeRef.current = flowCode;
           }
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
@@ -6784,7 +6800,7 @@ function App() {
     const handle = window.setTimeout(async () => {
       try {
         const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
-        await updateFlow(flowId, { code, diagramType, tabs: tabsSnapshot });
+        await updateFlow(flowId, { code, diagramType, tabs: tabsSnapshot, activeTabId });
         const now = Date.now();
         if (now - lastVersionSaveRef.current >= 10 * 60 * 1000 && code !== lastVersionCodeRef.current) {
           lastVersionSaveRef.current = now;
@@ -6843,7 +6859,7 @@ function App() {
     const handle = window.setTimeout(() => {
       // Save current tab's code into diagramTabs before persisting
       const updatedTabs = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
-      saveLastDiagram(code, updatedTabs);
+      saveLastDiagram(code, updatedTabs, activeTabId);
     }, 500);
     return () => window.clearTimeout(handle);
   }, [code, diagramTabs, activeTabId]);
@@ -8176,6 +8192,28 @@ function App() {
     setRenameValue("");
   };
 
+  const dragTabRef = useRef(null);
+  const handleTabDragStart = (e, tabId) => {
+    dragTabRef.current = tabId;
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleTabDragOver = (e, tabId) => {
+    e.preventDefault();
+    if (!dragTabRef.current || dragTabRef.current === tabId) return;
+    setDiagramTabs((prev) => {
+      const fromIdx = prev.findIndex((t) => t.id === dragTabRef.current);
+      const toIdx = prev.findIndex((t) => t.id === tabId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  };
+  const handleTabDragEnd = () => {
+    dragTabRef.current = null;
+  };
+
   const handleDeleteDiagram = (name) => {
     deleteDiagramFromStorage(name);
     setSavedDiagrams(loadSavedDiagrams());
@@ -8523,6 +8561,10 @@ function App() {
                 className={`editor-tab ${activeTabId === tab.id ? "active" : ""}`}
                 onClick={() => switchTab(tab.id)}
                 onDoubleClick={() => startRenameTab(tab.id)}
+                draggable={renamingTabId !== tab.id}
+                onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                onDragOver={(e) => handleTabDragOver(e, tab.id)}
+                onDragEnd={handleTabDragEnd}
               >
                 {renamingTabId === tab.id ? (
                   <input
