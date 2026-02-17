@@ -5512,6 +5512,10 @@ function App() {
   const [aiContext, setAiContext] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [convertModalOpen, setConvertModalOpen] = useState(false);
+  const [convertTargetType, setConvertTargetType] = useState("flowchart");
+  const [convertLoading, setConvertLoading] = useState(false);
+  const [convertError, setConvertError] = useState("");
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -6922,6 +6926,36 @@ function App() {
     }
   };
 
+  const handleAiConvert = async () => {
+    setConvertLoading(true);
+    setConvertError("");
+    try {
+      const res = await fetch("https://us-central1-mermaidflow-487516.cloudfunctions.net/aiConvert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceCode: code,
+          targetChartType: convertTargetType,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Request failed (${res.status})`);
+      }
+      const data = await res.json();
+      setCode(data.code);
+      setSelectedElement(null);
+      setHighlightLine(null);
+      setPositionOverrides({});
+      setRenderMessage(`Converted to ${convertTargetType}: ${data.title || "Chart"}`);
+      setConvertModalOpen(false);
+    } catch (err) {
+      setConvertError(err.message || "Conversion failed. Please try again.");
+    } finally {
+      setConvertLoading(false);
+    }
+  };
+
   const handleDeleteDiagram = (name) => {
     deleteDiagramFromStorage(name);
     setSavedDiagrams(loadSavedDiagrams());
@@ -7235,6 +7269,12 @@ function App() {
                 onClick={() => setAiModalOpen(true)}
               >
                 Create with AI
+              </button>
+              <button
+                className="soft-btn small ai-btn convert-btn"
+                onClick={() => setConvertModalOpen(true)}
+              >
+                Convert
               </button>
               <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
             </div>
@@ -8961,6 +9001,96 @@ function App() {
                 disabled={aiLoading || !aiContext.trim()}
               >
                 {aiLoading ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {convertModalOpen && (
+        <div className="modal-overlay" onClick={() => !convertLoading && setConvertModalOpen(false)}>
+          <div className="modal save-modal ai-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Convert Diagram</h3>
+            <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+              Convert your current {diagramType || "diagram"} to a different chart type.
+            </p>
+
+            <div className="settings-field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Current type</label>
+              <input
+                className="modal-input"
+                value={diagramType || "unknown"}
+                disabled
+                style={{ padding: "6px 10px", opacity: 0.7 }}
+              />
+            </div>
+
+            <div className="settings-field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Convert to</label>
+              <select
+                className="modal-input"
+                value={convertTargetType}
+                onChange={(e) => setConvertTargetType(e.target.value)}
+                disabled={convertLoading}
+                style={{ padding: "6px 10px" }}
+              >
+                <option value="gantt">Gantt Chart</option>
+                <option value="flowchart">Flowchart</option>
+                <option value="sequenceDiagram">Sequence Diagram</option>
+                <option value="erDiagram">ER Diagram</option>
+                <option value="classDiagram">Class Diagram</option>
+                <option value="stateDiagram">State Diagram</option>
+                <option value="mindmap">Mindmap</option>
+                <option value="timeline">Timeline</option>
+                <option value="pie">Pie Chart</option>
+                <option value="journey">User Journey</option>
+              </select>
+            </div>
+
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Code preview</label>
+              <pre
+                style={{
+                  fontSize: 11,
+                  background: "var(--bg)",
+                  border: "1px solid var(--line)",
+                  borderRadius: 6,
+                  padding: 10,
+                  maxHeight: 120,
+                  overflow: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                  color: "var(--ink-soft)",
+                }}
+              >
+                {code.length > 500 ? code.slice(0, 500) + "\n..." : code}
+              </pre>
+            </div>
+
+            {convertError && (
+              <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8 }}>{convertError}</p>
+            )}
+
+            {convertLoading && (
+              <p style={{ fontSize: 13, color: "var(--accent)", marginTop: 12 }}>
+                Converting your diagram...
+              </p>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button
+                className="soft-btn"
+                onClick={() => { setConvertModalOpen(false); setConvertError(""); }}
+                disabled={convertLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="soft-btn primary"
+                onClick={handleAiConvert}
+                disabled={convertLoading || !code.trim()}
+              >
+                {convertLoading ? "Converting..." : "Convert"}
               </button>
             </div>
           </div>
