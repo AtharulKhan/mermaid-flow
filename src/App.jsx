@@ -6818,7 +6818,7 @@ function App() {
       }
     }, 2000);
     return () => window.clearTimeout(handle);
-  }, [code, flowId, diagramType, flowMeta, currentUser]);
+  }, [code, flowId, diagramType, flowMeta, currentUser, diagramTabs, activeTabId]);
 
   useEffect(() => {
     if (ganttDropdown === "assignees" || mobileViewMenuOpen) return;
