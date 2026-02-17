@@ -54,6 +54,13 @@ function setCors(req, res) {
     return true;
   }
 
+  // Allow Vercel preview deployments
+  if (/^https:\/\/.*\.vercel\.app$/.test(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+    res.set("Vary", "Origin");
+    return true;
+  }
+
   return false;
 }
 

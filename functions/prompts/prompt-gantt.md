@@ -222,6 +222,90 @@ Before presenting the final chart, check:
 - [ ] No overloaded assignees? (no person has 4+ active tasks on the same day)
 - [ ] No task has 3+ dependencies unless it is a genuine bottleneck noted in `%% notes:`?
 
+## Example Output
+
+User says: "We are building a cold email outreach system. Redwan already bought 5 alternate domains last week and configured SPF, DKIM, and DMARC — that is about 80% done, still verifying a couple. He created the mailboxes yesterday. Now we need to connect them to Instantly, start the inbox warm-up for 2-3 weeks, and launch campaigns. Mohammed is setting up the Instantly account — he already created it. He needs to build email templates and the variable system. Shorov is handling GHL — he already did 2-3 hours of research and needs to set up the pipeline and automations. Management needs to define the ICP (there is a Notion doc: https://notion.so/icp-doc) and construct the front-end offer. The offer definition is critical — we cannot write templates without it."
+
+```
+gantt
+    title Cold Email Outreach - 5 Week Sprint Feb 10 - Mar 18 2026
+    dateFormat  YYYY-MM-DD
+    axisFormat  %b %d
+    todayMarker stroke-width:3px,stroke:#e94560
+
+    section Phase 0 - Email Infrastructure - Redwan
+    Purchase alternate domains              :done, buyDomains, 2026-02-03, 1d
+    %% assignee: Redwan
+    %% notes: 5 domains purchased for rotation. Complete
+    Configure SPF DKIM DMARC               :active, dnsSetup, after buyDomains, 1d
+    %% assignee: Redwan
+    %% progress: 80
+    %% notes: DNS records set on all domains, verifying last two
+    Create mailboxes Google Workspace       :done, createMbox, after dnsSetup, 1d
+    %% assignee: Redwan
+    %% notes: 2 inboxes per domain, 10 total
+    Connect mailboxes to Instantly          :connectMbox, after createMbox, 1d
+    %% assignee: Redwan
+    %% notes: Link and verify all mailboxes in Instantly
+    Begin inbox warm-up 2-3 weeks           :warmup, after connectMbox, 3w
+    %% assignee: Redwan
+    %% notes: Target ready for live sending by early March
+
+    section Phase 0 - Instantly Setup - Mohammed
+    Set up Instantly account and inboxes    :done, setupInst, 2026-02-10, 1d
+    %% assignee: Mohammed
+    %% notes: Account created, inboxes connected
+    Build variable system for personalization :buildVars, after defineICP, 1d
+    %% assignee: Mohammed
+    %% notes: Variables - firstName, companyName, industry, customLine. Map to lead list columns
+    Create email templates per service      :createTemplates, after buildOffer buildVars, 3d
+    %% assignee: Mohammed
+    %% notes: Minimum 5 variations per service. Under 100 words. No links in body. Include merge fields. Depends on offer and variables being defined
+
+    section Phase 0 - GHL Setup - Shorov
+    Research GHL training                   :done, ghlResearch, 2026-02-11, 1d
+    %% assignee: Shorov
+    %% notes: Focused on pipeline and automation features. 2-3 hours of training
+    Purchase and configure GHL sub-account  :configGHL, after ghlResearch, 2d
+    %% assignee: Shorov
+    %% notes: Sub-account live under main agency account
+    Set up GHL pipeline stages per service  :ghlPipeline, after configGHL, 2d
+    %% assignee: Shorov
+    %% notes: Separate pipeline or tags for SEO, web dev, full stack. Stages - New Lead, Contacted, Call Booked, Proposal Sent, Closed Won, Closed Lost
+    Configure GHL email services            :ghlEmail, after configGHL, 1d
+    %% assignee: Shorov
+    %% notes: Connect sending domain, set up templates for follow-ups and confirmations
+    Build GHL automations and stage triggers :ghlAuto, after ghlPipeline, 2d
+    %% assignee: Shorov
+    %% notes: Auto-assign tasks on stage change, notify team on positive lead, trigger pre-call sequence
+
+    section Phase 0 - Management Decisions
+    Define ICP and TAM per service          :crit, defineICP, 2026-02-12, 2d
+    %% assignee: Management
+    %% link: https://notion.so/icp-doc
+    %% notes: Define ideal customer profile and total addressable market for each service line
+    Construct front-end offer per service   :crit, buildOffer, after defineICP, 2d
+    %% assignee: Management
+    %% notes: Critical - blocks template creation. Define offer, pricing, and guarantee for each service line. Performance-based or retainer with guarantee
+
+    section Phase 1 - Campaign Build
+    Build Instantly campaign structure       :buildCampaign, after createTemplates, 2d
+    %% assignee: Mohammed
+    %% notes: Separate campaign per service line. Set sending schedule, daily limits per inbox, rotation rules
+    Set up follow-up sequences              :followupSeq, after buildCampaign, 1d
+    %% assignee: Mohammed
+    %% notes: 2-3 follow-up emails per sequence spaced 3-4 days apart. Last email is breakup email
+
+    section Phase 2 - Testing and Launch
+    End-to-end system test                  :crit, e2eTest, after followupSeq ghlAuto, 2d
+    %% assignee: Mohammed, Shorov
+    %% notes: Test full flow - email sent to test inbox, reply handling, GHL pipeline entry. Fix any breaks
+    Launch pilot campaign 200-500 leads     :crit, pilotLaunch, after e2eTest warmup, 1d
+    %% assignee: Mohammed
+    %% notes: First live campaign. Monitor deliverability, open rates, reply rates for 48 hours
+    Go live                                 :milestone, goLive, after pilotLaunch, 0d
+```
+
 ## Avoiding Risk Flags
 
 The app automatically analyzes the Gantt chart for scheduling risks. A well-constructed chart should minimize these flags. Understand what triggers each risk and design your chart to avoid them:
