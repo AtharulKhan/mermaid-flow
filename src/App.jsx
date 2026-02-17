@@ -4304,10 +4304,11 @@ function getIframeSrcDoc() {
             el.appendChild(row);
           }
           measurer.appendChild(el);
-          const w = Math.max(el.offsetWidth + 24, 180);
           const attrCount = entity.attributes.length;
+          const minW = attrCount > 0 ? 180 : 100;
+          const w = Math.max(el.offsetWidth + 24, minW);
           const h = 34 + attrCount * 28 + 8;
-          dims[entity.id] = { width: Math.min(w, 300), height: Math.max(h, 60) };
+          dims[entity.id] = { width: Math.min(w, 300), height: Math.max(h, 42) };
           measurer.removeChild(el);
         }
         document.body.removeChild(measurer);
@@ -4733,12 +4734,17 @@ function getIframeSrcDoc() {
           if (so) {
             if (so.fill) el.style.background = so.fill;
             if (so.stroke) el.style.borderColor = so.stroke;
+            if (so.textColor) el.style.color = so.textColor;
+            if (so.strokeStyle === "dashed") el.style.borderStyle = "dashed";
+            else if (so.strokeStyle === "none") el.style.borderWidth = "0";
           }
 
-          // Header
+          // Header — use stroke color as header background if set, fill for body
           const header = document.createElement("div");
           header.className = "mf-er-header";
           header.textContent = entity.id;
+          if (so?.stroke) header.style.background = so.stroke;
+          if (so?.textColor) header.style.color = so.textColor;
           el.appendChild(header);
 
           // Attributes table
@@ -4770,14 +4776,16 @@ function getIframeSrcDoc() {
           // Tooltip
           el.setAttribute("data-mf-tip", entity.id + " (" + entity.attributes.length + " attributes)");
 
-          // Click → select
+          // Click → select (with screenBox for style toolbar)
           el.addEventListener("click", (ev) => {
             if (suppressClick) return;
             ev.stopPropagation();
             container.querySelectorAll(".mf-er-entity.mf-selected").forEach(n => n.classList.remove("mf-selected"));
             el.classList.add("mf-selected");
+            const rect = el.getBoundingClientRect();
             send("element:selected", {
               label: entity.id, id: entity.id, nodeId: entity.id, elementType: "node",
+              screenBox: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
             });
           });
 

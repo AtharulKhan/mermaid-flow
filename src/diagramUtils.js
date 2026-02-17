@@ -222,6 +222,19 @@ export function parseErDiagram(code) {
     }
   }
 
+  // Discover entities referenced only in relationships (no { } block)
+  const entityIds = new Set(entities.map((e) => e.id));
+  for (const rel of relationships) {
+    if (!entityIds.has(rel.source)) {
+      entities.push({ id: rel.source, attributes: [], lineIndex: rel.lineIndex });
+      entityIds.add(rel.source);
+    }
+    if (!entityIds.has(rel.target)) {
+      entities.push({ id: rel.target, attributes: [], lineIndex: rel.lineIndex });
+      entityIds.add(rel.target);
+    }
+  }
+
   return { entities, relationships };
 }
 
