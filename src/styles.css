@@ -322,6 +322,11 @@ body {
   color: var(--ink);
 }
 
+.icon-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .icon-btn svg {
   width: 18px;
   height: 18px;
@@ -1432,6 +1437,21 @@ input:focus {
 @keyframes toolbar-in {
   from { opacity: 0; transform: translateX(-50%) translateY(4px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.style-toolbar-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: var(--blue-600, #2563eb);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0 2px;
 }
 
 .style-toolbar-btn {
