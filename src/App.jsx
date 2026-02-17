@@ -6117,6 +6117,8 @@ function App() {
 
   /* ── Load flow from Firestore ────────────────────────── */
   const flowLoadedRef = useRef(false);
+  const lastVersionSaveRef = useRef(0);
+  const lastVersionCodeRef = useRef("");
   useEffect(() => {
     if (!flowId) {
       lastSavedGanttViewStateRef.current = "";
@@ -6144,6 +6146,7 @@ function App() {
           lastSavedGanttViewStateRef.current = JSON.stringify(savedViewState);
 
           setCode(flow.code || DEFAULT_CODE);
+          lastVersionCodeRef.current = flow.code || DEFAULT_CODE;
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
           setBaselineCode(flow.baselineCode || null);
@@ -6185,7 +6188,12 @@ function App() {
     const handle = window.setTimeout(async () => {
       try {
         await updateFlow(flowId, { code, diagramType });
-        saveFlowVersion(flowId, { code, diagramType }).catch(() => {});
+        const now = Date.now();
+        if (now - lastVersionSaveRef.current >= 10 * 60 * 1000 && code !== lastVersionCodeRef.current) {
+          lastVersionSaveRef.current = now;
+          lastVersionCodeRef.current = code;
+          saveFlowVersion(flowId, { code, diagramType }).catch(() => {});
+        }
       } catch (err) {
         logAppFirestoreError("autoSave/updateFlow", err, {
           flowId,
