@@ -3686,6 +3686,21 @@ function getIframeSrcDoc() {
         return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10) + ", " + parts[0];
       };
 
+      const positionTooltip = (cx, cy) => {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const tipRect = tooltipEl.getBoundingClientRect();
+        const tipW = tipRect.width || 300;
+        const tipH = tipRect.height || 120;
+        const margin = 12;
+        // Flip above cursor if it would overflow the bottom
+        const top = (cy + margin + tipH > vh) ? Math.max(margin, cy - tipH - margin) : cy + margin;
+        // Shift left if it would overflow the right edge
+        const left = (cx + margin + tipW > vw) ? Math.max(margin, vw - tipW - margin) : cx + margin;
+        tooltipEl.style.left = left + "px";
+        tooltipEl.style.top = top + "px";
+      };
+
       canvas.addEventListener("mouseover", (e) => {
         // Hide tooltip when hovering dependency connector
         if (e.target.closest(".mf-dep-connector")) {
@@ -3698,13 +3713,11 @@ function getIframeSrcDoc() {
         if (!tip) return;
         tooltipEl.textContent = tip;
         tooltipEl.style.display = "block";
-        tooltipEl.style.left = (e.clientX + 12) + "px";
-        tooltipEl.style.top = (e.clientY + 12) + "px";
+        positionTooltip(e.clientX, e.clientY);
       });
       canvas.addEventListener("mousemove", (e) => {
         if (tooltipEl.style.display === "block") {
-          tooltipEl.style.left = (e.clientX + 12) + "px";
-          tooltipEl.style.top = (e.clientY + 12) + "px";
+          positionTooltip(e.clientX, e.clientY);
         }
       });
       canvas.addEventListener("mouseout", (e) => {
