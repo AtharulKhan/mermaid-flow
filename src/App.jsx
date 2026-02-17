@@ -4315,9 +4315,9 @@ function getIframeSrcDoc() {
         return dims;
       };
 
-      const layoutErDiagram = (erData, nodeDims) => {
+      const layoutErDiagram = (erData, nodeDims, direction) => {
         const g = new dagre.graphlib.Graph();
-        g.setGraph({ rankdir: "LR", nodesep: 80, ranksep: 120, marginx: 40, marginy: 40 });
+        g.setGraph({ rankdir: direction || "LR", nodesep: 80, ranksep: 120, marginx: 40, marginy: 40 });
         g.setDefaultEdgeLabel(() => ({}));
         for (const e of erData.entities) {
           const d = nodeDims[e.id] || { width: 180, height: 60 };
@@ -4371,7 +4371,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomErDiagram = (erData, styleOvr) => {
+      const renderCustomErDiagram = (erData, styleOvr, layoutDirection) => {
         setGanttMode(false);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -4387,7 +4387,7 @@ function getIframeSrcDoc() {
 
         // Measure and layout
         const nodeDims = measureErDimensions(erData.entities);
-        const g = layoutErDiagram(erData, nodeDims);
+        const g = layoutErDiagram(erData, nodeDims, layoutDirection);
         const graphInfo = g.graph();
         const gw = (graphInfo.width || 600) + 80;
         const gh = (graphInfo.height || 400) + 80;
@@ -6717,7 +6717,7 @@ function getIframeSrcDoc() {
           } else if (isEr) {
             // Custom HTML ER Diagram renderer — bypass Mermaid SVG
             const ed = data.payload?.erData || {};
-            renderCustomErDiagram(ed.parsed || { entities: [], relationships: [] }, ed.styleOverrides || {});
+            renderCustomErDiagram(ed.parsed || { entities: [], relationships: [] }, ed.styleOverrides || {}, ed.layoutDirection || "LR");
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomEr: true });
           } else {
             setGanttMode(false);
@@ -7041,6 +7041,7 @@ function App() {
   const [sqlImportOpen, setSqlImportOpen] = useState(false);
   const [sqlImportValue, setSqlImportValue] = useState("");
   const [sqlExportContent, setSqlExportContent] = useState(null);
+  const [erLayoutDir, setErLayoutDir] = useState("LR"); // "LR" or "TB"
   const [zoomLevel, setZoomLevel] = useState(1);
   const [styleToolbar, setStyleToolbar] = useState(null); // { nodeId, x, y, yBottom, activeDropdown }
   const contextMenuRef = useRef(null);
@@ -7560,6 +7561,7 @@ function App() {
     const erPayload = {
       parsed: parseErDiagram(code),
       styleOverrides,
+      layoutDirection: erLayoutDir,
     };
 
     frame.contentWindow.postMessage(
@@ -7583,7 +7585,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
-  }, [code, autoRender, mermaidRenderConfig, showCriticalPath, showDepLines]);
+  }, [code, autoRender, mermaidRenderConfig, showCriticalPath, showDepLines, erLayoutDir]);
 
   /* ── Sync app theme to iframe ─────────────────────────── */
   useEffect(() => {
@@ -9912,6 +9914,20 @@ function App() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+          {toolsetKey === "erDiagram" && (
+            <div className="zoom-controls" style={{ marginRight: 6 }}>
+              <button
+                title="Left to Right layout"
+                onClick={() => setErLayoutDir("LR")}
+                style={{ fontWeight: erLayoutDir === "LR" ? 700 : 400, opacity: erLayoutDir === "LR" ? 1 : 0.55 }}
+              >LR</button>
+              <button
+                title="Top to Bottom layout"
+                onClick={() => setErLayoutDir("TB")}
+                style={{ fontWeight: erLayoutDir === "TB" ? 700 : 400, opacity: erLayoutDir === "TB" ? 1 : 0.55 }}
+              >TB</button>
             </div>
           )}
           <div className="zoom-controls">
