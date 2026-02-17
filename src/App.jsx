@@ -2414,7 +2414,7 @@ function getIframeSrcDoc() {
               bar.style.top = top + "px";
               bar.style.height = barHeight + "px";
             }
-            bar.setAttribute("data-label", task.label || "");
+            bar.setAttribute("data-task-label", task.label || "");
             const rawTaskLink = String(task.link || "").trim();
             const openableTaskLink = buildOpenableTaskUrl(rawTaskLink);
             const hasTaskLink = Boolean(rawTaskLink);
@@ -2463,7 +2463,7 @@ function getIframeSrcDoc() {
               // Create temporary SVG drag line
               const svgNS = "http://www.w3.org/2000/svg";
               const dragSvg = document.createElementNS(svgNS, "svg");
-              dragSvg.className = "mf-dep-drag-line";
+              dragSvg.setAttribute("class", "mf-dep-drag-line");
               dragSvg.style.width = canvas.scrollWidth + "px";
               dragSvg.style.height = canvas.scrollHeight + "px";
               const dragLine = document.createElementNS(svgNS, "line");
@@ -2513,7 +2513,7 @@ function getIframeSrcDoc() {
                 if (!dragging) return;
                 if (currentTarget) {
                   currentTarget.classList.remove("mf-dep-drop-target");
-                  const targetLabel = currentTarget.getAttribute("data-label") || "";
+                  const targetLabel = currentTarget.getAttribute("data-task-label") || currentTarget.getAttribute("data-label") || "";
                   if (targetLabel && targetLabel !== fromLabel) {
                     send("gantt:dep-created", { fromId, fromLabel, targetLabel });
                   }
@@ -5372,7 +5372,7 @@ function getIframeSrcDoc() {
           const label = data.payload?.label || "";
           canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
           if (label) {
-            const bar = canvas.querySelector('.mf-gantt-bar[data-label="' + CSS.escape(label) + '"], .mf-gantt-milestone[data-label="' + CSS.escape(label) + '"]');
+            const bar = canvas.querySelector('.mf-gantt-bar[data-task-label="' + CSS.escape(label) + '"], .mf-gantt-milestone[data-task-label="' + CSS.escape(label) + '"]');
             if (bar) bar.classList.add("mf-selected");
           }
           return;
