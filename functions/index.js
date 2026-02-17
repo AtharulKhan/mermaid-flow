@@ -325,3 +325,149 @@ exports.aiGenerate = onRequest(
     });
   }
 );
+
+/* ── AI Convert (diagram-to-diagram) ────────────── */
+
+exports.aiConvert = onRequest(
+  {
+    region: "us-central1",
+    memory: "512MiB",
+    timeoutSeconds: 60,
+  },
+  async (req, res) => {
+    if (!setCors(req, res)) {
+      res.status(403).json({ error: "Origin not allowed" });
+      return;
+    }
+
+    res.set("Access-Control-Allow-Methods", "POST,OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed. Use POST." });
+      return;
+    }
+
+    const { sourceCode, targetChartType } = req.body || {};
+    if (!sourceCode || typeof sourceCode !== "string" || sourceCode.trim().length === 0) {
+      res.status(400).json({ error: "Missing or empty sourceCode field." });
+      return;
+    }
+    if (!targetChartType || typeof targetChartType !== "string") {
+      res.status(400).json({ error: "Missing targetChartType field." });
+      return;
+    }
+
+    let promptTemplate;
+    try {
+      promptTemplate = loadPromptTemplate("convert");
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load convert prompt template." });
+      return;
+    }
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    const model = process.env.OPENROUTER_MODEL || "minimax/minimax-m2.5";
+
+    if (!apiKey) {
+      res.status(500).json({ error: "OPENROUTER_API_KEY not configured." });
+      return;
+    }
+
+    const systemMessage = promptTemplate;
+    const userMessage =
+      `Convert the following Mermaid diagram to: ${targetChartType}\n\n` +
+      `Source Mermaid code:\n\`\`\`\n${sourceCode.trim()}\n\`\`\``;
+
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 50000);
+
+        const orRes = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://app.mermaidflow.co",
+            "X-Title": "MermaidFlow",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: systemMessage },
+              { role: "user", content: userMessage },
+            ],
+            temperature: 0.3,
+            max_tokens: 8192,
+            response_format: { type: "json_object" },
+          }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!orRes.ok) {
+          const errText = await orRes.text();
+          const err = new Error(`OpenRouter ${orRes.status}: ${errText}`);
+          if (orRes.status >= 400 && orRes.status < 500 && orRes.status !== 429) {
+            res.status(502).json({
+              error: "AI conversion failed.",
+              details: err.message,
+            });
+            return;
+          }
+          throw err;
+        }
+
+        const orData = await orRes.json();
+        const rawContent = orData.choices?.[0]?.message?.content || "";
+
+        let parsed;
+        try {
+          parsed = JSON.parse(rawContent);
+        } catch {
+          const match = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (match) {
+            parsed = JSON.parse(match[1].trim());
+          } else {
+            const start = rawContent.indexOf("{");
+            const end = rawContent.lastIndexOf("}");
+            if (start !== -1 && end > start) {
+              parsed = JSON.parse(rawContent.slice(start, end + 1));
+            } else {
+              throw new Error("Failed to parse AI response as JSON");
+            }
+          }
+        }
+
+        if (!parsed.code || typeof parsed.code !== "string") {
+          throw new Error("AI response missing 'code' field");
+        }
+
+        res.status(200).json({
+          code: parsed.code,
+          title: parsed.title || "Converted diagram",
+          summary: parsed.summary || "",
+        });
+        return;
+      } catch (err) {
+        lastError = err;
+        if (attempt < 2) {
+          await sleepWithBackoff(attempt);
+        }
+      }
+    }
+
+    res.status(502).json({
+      error: "AI conversion failed after retries.",
+      details: lastError?.message || "Unknown error",
+    });
+  }
+);
