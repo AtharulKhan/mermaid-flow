@@ -8559,6 +8559,20 @@ function App() {
               </div>
             )}
             <span className="preview-hint desktop-only">
+              {toolsetKey === "flowchart" && (
+                <button
+                  className={`date-toggle-btn`}
+                  title={flowchartData.direction === "LR" ? "Switch to top-to-bottom layout" : "Switch to left-to-right layout"}
+                  onClick={() => {
+                    const cur = flowchartData.direction || "TD";
+                    const next = cur === "LR" ? "TD" : "LR";
+                    setCode((prev) => prev.replace(/^(\s*(?:flowchart|graph))\s+(LR|RL|TD|TB|BT)/m, `$1 ${next}`));
+                    setPositionOverrides({});
+                  }}
+                >
+                  {flowchartData.direction === "LR" ? "\u2195 Top-Bottom" : "\u2194 Left-Right"}
+                </button>
+              )}
               {toolsetKey === "gantt" && (
                 <>
                   <div className="dropdown-wrap" ref={ganttViewMenuRef}>
