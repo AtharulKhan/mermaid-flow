@@ -5516,6 +5516,8 @@ function App() {
   const [convertTargetType, setConvertTargetType] = useState("flowchart");
   const [convertLoading, setConvertLoading] = useState(false);
   const [convertError, setConvertError] = useState("");
+  const [aiPreview, setAiPreview] = useState(null); // { code, title, summary, source }
+  const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -6912,13 +6914,9 @@ function App() {
         throw new Error(errData.error || `Request failed (${res.status})`);
       }
       const data = await res.json();
-      setCode(data.code);
-      setSelectedElement(null);
-      setHighlightLine(null);
-      setPositionOverrides({});
-      setRenderMessage(`AI generated: ${data.title || "Chart"}`);
       setAiModalOpen(false);
-      setAiContext("");
+      setAiPreview({ code: data.code, title: data.title || "Untitled", summary: data.summary || "", source: "generate" });
+      setAiPreviewOpen(true);
     } catch (err) {
       setAiError(err.message || "Generation failed. Please try again.");
     } finally {
@@ -6943,17 +6941,32 @@ function App() {
         throw new Error(errData.error || `Request failed (${res.status})`);
       }
       const data = await res.json();
-      setCode(data.code);
-      setSelectedElement(null);
-      setHighlightLine(null);
-      setPositionOverrides({});
-      setRenderMessage(`Converted to ${convertTargetType}: ${data.title || "Chart"}`);
       setConvertModalOpen(false);
+      setAiPreview({ code: data.code, title: data.title || "Converted diagram", summary: data.summary || "", source: "convert" });
+      setAiPreviewOpen(true);
     } catch (err) {
       setConvertError(err.message || "Conversion failed. Please try again.");
     } finally {
       setConvertLoading(false);
     }
+  };
+
+  const handleAiPreviewAccept = () => {
+    if (!aiPreview) return;
+    setCode(aiPreview.code);
+    setSelectedElement(null);
+    setHighlightLine(null);
+    setPositionOverrides({});
+    const label = aiPreview.source === "convert" ? "Converted" : "AI generated";
+    setRenderMessage(`${label}: ${aiPreview.title}`);
+    setAiPreviewOpen(false);
+    setAiPreview(null);
+    setAiContext("");
+  };
+
+  const handleAiPreviewReject = () => {
+    setAiPreviewOpen(false);
+    setAiPreview(null);
   };
 
   const handleDeleteDiagram = (name) => {
@@ -9001,6 +9014,35 @@ function App() {
                 disabled={aiLoading || !aiContext.trim()}
               >
                 {aiLoading ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aiPreviewOpen && aiPreview && (
+        <div className="modal-overlay" onClick={handleAiPreviewReject}>
+          <div className="modal save-modal ai-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{aiPreview.title}</h3>
+            {aiPreview.summary && (
+              <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+                {aiPreview.summary}
+              </p>
+            )}
+
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Generated code</label>
+              <pre className="ai-preview-code">
+                {aiPreview.code}
+              </pre>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="soft-btn" onClick={handleAiPreviewReject}>
+                Reject
+              </button>
+              <button className="soft-btn primary" onClick={handleAiPreviewAccept}>
+                Accept
               </button>
             </div>
           </div>
