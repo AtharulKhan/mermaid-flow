@@ -3469,3 +3469,25 @@ input:focus {
   font-size: 16px;
   color: var(--accent);
 }
+
+/* ── AI Generate ─────────────────────────────────── */
+.ai-modal {
+  width: 480px;
+  max-width: 92vw;
+}
+.ai-btn {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.ai-btn:hover {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+}
+.ai-context-input {
+  font-family: inherit;
+  line-height: 1.5;
+}

@@ -1,5 +1,8 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const fs = require("fs");
+const path = require("path");
 
+const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 const NOTION_API_BASE = "https://api.notion.com/v1";
 const NOTION_API_VERSION = "2022-06-28";
 const ROUTE_PREFIX = "/api/notion";
@@ -145,5 +148,173 @@ exports.notionProxy = onRequest(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
+  }
+);
+
+/* ── AI Generate ─────────────────────────────────── */
+
+function loadPromptTemplate(chartType) {
+  const promptPath = path.join(__dirname, "prompts", `prompt-${chartType}.md`);
+  try {
+    return fs.readFileSync(promptPath, "utf-8");
+  } catch {
+    // Fallback to gantt prompt as generic template
+    const fallback = path.join(__dirname, "prompts", "prompt-gantt.md");
+    return fs.readFileSync(fallback, "utf-8");
+  }
+}
+
+async function sleepWithBackoff(attempt) {
+  const baseDelay = 1000;
+  const maxDelay = 30000;
+  const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+  const jitter = delay * 0.1 * Math.random();
+  return new Promise((resolve) => setTimeout(resolve, delay + jitter));
+}
+
+exports.aiGenerate = onRequest(
+  {
+    region: "us-central1",
+    memory: "512MiB",
+    timeoutSeconds: 60,
+  },
+  async (req, res) => {
+    if (!setCors(req, res)) {
+      res.status(403).json({ error: "Origin not allowed" });
+      return;
+    }
+
+    res.set("Access-Control-Allow-Methods", "POST,OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed. Use POST." });
+      return;
+    }
+
+    const { chartType, context } = req.body || {};
+    if (!context || typeof context !== "string" || context.trim().length === 0) {
+      res.status(400).json({ error: "Missing or empty context field." });
+      return;
+    }
+
+    const normalizedChartType = (chartType || "gantt").toLowerCase();
+
+    let promptTemplate;
+    try {
+      promptTemplate = loadPromptTemplate(normalizedChartType);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load prompt template." });
+      return;
+    }
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    const model = process.env.OPENROUTER_MODEL || "minimax/minimax-m2.5";
+
+    if (!apiKey) {
+      res.status(500).json({ error: "OPENROUTER_API_KEY not configured." });
+      return;
+    }
+
+    const systemMessage = promptTemplate;
+    const userMessage =
+      `Chart type requested: ${normalizedChartType}\n\n` +
+      `Today's date: ${new Date().toISOString().split("T")[0]}\n\n` +
+      `Project context:\n${context.trim()}`;
+
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 50000);
+
+        const orRes = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://app.mermaidflow.co",
+            "X-Title": "MermaidFlow",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: systemMessage },
+              { role: "user", content: userMessage },
+            ],
+            temperature: 0.3,
+            max_tokens: 8192,
+            response_format: { type: "json_object" },
+          }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!orRes.ok) {
+          const errText = await orRes.text();
+          const err = new Error(`OpenRouter ${orRes.status}: ${errText}`);
+          // Don't retry on client errors (except rate limiting)
+          if (orRes.status >= 400 && orRes.status < 500 && orRes.status !== 429) {
+            res.status(502).json({
+              error: "AI generation failed.",
+              details: err.message,
+            });
+            return;
+          }
+          throw err;
+        }
+
+        const orData = await orRes.json();
+        const rawContent = orData.choices?.[0]?.message?.content || "";
+
+        // Parse JSON with recovery
+        let parsed;
+        try {
+          parsed = JSON.parse(rawContent);
+        } catch {
+          // Try extracting JSON from markdown code blocks
+          const match = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (match) {
+            parsed = JSON.parse(match[1].trim());
+          } else {
+            // Try finding first { to last }
+            const start = rawContent.indexOf("{");
+            const end = rawContent.lastIndexOf("}");
+            if (start !== -1 && end > start) {
+              parsed = JSON.parse(rawContent.slice(start, end + 1));
+            } else {
+              throw new Error("Failed to parse AI response as JSON");
+            }
+          }
+        }
+
+        if (!parsed.code || typeof parsed.code !== "string") {
+          throw new Error("AI response missing 'code' field");
+        }
+
+        res.status(200).json({
+          code: parsed.code,
+          title: parsed.title || "Untitled",
+          summary: parsed.summary || "",
+        });
+        return;
+      } catch (err) {
+        lastError = err;
+        if (attempt < 2) {
+          await sleepWithBackoff(attempt);
+        }
+      }
+    }
+
+    res.status(502).json({
+      error: "AI generation failed after retries.",
+      details: lastError?.message || "Unknown error",
+    });
   }
 );
