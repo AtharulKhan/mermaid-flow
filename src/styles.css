@@ -436,6 +436,8 @@ input:focus {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .date-toggle-btn {
@@ -603,6 +605,18 @@ input:focus {
 
 .dropdown-item:hover {
   background: var(--panel-hover);
+}
+
+.dropdown-item-empty {
+  padding: 8px 12px;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+}
+
+.gantt-assignee-menu {
+  min-width: 220px;
+  max-height: 280px;
+  overflow-y: auto;
 }
 
 /* ── Tools Drawer (Right Overlay) ──────────────────────── */

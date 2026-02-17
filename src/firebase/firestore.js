@@ -224,7 +224,7 @@ export async function deleteSubproject(projectId, subprojectId) {
 
 // ── Flows ─────────────────────────────────────────────
 
-export async function createFlow(ownerId, { name, code, diagramType, projectId, subprojectId, tags }) {
+export async function createFlow(ownerId, { name, code, diagramType, projectId, subprojectId, tags, ganttViewState }) {
   return runFirestoreOperation("createFlow", { ownerId, name, projectId, subprojectId }, async () => {
     const ref = await addDoc(collection(db, "flows"), {
       name: name || "Untitled",
@@ -238,10 +238,21 @@ export async function createFlow(ownerId, { name, code, diagramType, projectId, 
       sharedWith: [ownerId],
       publicAccess: null,
       thumbnailUrl: null,
+      ganttViewState: ganttViewState || null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
-    return { id: ref.id, name, code, diagramType, ownerId, projectId, subprojectId, tags: tags || [] };
+    return {
+      id: ref.id,
+      name,
+      code,
+      diagramType,
+      ownerId,
+      projectId,
+      subprojectId,
+      tags: tags || [],
+      ganttViewState: ganttViewState || null,
+    };
   });
 }
 

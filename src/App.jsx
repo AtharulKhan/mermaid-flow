@@ -91,6 +91,73 @@ function normalizeAssigneeList(value) {
     .join(", ");
 }
 
+function normalizeAssigneeArray(value) {
+  const source = Array.isArray(value) ? value : String(value || "").split(",");
+  const seen = new Set();
+  const names = [];
+  for (const raw of source) {
+    const name = String(raw || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}
+
+function normalizeGanttViewState(raw, fallback) {
+  const state = raw && typeof raw === "object" ? raw : {};
+  const nextScale = state.ganttScale === "month" ? "month" : state.ganttScale === "week" ? "week" : fallback.ganttScale;
+  return {
+    showDates: typeof state.showDates === "boolean" ? state.showDates : fallback.showDates,
+    showGrid: typeof state.showGrid === "boolean" ? state.showGrid : fallback.showGrid,
+    ganttScale: nextScale,
+    pinCategories: typeof state.pinCategories === "boolean" ? state.pinCategories : fallback.pinCategories,
+    showCriticalPath: typeof state.showCriticalPath === "boolean" ? state.showCriticalPath : fallback.showCriticalPath,
+    showDepLines: typeof state.showDepLines === "boolean" ? state.showDepLines : fallback.showDepLines,
+    executiveView: typeof state.executiveView === "boolean" ? state.executiveView : fallback.executiveView,
+    showRisks: typeof state.showRisks === "boolean" ? state.showRisks : fallback.showRisks,
+    showBaseline: typeof state.showBaseline === "boolean" ? state.showBaseline : fallback.showBaseline,
+    selectedAssignees: normalizeAssigneeArray(
+      state.selectedAssignees != null ? state.selectedAssignees : fallback.selectedAssignees
+    ),
+  };
+}
+
+function matchesAssigneeFilter(taskAssignee, selectedSet) {
+  if (!selectedSet?.size) return true;
+  const assignees = String(taskAssignee || "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return assignees.some((assignee) => selectedSet.has(assignee));
+}
+
+function filterTasksByAssignee(tasks, selectedAssignees) {
+  if (!tasks?.length) return [];
+  const selectedSet = new Set(
+    normalizeAssigneeArray(selectedAssignees).map((name) => name.toLowerCase())
+  );
+  if (!selectedSet.size) return tasks;
+
+  const visibleSections = new Set();
+  for (const task of tasks) {
+    if (task.isVertMarker) continue;
+    if (!matchesAssigneeFilter(task.assignee, selectedSet)) continue;
+    const section = String(task.section || "").trim().toLowerCase();
+    if (section) visibleSections.add(section);
+  }
+
+  return tasks.filter((task) => {
+    if (task.isVertMarker) {
+      const section = String(task.section || task.label || "").trim().toLowerCase();
+      return section && visibleSections.has(section);
+    }
+    return matchesAssigneeFilter(task.assignee, selectedSet);
+  });
+}
+
 function AssigneeTagInput({ value, onChange, suggestions }) {
   const tags = String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
   const [inputVal, setInputVal] = useState("");
@@ -1926,7 +1993,7 @@ function getIframeSrcDoc() {
         }
       };
 
-      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags, cycles, baselineTasks) => {
+      const renderCustomGantt = (tasks, scale, showDates, showGrid, directives, compact, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, riskFlags, cycles, baselineTasks, assigneeFilterApplied) => {
         setGanttMode(true);
         clearGanttOverlay();
         canvas.innerHTML = "";
@@ -1935,7 +2002,9 @@ function getIframeSrcDoc() {
         if (!tasks || !tasks.length) {
           const msg = document.createElement("div");
           msg.style.cssText = "padding:32px;color:#64748b;font-size:14px;";
-          msg.textContent = "No tasks found in gantt definition.";
+          msg.textContent = assigneeFilterApplied
+            ? "No tasks match the selected assignee filter."
+            : "No tasks found in gantt definition.";
           canvas.appendChild(msg);
           return;
         }
@@ -5332,7 +5401,7 @@ function getIframeSrcDoc() {
           if (isGantt) {
             // Custom HTML Gantt renderer — bypass Mermaid SVG
             const gd = data.payload?.ganttData || {};
-            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {}, gd.cycles || [], gd.baselineTasks || null);
+            renderCustomGantt(gd.tasks || [], gd.scale || "week", gd.showDates !== false, gd.showGrid || false, gd.directives || {}, gd.compact || false, gd.ganttZoom || 1, gd.pinCategories !== false, gd.showCriticalPath || false, gd.showDepLines || false, gd.executiveView || false, gd.showRisks || false, gd.riskFlags || {}, gd.cycles || [], gd.baselineTasks || null, gd.assigneeFilterApplied || false);
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomGantt: true });
           } else if (isFlowchart) {
             // Custom HTML Flowchart renderer — bypass Mermaid SVG
@@ -5455,6 +5524,7 @@ function App() {
   const mobileViewMenuRef = useRef(null);
   const ganttViewMenuRef = useRef(null);
   const ganttAnalysisMenuRef = useRef(null);
+  const ganttAssigneeMenuRef = useRef(null);
 
   // Router integration
   const params = useParams();
@@ -5547,22 +5617,25 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presentMode, setPresentMode] = useState(false);
   const [editorWidth, setEditorWidth] = useState(30);
+  const initialPinCategories = !isMobileViewport();
   const [showDates, setShowDates] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [ganttScale, setGanttScale] = useState("week"); // "week" | "month"
   const [compactMode, setCompactMode] = useState(false);
   const [ganttZoom, setGanttZoom] = useState(1.0); // multiplier on pxPerDay for Gantt time density
-  const [pinCategories, setPinCategories] = useState(() => !isMobileViewport()); // sticky Category/Phase column
+  const [pinCategories, setPinCategories] = useState(initialPinCategories); // sticky Category/Phase column
   const [showCriticalPath, setShowCriticalPath] = useState(false);
   const [showDepLines, setShowDepLines] = useState(false);
   const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
   const [showRisks, setShowRisks] = useState(false);
-  const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis"
+  const [selectedAssignees, setSelectedAssignees] = useState([]);
+  const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis" | "assignees"
   const [showChainView, setShowChainView] = useState(false);
   const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
   const [baselineCode, setBaselineCode] = useState(null);
   const [baselineSetAt, setBaselineSetAt] = useState(null);
   const [showBaseline, setShowBaseline] = useState(true);
+  const lastSavedGanttViewStateRef = useRef("");
 
   // Interactive diagram state
   const [positionOverrides, setPositionOverrides] = useState({});
@@ -5694,6 +5767,32 @@ function App() {
     }
     return options;
   }, [ganttSections, ganttDraft.section]);
+  const ganttViewState = useMemo(
+    () => ({
+      showDates,
+      showGrid,
+      ganttScale,
+      pinCategories,
+      showCriticalPath,
+      showDepLines,
+      executiveView,
+      showRisks,
+      showBaseline,
+      selectedAssignees: normalizeAssigneeArray(selectedAssignees),
+    }),
+    [
+      showDates,
+      showGrid,
+      ganttScale,
+      pinCategories,
+      showCriticalPath,
+      showDepLines,
+      executiveView,
+      showRisks,
+      showBaseline,
+      selectedAssignees,
+    ]
+  );
   const allAssignees = useMemo(() => {
     const set = new Set();
     for (const t of ganttTasks) {
@@ -5705,6 +5804,16 @@ function App() {
     }
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [ganttTasks]);
+  const assigneeFilterOptions = useMemo(() => {
+    const merged = [...allAssignees];
+    for (const selected of selectedAssignees) {
+      if (!merged.some((name) => name.toLowerCase() === selected.toLowerCase())) {
+        merged.push(selected);
+      }
+    }
+    return merged.sort((a, b) => a.localeCompare(b));
+  }, [allAssignees, selectedAssignees]);
+  const hasAssigneeFilter = selectedAssignees.length > 0;
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
     return { direction: "TD", nodes: [], edges: [], subgraphs: [] };
@@ -5749,6 +5858,16 @@ function App() {
   const canEditCurrentFlow = currentFlowRole === "owner" || currentFlowRole === "edit" || hasPublicEditAccess;
   const hasPublicCommentAccess = ["comment", "edit"].includes(flowMeta?.publicAccess || "");
   const canCommentCurrentFlow = canEditCurrentFlow || currentFlowRole === "comment" || hasPublicCommentAccess;
+  const toggleAssigneeFilter = (assignee) => {
+    const target = String(assignee || "").trim();
+    if (!target) return;
+    setSelectedAssignees((prev) => {
+      const normalized = normalizeAssigneeArray(prev);
+      const idx = normalized.findIndex((name) => name.toLowerCase() === target.toLowerCase());
+      if (idx >= 0) return normalized.filter((_, i) => i !== idx);
+      return [...normalized, target];
+    });
+  };
 
   // Get connected nodes for any diagram type (for edit modal navigation)
   const getNodeConnections = (nodeId) => {
@@ -5908,8 +6027,9 @@ function App() {
         conflicts: conflictsByTask.get(t.label) || [],
       };
     });
+    const visibleTasks = filterTasksByAssignee(enrichedTasks, selectedAssignees);
     const ganttData = {
-      tasks: enrichedTasks,
+      tasks: visibleTasks,
       directives,
       scale: ganttScale,
       showDates,
@@ -5921,9 +6041,10 @@ function App() {
       showDepLines,
       executiveView,
       showRisks,
-      riskFlags: showRisks ? computeRiskFlags(enrichedTasks) : {},
+      riskFlags: showRisks ? computeRiskFlags(visibleTasks) : {},
       cycles,
       baselineTasks: showBaseline ? baselineTasks : null,
+      assigneeFilterApplied: selectedAssignees.length > 0,
     };
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
@@ -5985,20 +6106,50 @@ function App() {
   /* ── Load flow from Firestore ────────────────────────── */
   const flowLoadedRef = useRef(false);
   useEffect(() => {
-    if (!flowId) return;
+    if (!flowId) {
+      lastSavedGanttViewStateRef.current = "";
+      return;
+    }
     flowLoadedRef.current = false;
+    lastSavedGanttViewStateRef.current = "";
     (async () => {
       try {
         const flow = await getFlow(flowId);
         if (flow) {
+          const defaultViewState = {
+            showDates: true,
+            showGrid: false,
+            ganttScale: "week",
+            pinCategories: initialPinCategories,
+            showCriticalPath: false,
+            showDepLines: false,
+            executiveView: false,
+            showRisks: false,
+            showBaseline: true,
+            selectedAssignees: [],
+          };
+          const savedViewState = normalizeGanttViewState(flow.ganttViewState, defaultViewState);
+          lastSavedGanttViewStateRef.current = JSON.stringify(savedViewState);
+
           setCode(flow.code || DEFAULT_CODE);
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
           setBaselineCode(flow.baselineCode || null);
           setBaselineSetAt(flow.baselineSetAt || null);
+          setShowDates(savedViewState.showDates);
+          setShowGrid(savedViewState.showGrid);
+          setGanttScale(savedViewState.ganttScale);
+          setPinCategories(savedViewState.pinCategories);
+          setShowCriticalPath(savedViewState.showCriticalPath);
+          setShowDepLines(savedViewState.showDepLines);
+          setExecutiveView(savedViewState.executiveView);
+          setShowRisks(savedViewState.showRisks);
+          setShowBaseline(savedViewState.showBaseline);
+          setSelectedAssignees(savedViewState.selectedAssignees);
           // Delay marking loaded so the auto-save doesn't fire on initial load
           window.setTimeout(() => { flowLoadedRef.current = true; }, 3000);
         } else {
+          lastSavedGanttViewStateRef.current = "";
           flowLoadedRef.current = true;
         }
       } catch (err) {
@@ -6034,6 +6185,34 @@ function App() {
     }, 2000);
     return () => window.clearTimeout(handle);
   }, [code, flowId, diagramType, flowMeta, currentUser]);
+
+  /* ── Persist gantt view preferences ─────────────────── */
+  useEffect(() => {
+    if (!flowId || isEmbed || toolsetKey !== "gantt") return;
+    if (!flowLoadedRef.current) return;
+    const userRole = flowMeta?.sharing?.[currentUser?.uid];
+    const isOwner = flowMeta?.ownerId === currentUser?.uid;
+    const canPubliclyEdit = flowMeta?.publicAccess === "edit";
+    if (!isOwner && userRole !== "edit" && !canPubliclyEdit) return;
+
+    const serialized = JSON.stringify(ganttViewState);
+    if (serialized === lastSavedGanttViewStateRef.current) return;
+
+    const handle = window.setTimeout(async () => {
+      try {
+        await updateFlow(flowId, { ganttViewState });
+        lastSavedGanttViewStateRef.current = serialized;
+      } catch (err) {
+        logAppFirestoreError("autoSave/updateFlowPreferences", err, {
+          flowId,
+          userUid: currentUser?.uid || null,
+        });
+        console.warn("Gantt view autosave failed:", formatFirestoreError(err));
+      }
+    }, 600);
+
+    return () => window.clearTimeout(handle);
+  }, [flowId, isEmbed, toolsetKey, flowMeta, currentUser, ganttViewState]);
 
   /* ── Auto-save to localStorage ─────────────────────── */
   useEffect(() => {
@@ -6492,7 +6671,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 100);
     return () => window.clearTimeout(handle);
-  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, toolsetKey, showBaseline, baselineTasks]);
+  }, [showDates, ganttScale, showGrid, compactMode, ganttZoom, pinCategories, showCriticalPath, showDepLines, executiveView, showRisks, selectedAssignees, toolsetKey, showBaseline, baselineTasks]);
 
   /* ── Resizable divider ───────────────────────────────── */
   const onDividerPointerDown = (e) => {
@@ -6537,7 +6716,8 @@ function App() {
       if (ganttDropdown) {
         const inView = ganttViewMenuRef.current?.contains(e.target);
         const inAnalysis = ganttAnalysisMenuRef.current?.contains(e.target);
-        if (!inView && !inAnalysis) setGanttDropdown(null);
+        const inAssignees = ganttAssigneeMenuRef.current?.contains(e.target);
+        if (!inView && !inAnalysis && !inAssignees) setGanttDropdown(null);
       }
     };
     document.addEventListener("pointerdown", handler);
@@ -6909,6 +7089,7 @@ function App() {
         projectId: null,
         subprojectId: null,
         tags: [],
+        ganttViewState,
       });
       setRenderMessage("Saved to Firebase. Autosave is now active.");
       navigate(`/editor/${created.id}`);
@@ -6937,7 +7118,9 @@ function App() {
           code,
           diagramType,
           name: flowMeta?.name || "Untitled",
+          ganttViewState,
         });
+        lastSavedGanttViewStateRef.current = JSON.stringify(ganttViewState);
         setRenderMessage("Saved to Firebase");
       } catch (err) {
         logAppFirestoreError("manualSave/updateFlow", err, {
@@ -7274,6 +7457,33 @@ function App() {
                     {showRisks ? "Hide risks" : "Show risks"}
                   </button>
                   <div className="dropdown-sep" />
+                  {assigneeFilterOptions.length > 0 ? (
+                    assigneeFilterOptions.map((assignee) => {
+                      const checked = selectedAssignees.some(
+                        (name) => name.toLowerCase() === assignee.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={`mobile-assignee-${assignee}`}
+                          className="dropdown-item"
+                          onClick={() => {
+                            toggleAssigneeFilter(assignee);
+                            setMobileViewMenuOpen(false);
+                          }}
+                        >
+                          <span className="dropdown-item-check">{checked ? "\u2713" : ""}</span>{assignee}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="dropdown-item-empty">No assignees found</div>
+                  )}
+                  {hasAssigneeFilter && (
+                    <button className="dropdown-item" onClick={() => { setSelectedAssignees([]); setMobileViewMenuOpen(false); }}>
+                      <span className="dropdown-item-check">\u2715</span>Clear assignee filter
+                    </button>
+                  )}
+                  <div className="dropdown-sep" />
                   <button className="dropdown-item" onClick={() => { setExecutiveView((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {executiveView ? "All tasks" : "Executive"}
                   </button>
@@ -7364,6 +7574,42 @@ function App() {
                       <button className="dropdown-item" onClick={() => { setShowChainView((p) => !p); setGanttDropdown(null); }}>
                         <span className="dropdown-item-check">{showChainView ? "\u2713" : ""}</span>Chain view
                       </button>
+                    </div>
+                  </div>
+                  <div className="dropdown-wrap" ref={ganttAssigneeMenuRef}>
+                    <button
+                      className={`date-toggle-btn${ganttDropdown === "assignees" || hasAssigneeFilter ? " active" : ""}`}
+                      onClick={() => toggleGanttDropdown("assignees")}
+                    >
+                      {hasAssigneeFilter ? `Assignees (${selectedAssignees.length})` : "Assignees"} &#x25BE;
+                    </button>
+                    <div className={`dropdown-menu gantt-assignee-menu${ganttDropdown === "assignees" ? " open" : ""}`}>
+                      {assigneeFilterOptions.length > 0 ? (
+                        assigneeFilterOptions.map((assignee) => {
+                          const checked = selectedAssignees.some(
+                            (name) => name.toLowerCase() === assignee.toLowerCase()
+                          );
+                          return (
+                            <button
+                              key={assignee}
+                              className="dropdown-item"
+                              onClick={() => toggleAssigneeFilter(assignee)}
+                            >
+                              <span className="dropdown-item-check">{checked ? "\u2713" : ""}</span>{assignee}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="dropdown-item-empty">No assignees found</div>
+                      )}
+                      {hasAssigneeFilter && (
+                        <>
+                          <div className="dropdown-sep" />
+                          <button className="dropdown-item" onClick={() => setSelectedAssignees([])}>
+                            <span className="dropdown-item-check">\u2715</span>Clear filter
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                   <button
