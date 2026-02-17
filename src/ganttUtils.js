@@ -839,6 +839,47 @@ export function deleteGanttTask(code, task) {
   return lines.join("\n");
 }
 
+/**
+ * Find all tasks that depend on the given task (via "after" references).
+ * Matches by both idToken and label.
+ */
+export function findDependentTasks(tasks, task) {
+  if (!task) return [];
+  const keys = new Set();
+  if (task.idToken) keys.add(task.idToken.toLowerCase());
+  if (task.label) keys.add(task.label.toLowerCase());
+  return tasks.filter((t) =>
+    t !== task &&
+    (t.afterDeps || []).some((dep) => keys.has(dep.toLowerCase()))
+  );
+}
+
+/**
+ * Remove all "after" references to the given task from the code.
+ * For each dependent task, removes the deleted task's id/label from
+ * the "after ..." token. If no deps remain, removes the "after" token entirely.
+ */
+export function removeDependencyReferences(code, allTasks, deletedTask) {
+  if (!deletedTask) return code;
+  const keys = new Set();
+  if (deletedTask.idToken) keys.add(deletedTask.idToken.toLowerCase());
+  if (deletedTask.label) keys.add(deletedTask.label.toLowerCase());
+
+  const dependents = findDependentTasks(allTasks, deletedTask);
+  if (dependents.length === 0) return code;
+
+  let updated = code;
+  // Process dependents in reverse line order so splicing doesn't shift indices
+  const sorted = [...dependents].sort((a, b) => b.lineIndex - a.lineIndex);
+  for (const dep of sorted) {
+    const remaining = (dep.afterDeps || []).filter(
+      (d) => !keys.has(d.toLowerCase())
+    );
+    updated = updateGanttDependency(updated, dep, remaining);
+  }
+  return updated;
+}
+
 export function insertGanttTaskAfter(code, task, draft = {}) {
   if (!task) return code;
   const lines = code.split("\n");
