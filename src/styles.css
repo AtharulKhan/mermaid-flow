@@ -3554,3 +3554,29 @@ input:focus {
   font-family: inherit;
   line-height: 1.5;
 }
+.ai-preview-modal {
+  width: 600px;
+  max-width: 92vw;
+}
+.ai-preview-code {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  max-height: 400px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.convert-btn {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.convert-btn:hover {
+  background: rgba(22, 163, 74, 0.18);
+  border-color: var(--success);
+}
