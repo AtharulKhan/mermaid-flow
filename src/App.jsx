@@ -1405,6 +1405,10 @@ function getIframeSrcDoc() {
         box-shadow: 0 1px 4px rgba(0,0,0,0.15);
       }
       .mf-flow-port:hover { opacity: 1 !important; transform: scale(1.1); }
+      .mf-flow-port.mf-port-dragging { opacity: 1 !important; background: #1d4ed8; transform: scale(1.2); }
+      .mf-flow-drag-line { pointer-events: none; position: absolute; top: 0; left: 0; z-index: 9; }
+      .mf-flow-node.mf-connect-drop-target { outline: 2.5px solid #3b82f6; outline-offset: 3px; border-radius: 6px; }
+      [data-theme="dark"] .mf-flow-node.mf-connect-drop-target { outline-color: #60a5fa; }
       /* ── General Diagram Styling ── */
       .node rect, .node circle, .node ellipse, .node polygon { rx: 8; ry: 8; }
       .node rect { stroke-width: 1.5px !important; }
@@ -3836,7 +3840,7 @@ function getIframeSrcDoc() {
             dragInfo = null;
           });
 
-          // Hover port indicators
+          // Hover port indicators with drag-to-connect
           el.addEventListener("mouseenter", () => {
             if (connectMode) return;
             container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
@@ -3845,27 +3849,102 @@ function getIframeSrcDoc() {
             const w = dim.width; const h = dim.height;
             const cx = left + w / 2; const cy = top + h / 2;
             const portPositions = [
-              { name: "top", x: cx - 9, y: top - 22 },
-              { name: "bottom", x: cx - 9, y: top + h + 4 },
-              { name: "left", x: left - 22, y: cy - 9 },
-              { name: "right", x: left + w + 4, y: cy - 9 },
+              { name: "top", x: cx - 9, y: top - 22, anchorX: cx, anchorY: top },
+              { name: "bottom", x: cx - 9, y: top + h + 4, anchorX: cx, anchorY: top + h },
+              { name: "left", x: left - 22, y: cy - 9, anchorX: left, anchorY: cy },
+              { name: "right", x: left + w + 4, y: cy - 9, anchorX: left + w, anchorY: cy },
             ];
             for (const pp of portPositions) {
               const port = document.createElement("div");
               port.className = "mf-flow-port";
               port.style.left = pp.x + "px"; port.style.top = pp.y + "px"; port.style.opacity = "1";
               port.textContent = "+";
-              port.addEventListener("click", (pe) => {
+
+              // Drag-to-connect
+              let portDrag = null;
+              port.addEventListener("pointerdown", (pe) => {
                 pe.stopPropagation();
-                send("port:clicked", { nodeId: node.id, port: pp.name });
+                pe.preventDefault();
+                port.setPointerCapture(pe.pointerId);
+                port.classList.add("mf-port-dragging");
+
+                // Create temporary SVG drag line
+                const svgNS = "http://www.w3.org/2000/svg";
+                const dragSvg = document.createElementNS(svgNS, "svg");
+                dragSvg.setAttribute("class", "mf-flow-drag-line");
+                dragSvg.style.width = container.scrollWidth + "px";
+                dragSvg.style.height = container.scrollHeight + "px";
+                const dragLine = document.createElementNS(svgNS, "line");
+                dragLine.setAttribute("x1", pp.anchorX);
+                dragLine.setAttribute("y1", pp.anchorY);
+                dragLine.setAttribute("x2", pp.anchorX);
+                dragLine.setAttribute("y2", pp.anchorY);
+                dragLine.setAttribute("stroke", "#3b82f6");
+                dragLine.setAttribute("stroke-width", "2");
+                dragLine.setAttribute("stroke-dasharray", "6 3");
+                dragSvg.appendChild(dragLine);
+                container.appendChild(dragSvg);
+
+                portDrag = { dragSvg, dragLine, dragging: false, currentTarget: null };
+              });
+              port.addEventListener("pointermove", (pe) => {
+                if (!portDrag) return;
+                portDrag.dragging = true;
+                const cr = container.getBoundingClientRect();
+                const mx = pe.clientX - cr.left + container.scrollLeft;
+                const my = pe.clientY - cr.top + container.scrollTop;
+                portDrag.dragLine.setAttribute("x2", mx);
+                portDrag.dragLine.setAttribute("y2", my);
+
+                // Hit-test: hide SVG to find element underneath
+                portDrag.dragSvg.style.display = "none";
+                const hitEl = document.elementFromPoint(pe.clientX, pe.clientY);
+                portDrag.dragSvg.style.display = "";
+                const targetNode = hitEl?.closest(".mf-flow-node");
+                if (portDrag.currentTarget && portDrag.currentTarget !== targetNode) {
+                  portDrag.currentTarget.classList.remove("mf-connect-drop-target");
+                }
+                if (targetNode && targetNode !== el) {
+                  targetNode.classList.add("mf-connect-drop-target");
+                  portDrag.currentTarget = targetNode;
+                } else {
+                  portDrag.currentTarget = null;
+                }
+              });
+              port.addEventListener("pointerup", (pe) => {
+                if (!portDrag) return;
+                try { port.releasePointerCapture(pe.pointerId); } catch(_) {}
+                port.classList.remove("mf-port-dragging");
+                portDrag.dragSvg.remove();
+                if (portDrag.dragging && portDrag.currentTarget) {
+                  portDrag.currentTarget.classList.remove("mf-connect-drop-target");
+                  const targetId = portDrag.currentTarget.getAttribute("data-node-id");
+                  if (targetId && targetId !== node.id) {
+                    send("connect:complete", { sourceId: node.id, targetId: targetId });
+                  }
+                } else if (!portDrag.dragging) {
+                  // Plain click (no drag) — open node creation form
+                  send("port:clicked", { nodeId: node.id, port: pp.name });
+                }
+                portDrag = null;
                 container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
               });
+              // Also handle pointer leaving without up (cancel)
+              port.addEventListener("pointercancel", (pe) => {
+                if (!portDrag) return;
+                try { port.releasePointerCapture(pe.pointerId); } catch(_) {}
+                port.classList.remove("mf-port-dragging");
+                portDrag.dragSvg.remove();
+                if (portDrag.currentTarget) portDrag.currentTarget.classList.remove("mf-connect-drop-target");
+                portDrag = null;
+              });
+
               container.appendChild(port);
             }
           });
           el.addEventListener("mouseleave", () => {
             setTimeout(() => {
-              if (!container.querySelector(".mf-flow-port:hover")) {
+              if (!container.querySelector(".mf-flow-port:hover") && !container.querySelector(".mf-flow-port.mf-port-dragging")) {
                 container.querySelectorAll(".mf-flow-port").forEach(p => p.remove());
               }
             }, 200);
