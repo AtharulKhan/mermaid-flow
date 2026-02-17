@@ -9277,6 +9277,25 @@ function App() {
   }, [code]);
 
   /* ── Gantt draft sync ────────────────────────────────── */
+  // Build a stable fingerprint of the selected task's data so the draft
+  // only resets when the underlying task genuinely changes — not when
+  // ganttTasks is recomputed and the object reference happens to differ.
+  const selectedGanttTaskFingerprint = selectedGanttTask
+    ? [
+        selectedGanttTask.lineIndex,
+        selectedGanttTask.label,
+        selectedGanttTask.startDate,
+        selectedGanttTask.endDate,
+        (selectedGanttTask.statusTokens || []).join(","),
+        selectedGanttTask.isMilestone,
+        selectedGanttTask.assignee,
+        selectedGanttTask.notes,
+        selectedGanttTask.link,
+        selectedGanttTask.section,
+        selectedGanttTask.progress,
+        (selectedGanttTask.afterDeps || []).join(","),
+      ].join("|")
+    : "";
   useEffect(() => {
     if (!selectedGanttTask) {
       setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", progress: "", dependsOn: [] });
@@ -9301,7 +9320,7 @@ function App() {
       progress: selectedGanttTask.progress !== null && selectedGanttTask.progress !== undefined ? String(selectedGanttTask.progress) : "",
       dependsOn: selectedGanttTask.afterDeps || [],
     });
-  }, [selectedGanttTask]);
+  }, [selectedGanttTaskFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── PostMessage listener ────────────────────────────── */
   useEffect(() => {
