@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { signUp, signIn, signInWithGoogle, resetPassword } from "../firebase/auth";
+import logoSvg from "../assets/logo.svg";
 import { getStoredTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "../themeUtils";
 
 export default function AuthPage() {
@@ -61,7 +62,7 @@ export default function AuthPage() {
       </button>
       <div className="auth-card">
         <div className="auth-header">
-          <div className="brand-mark">MF</div>
+          <img src={logoSvg} alt="MF" className="brand-mark" />
           <h1>Mermaid Flow</h1>
           <p className="auth-subtitle">Visual diagram editor for teams</p>
         </div>

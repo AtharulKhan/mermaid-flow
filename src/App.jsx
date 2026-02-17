@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { DIAGRAM_LIBRARY, DEFAULT_CODE, classifyDiagramType } from "./diagramData";
+import logoSvg from "./assets/logo.svg";
 import {
   findTaskByLabel,
   parseGanttTasks,
@@ -2426,7 +2427,7 @@ function getIframeSrcDoc() {
               bar.style.top = top + "px";
               bar.style.height = barHeight + "px";
             }
-            bar.setAttribute("data-label", task.label || "");
+            bar.setAttribute("data-task-label", task.label || "");
             const rawTaskLink = String(task.link || "").trim();
             const openableTaskLink = buildOpenableTaskUrl(rawTaskLink);
             const hasTaskLink = Boolean(rawTaskLink);
@@ -2475,7 +2476,7 @@ function getIframeSrcDoc() {
               // Create temporary SVG drag line
               const svgNS = "http://www.w3.org/2000/svg";
               const dragSvg = document.createElementNS(svgNS, "svg");
-              dragSvg.className = "mf-dep-drag-line";
+              dragSvg.setAttribute("class", "mf-dep-drag-line");
               dragSvg.style.width = canvas.scrollWidth + "px";
               dragSvg.style.height = canvas.scrollHeight + "px";
               const dragLine = document.createElementNS(svgNS, "line");
@@ -2525,7 +2526,7 @@ function getIframeSrcDoc() {
                 if (!dragging) return;
                 if (currentTarget) {
                   currentTarget.classList.remove("mf-dep-drop-target");
-                  const targetLabel = currentTarget.getAttribute("data-label") || "";
+                  const targetLabel = currentTarget.getAttribute("data-task-label") || currentTarget.getAttribute("data-label") || "";
                   if (targetLabel && targetLabel !== fromLabel) {
                     send("gantt:dep-created", { fromId, fromLabel, targetLabel });
                   }
@@ -5553,7 +5554,7 @@ function getIframeSrcDoc() {
           const label = data.payload?.label || "";
           canvas.querySelectorAll(".mf-gantt-bar.mf-selected, .mf-gantt-milestone.mf-selected").forEach((el) => el.classList.remove("mf-selected"));
           if (label) {
-            const bar = canvas.querySelector('.mf-gantt-bar[data-label="' + CSS.escape(label) + '"], .mf-gantt-milestone[data-label="' + CSS.escape(label) + '"]');
+            const bar = canvas.querySelector('.mf-gantt-bar[data-task-label="' + CSS.escape(label) + '"], .mf-gantt-milestone[data-task-label="' + CSS.escape(label) + '"]');
             if (bar) bar.classList.add("mf-selected");
           }
           return;
@@ -5778,6 +5779,11 @@ function App() {
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [resourcePanelOpen, setResourcePanelOpen] = useState(false);
   const [notionSyncOpen, setNotionSyncOpen] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiChartType, setAiChartType] = useState("gantt");
+  const [aiContext, setAiContext] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -5834,6 +5840,7 @@ function App() {
   const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
   const [showRisks, setShowRisks] = useState(false);
   const [selectedAssignees, setSelectedAssignees] = useState([]);
+  const [assigneeFilterQuery, setAssigneeFilterQuery] = useState("");
   const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis" | "assignees"
   const [showChainView, setShowChainView] = useState(false);
   const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
@@ -5864,6 +5871,7 @@ function App() {
   // Derived
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
   const lineCount = code.split("\n").length;
+  const flowHeaderName = String(flowMeta?.name || "").trim();
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
   const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
@@ -6025,6 +6033,11 @@ function App() {
     }
     return merged.sort((a, b) => a.localeCompare(b));
   }, [allAssignees, selectedAssignees]);
+  const filteredAssigneeOptions = useMemo(() => {
+    const query = assigneeFilterQuery.trim().toLowerCase();
+    if (!query) return assigneeFilterOptions;
+    return assigneeFilterOptions.filter((name) => name.toLowerCase().includes(query));
+  }, [assigneeFilterOptions, assigneeFilterQuery]);
   const hasAssigneeFilter = selectedAssignees.length > 0;
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
@@ -6408,6 +6421,8 @@ function App() {
 
   /* ── Load flow from Firestore ────────────────────────── */
   const flowLoadedRef = useRef(false);
+  const lastVersionSaveRef = useRef(0);
+  const lastVersionCodeRef = useRef("");
   useEffect(() => {
     if (!flowId) {
       lastSavedGanttViewStateRef.current = "";
@@ -6436,6 +6451,7 @@ function App() {
 
           setCode(flow.code || DEFAULT_CODE);
           clearHistory();
+          lastVersionCodeRef.current = flow.code || DEFAULT_CODE;
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
           setBaselineCode(flow.baselineCode || null);
@@ -6477,7 +6493,12 @@ function App() {
     const handle = window.setTimeout(async () => {
       try {
         await updateFlow(flowId, { code, diagramType });
-        saveFlowVersion(flowId, { code, diagramType }).catch(() => {});
+        const now = Date.now();
+        if (now - lastVersionSaveRef.current >= 10 * 60 * 1000 && code !== lastVersionCodeRef.current) {
+          lastVersionSaveRef.current = now;
+          lastVersionCodeRef.current = code;
+          saveFlowVersion(flowId, { code, diagramType }).catch(() => {});
+        }
       } catch (err) {
         logAppFirestoreError("autoSave/updateFlow", err, {
           flowId,
@@ -6489,6 +6510,11 @@ function App() {
     }, 2000);
     return () => window.clearTimeout(handle);
   }, [code, flowId, diagramType, flowMeta, currentUser]);
+
+  useEffect(() => {
+    if (ganttDropdown === "assignees" || mobileViewMenuOpen) return;
+    setAssigneeFilterQuery("");
+  }, [ganttDropdown, mobileViewMenuOpen]);
 
   /* ── Persist gantt view preferences ─────────────────── */
   useEffect(() => {
@@ -7691,6 +7717,41 @@ function App() {
     setRenderMessage(`Loaded "${diagram.name}"`);
   };
 
+  const handleAiGenerate = async () => {
+    if (!aiContext.trim()) {
+      setAiError("Please describe your project or requirements.");
+      return;
+    }
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const res = await fetch("https://us-central1-mermaidflow-487516.cloudfunctions.net/aiGenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chartType: aiChartType,
+          context: aiContext.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Request failed (${res.status})`);
+      }
+      const data = await res.json();
+      setCode(data.code);
+      setSelectedElement(null);
+      setHighlightLine(null);
+      setPositionOverrides({});
+      setRenderMessage(`AI generated: ${data.title || "Chart"}`);
+      setAiModalOpen(false);
+      setAiContext("");
+    } catch (err) {
+      setAiError(err.message || "Generation failed. Please try again.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const handleDeleteDiagram = (name) => {
     deleteDiagramFromStorage(name);
     setSavedDiagrams(loadSavedDiagrams());
@@ -7776,7 +7837,7 @@ function App() {
         {isEditable && (
           <header className="embed-toolbar">
             <div className="brand">
-              <div className="brand-mark">MF</div>
+              <img src={logoSvg} alt="MF" className="brand-mark" />
               <span className="embed-title">Mermaid Flow</span>
             </div>
             <div className="toolbar">
@@ -7812,8 +7873,15 @@ function App() {
           title="Go to home"
           onClick={() => navigate(currentUser ? "/dashboard" : "/")}
         >
-          <div className="brand-mark">MF</div>
-          <h1>Mermaid Flow</h1>
+          <img src={logoSvg} alt="MF" className="brand-mark" />
+          <div className="brand-text">
+            <h1>Mermaid Flow</h1>
+            {flowHeaderName && (
+              <span className="flow-name-badge" title={flowHeaderName}>
+                · {flowHeaderName}
+              </span>
+            )}
+          </div>
         </button>
 
         <div className="toolbar">
@@ -8008,7 +8076,15 @@ function App() {
         >
           <div className="panel-header">
             <h2>Code</h2>
-            <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                className="soft-btn small ai-btn"
+                onClick={() => setAiModalOpen(true)}
+              >
+                Create with AI
+              </button>
+              <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
+            </div>
           </div>
           <div className="editor-wrap">
             <pre className="line-gutter" aria-hidden="true">
@@ -8095,8 +8171,17 @@ function App() {
                     {showRisks ? "Hide risks" : "Show risks"}
                   </button>
                   <div className="dropdown-sep" />
-                  {assigneeFilterOptions.length > 0 ? (
-                    assigneeFilterOptions.map((assignee) => {
+                  <div className="dropdown-search-wrap">
+                    <input
+                      type="search"
+                      className="dropdown-search-input"
+                      placeholder="Search assignee..."
+                      value={assigneeFilterQuery}
+                      onChange={(e) => setAssigneeFilterQuery(e.target.value)}
+                    />
+                  </div>
+                  {filteredAssigneeOptions.length > 0 ? (
+                    filteredAssigneeOptions.map((assignee) => {
                       const checked = selectedAssignees.some(
                         (name) => name.toLowerCase() === assignee.toLowerCase()
                       );
@@ -8114,7 +8199,9 @@ function App() {
                       );
                     })
                   ) : (
-                    <div className="dropdown-item-empty">No assignees found</div>
+                    <div className="dropdown-item-empty">
+                      {assigneeFilterQuery.trim() ? "No matching assignees" : "No assignees found"}
+                    </div>
                   )}
                   {hasAssigneeFilter && (
                     <button className="dropdown-item" onClick={() => { setSelectedAssignees([]); setMobileViewMenuOpen(false); }}>
@@ -8238,8 +8325,17 @@ function App() {
                       {hasAssigneeFilter ? `Assignees (${selectedAssignees.length})` : "Assignees"} &#x25BE;
                     </button>
                     <div className={`dropdown-menu gantt-assignee-menu${ganttDropdown === "assignees" ? " open" : ""}`}>
-                      {assigneeFilterOptions.length > 0 ? (
-                        assigneeFilterOptions.map((assignee) => {
+                      <div className="dropdown-search-wrap">
+                        <input
+                          type="search"
+                          className="dropdown-search-input"
+                          placeholder="Search assignee..."
+                          value={assigneeFilterQuery}
+                          onChange={(e) => setAssigneeFilterQuery(e.target.value)}
+                        />
+                      </div>
+                      {filteredAssigneeOptions.length > 0 ? (
+                        filteredAssigneeOptions.map((assignee) => {
                           const checked = selectedAssignees.some(
                             (name) => name.toLowerCase() === assignee.toLowerCase()
                           );
@@ -8254,7 +8350,9 @@ function App() {
                           );
                         })
                       ) : (
-                        <div className="dropdown-item-empty">No assignees found</div>
+                        <div className="dropdown-item-empty">
+                          {assigneeFilterQuery.trim() ? "No matching assignees" : "No assignees found"}
+                        </div>
                       )}
                       {hasAssigneeFilter && (
                         <>
@@ -9839,6 +9937,80 @@ function App() {
               Note: Direct Notion API calls require a server proxy due to CORS.
               If proxy sync fails, payloads are copied so you can send them from your own server.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI Generate Modal ────────────────────────── */}
+      {aiModalOpen && (
+        <div className="modal-overlay" onClick={() => !aiLoading && setAiModalOpen(false)}>
+          <div className="modal save-modal ai-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create with AI</h3>
+            <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+              Describe your project and we'll generate a Mermaid diagram for you.
+            </p>
+
+            <div className="settings-field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Chart type</label>
+              <select
+                className="modal-input"
+                value={aiChartType}
+                onChange={(e) => setAiChartType(e.target.value)}
+                disabled={aiLoading}
+                style={{ padding: "6px 10px" }}
+              >
+                <option value="gantt">Gantt Chart</option>
+                <option value="flowchart">Flowchart</option>
+                <option value="sequenceDiagram">Sequence Diagram</option>
+                <option value="erDiagram">ER Diagram</option>
+                <option value="classDiagram">Class Diagram</option>
+                <option value="stateDiagram">State Diagram</option>
+                <option value="mindmap">Mindmap</option>
+                <option value="timeline">Timeline</option>
+                <option value="pie">Pie Chart</option>
+                <option value="journey">User Journey</option>
+              </select>
+            </div>
+
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Describe your project</label>
+              <textarea
+                className="modal-input ai-context-input"
+                placeholder={"e.g. A 3-month product launch plan with design, development,\nQA, and marketing phases. Team of 5 people. Launch date is June 15."}
+                value={aiContext}
+                onChange={(e) => setAiContext(e.target.value)}
+                disabled={aiLoading}
+                rows={6}
+                style={{ resize: "vertical", minHeight: 100 }}
+              />
+            </div>
+
+            {aiError && (
+              <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8 }}>{aiError}</p>
+            )}
+
+            {aiLoading && (
+              <p style={{ fontSize: 13, color: "var(--accent)", marginTop: 12 }}>
+                Generating your diagram...
+              </p>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button
+                className="soft-btn"
+                onClick={() => { setAiModalOpen(false); setAiError(""); }}
+                disabled={aiLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="soft-btn primary"
+                onClick={handleAiGenerate}
+                disabled={aiLoading || !aiContext.trim()}
+              >
+                {aiLoading ? "Generating..." : "Generate"}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -177,6 +177,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .brand-home-btn {
@@ -200,14 +201,9 @@ body {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-xs);
-  background: var(--accent);
-  color: #ffffff;
-  font-family: "Chakra Petch", sans-serif;
-  font-weight: 700;
-  font-size: 0.75rem;
-  display: grid;
-  place-items: center;
-  letter-spacing: 0.04em;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
 }
 
 .brand h1 {
@@ -217,6 +213,26 @@ body {
   line-height: 1.1;
   font-weight: 600;
   color: var(--ink);
+}
+
+.brand-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flow-name-badge {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(44vw, 460px);
+}
+
+.brand-home-btn:hover .flow-name-badge {
+  color: var(--accent);
 }
 
 .toolbar {
@@ -610,6 +626,28 @@ input:focus {
 
 .dropdown-item:hover {
   background: var(--panel-hover);
+}
+
+.dropdown-search-wrap {
+  padding: 6px 8px;
+}
+
+.dropdown-search-input {
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--panel-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0 9px;
+}
+
+.dropdown-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .dropdown-item-empty {
@@ -1990,6 +2028,11 @@ input:focus {
 
   .brand h1 {
     font-size: 0.98rem;
+  }
+
+  .flow-name-badge {
+    font-size: 0.78rem;
+    max-width: min(58vw, 260px);
   }
 
   .toolbar {
@@ -3488,4 +3531,26 @@ input:focus {
   padding: 4px 0;
   font-size: 16px;
   color: var(--accent);
+}
+
+/* ── AI Generate ─────────────────────────────────── */
+.ai-modal {
+  width: 480px;
+  max-width: 92vw;
+}
+.ai-btn {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.ai-btn:hover {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+}
+.ai-context-input {
+  font-family: inherit;
+  line-height: 1.5;
 }
