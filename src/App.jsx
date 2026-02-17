@@ -8070,16 +8070,18 @@ function App() {
 
   const switchTab = (tabId) => {
     if (tabId === activeTabId) return;
+    // Save current tab's code before switching
+    if (activeTabId === "original") {
+      originalCodeRef.current = code;
+    } else {
+      setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code } : t));
+    }
+    // Load new tab's code
     if (tabId === "original") {
-      if (originalCodeRef.current !== null) {
-        setCode(originalCodeRef.current);
-        originalCodeRef.current = null;
-      }
+      setCode(originalCodeRef.current ?? code);
+      originalCodeRef.current = null;
       setActiveTabId("original");
     } else {
-      if (activeTabId === "original") {
-        originalCodeRef.current = code;
-      }
       const tab = diagramTabs.find((t) => t.id === tabId);
       if (tab) {
         setCode(tab.code);
@@ -8108,14 +8110,26 @@ function App() {
   const applyTabToOriginal = (tabId) => {
     const tab = diagramTabs.find((t) => t.id === tabId);
     if (!tab) return;
-    originalCodeRef.current = null;
-    setCode(tab.code);
-    setDiagramTabs((prev) => prev.filter((t) => t.id !== tabId));
-    setActiveTabId("original");
+    originalCodeRef.current = tab.code;
+    switchTab("original");
+    setRenderMessage(`Applied: ${tab.label}`);
+  };
+
+  const addNewTab = () => {
+    const newTab = {
+      id: Date.now().toString(),
+      label: `Tab ${diagramTabs.length + 1}`,
+      code: "",
+    };
+    setDiagramTabs((prev) => [...prev, newTab]);
+    if (activeTabId === "original") {
+      originalCodeRef.current = code;
+    }
+    setCode(newTab.code);
+    setActiveTabId(newTab.id);
     setSelectedElement(null);
     setHighlightLine(null);
     setPositionOverrides({});
-    setRenderMessage(`Applied: ${tab.label}`);
   };
 
   const handleDeleteDiagram = (name) => {
@@ -8458,41 +8472,42 @@ function App() {
               <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
             </div>
           </div>
-          {diagramTabs.length > 0 && (
-            <div className="editor-tab-bar">
+          <div className="editor-tab-bar">
+            <button
+              className={`editor-tab ${activeTabId === "original" ? "active" : ""}`}
+              onClick={() => switchTab("original")}
+            >
+              Original
+            </button>
+            {diagramTabs.map((tab) => (
               <button
-                className={`editor-tab ${activeTabId === "original" ? "active" : ""}`}
-                onClick={() => switchTab("original")}
+                key={tab.id}
+                className={`editor-tab ${activeTabId === tab.id ? "active" : ""}`}
+                onClick={() => switchTab(tab.id)}
               >
-                Original
-              </button>
-              {diagramTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  className={`editor-tab ${activeTabId === tab.id ? "active" : ""}`}
-                  onClick={() => switchTab(tab.id)}
+                <span className="editor-tab-label">{tab.label}</span>
+                <span
+                  className="editor-tab-close"
+                  onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
                 >
-                  <span className="editor-tab-label">{tab.label}</span>
-                  <span
-                    className="editor-tab-close"
-                    onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                  >
-                    &times;
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+                  &times;
+                </span>
+              </button>
+            ))}
+            <button className="editor-tab editor-tab-add" onClick={addNewTab} title="New tab">
+              +
+            </button>
+          </div>
           {activeTabId !== "original" && (
             <div className="editor-tab-actions">
               <button
                 className="soft-btn small primary"
                 onClick={() => applyTabToOriginal(activeTabId)}
               >
-                Apply to editor
+                Apply to original
               </button>
               <span style={{ fontSize: 11, color: "var(--ink-muted)" }}>
-                This is a read-only AI preview. Click "Apply" to make it your working code.
+                Copies this code to Original tab
               </span>
             </div>
           )}
@@ -8511,22 +8526,24 @@ function App() {
               ref={editorRef}
               value={code}
               onChange={(e) => {
-                if (activeTabId !== "original") return;
-                if (!pendingTypingSnapshotRef.current) {
-                  pendingTypingSnapshotRef.current = { code: codeRef.current, positionOverrides: positionOverridesRef.current, styleOverrides: styleOverridesRef.current };
-                }
-                clearTimeout(typingTimerRef.current);
-                typingTimerRef.current = setTimeout(() => {
-                  if (pendingTypingSnapshotRef.current) {
-                    commitSnapshot(pendingTypingSnapshotRef.current.code, pendingTypingSnapshotRef.current.positionOverrides, pendingTypingSnapshotRef.current.styleOverrides);
-                    pendingTypingSnapshotRef.current = null;
+                if (activeTabId === "original") {
+                  if (!pendingTypingSnapshotRef.current) {
+                    pendingTypingSnapshotRef.current = { code: codeRef.current, positionOverrides: positionOverridesRef.current, styleOverrides: styleOverridesRef.current };
                   }
-                }, 800);
+                  clearTimeout(typingTimerRef.current);
+                  typingTimerRef.current = setTimeout(() => {
+                    if (pendingTypingSnapshotRef.current) {
+                      commitSnapshot(pendingTypingSnapshotRef.current.code, pendingTypingSnapshotRef.current.positionOverrides, pendingTypingSnapshotRef.current.styleOverrides);
+                      pendingTypingSnapshotRef.current = null;
+                    }
+                  }, 800);
+                } else {
+                  setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code: e.target.value } : t));
+                }
                 setCode(e.target.value); setPositionOverrides({});
               }}
-              readOnly={activeTabId !== "original"}
               spellCheck={false}
-              className={`code-area ${activeTabId !== "original" ? "read-only" : ""}`}
+              className="code-area"
             />
           </div>
           <div className="panel-footer">
