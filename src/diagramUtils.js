@@ -742,7 +742,7 @@ export function removeSequenceParticipant(code, participantId) {
     .join("\n");
 }
 
-export function updateSequenceParticipant(code, participantId, { label }) {
+export function updateSequenceParticipant(code, participantId, { label, participantType }) {
   const parsed = parseSequenceDiagram(code);
   const participant = parsed.participants.find((p) => p.id === participantId);
   if (!participant) return code;
@@ -751,7 +751,8 @@ export function updateSequenceParticipant(code, participantId, { label }) {
   if (!nextLabel) return code;
   if (participant.lineIndex >= 0) {
     const existingLine = lines[participant.lineIndex];
-    const role = existingLine.trim().startsWith("actor ") ? "actor" : "participant";
+    const currentRole = existingLine.trim().startsWith("actor ") ? "actor" : "participant";
+    const role = participantType || currentRole;
     const indent = getLineIndent(existingLine);
     const aliasPart = nextLabel === participantId ? "" : ` as ${nextLabel}`;
     lines[participant.lineIndex] = `${indent}${role} ${participantId}${aliasPart}`;
@@ -764,8 +765,9 @@ export function updateSequenceParticipant(code, participantId, { label }) {
     if (/^sequenceDiagram/.test(trimmed)) insertIdx = i + 1;
     if (/^(participant|actor)\s+/.test(trimmed)) insertIdx = i + 1;
   }
+  const role = participantType || "participant";
   const aliasPart = nextLabel === participantId ? "" : ` as ${nextLabel}`;
-  lines.splice(insertIdx, 0, `    participant ${participantId}${aliasPart}`);
+  lines.splice(insertIdx, 0, `    ${role} ${participantId}${aliasPart}`);
   return lines.join("\n");
 }
 
@@ -799,6 +801,148 @@ export function updateSequenceMessage(code, source, target, { label, arrowType }
   const labelPart = nextText ? `: ${nextText}` : "";
   lines[message.lineIndex] = `${indent}${source}${nextArrow}${target}${labelPart}`;
   return lines.join("\n");
+}
+
+export function updateSequenceMessageByIndex(code, messageIndex, { label, arrowType } = {}) {
+  const parsed = parseSequenceDiagram(code);
+  if (messageIndex < 0 || messageIndex >= parsed.messages.length) return code;
+  const msg = parsed.messages[messageIndex];
+  if (msg.lineIndex < 0) return code;
+  const lines = code.split("\n");
+  const indent = getLineIndent(lines[msg.lineIndex]);
+  const nextArrow = arrowType || msg.arrowType || "->>";
+  const nextText = label !== undefined ? label : msg.text;
+  const labelPart = nextText ? `: ${nextText}` : "";
+  lines[msg.lineIndex] = `${indent}${msg.source}${nextArrow}${msg.target}${labelPart}`;
+  return lines.join("\n");
+}
+
+export function removeSequenceMessageByIndex(code, messageIndex) {
+  const parsed = parseSequenceDiagram(code);
+  if (messageIndex < 0 || messageIndex >= parsed.messages.length) return code;
+  const msg = parsed.messages[messageIndex];
+  if (msg.lineIndex < 0) return code;
+  const lines = code.split("\n");
+  lines.splice(msg.lineIndex, 1);
+  return lines.join("\n");
+}
+
+export function reorderSequenceParticipants(code, participantId, newIndex) {
+  const parsed = parseSequenceDiagram(code);
+  const lines = code.split("\n");
+  const explicit = parsed.participants.filter((p) => p.lineIndex >= 0);
+  const target = explicit.find((p) => p.id === participantId);
+  if (!target) return code;
+  const currentIndex = explicit.indexOf(target);
+  if (currentIndex === newIndex) return code;
+
+  // Remove participant line
+  const removedLine = lines.splice(target.lineIndex, 1)[0];
+
+  // Recalculate insertion point after removal
+  const remaining = explicit.filter((p) => p.id !== participantId);
+  let insertIdx;
+  if (newIndex <= 0 || remaining.length === 0) {
+    insertIdx = lines.findIndex((l) => /^\s*sequenceDiagram/.test(l)) + 1;
+  } else {
+    const prev = remaining[Math.min(newIndex - 1, remaining.length - 1)];
+    insertIdx = prev.lineIndex > target.lineIndex ? prev.lineIndex : prev.lineIndex + 1;
+  }
+  lines.splice(insertIdx, 0, removedLine);
+  return lines.join("\n");
+}
+
+/**
+ * Parse sequence diagram block structures (alt/else/opt/loop/break/par/critical/rect).
+ * Returns a flat array of block entries with nesting depth.
+ */
+export function parseSequenceBlocks(code) {
+  const lines = code.split("\n");
+  const blocks = [];
+  const stack = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed || trimmed.startsWith("%%")) continue;
+
+    // Block openers: alt, opt, loop, break, par, critical, rect
+    const openMatch = trimmed.match(/^(alt|opt|loop|break|par|critical|rect)\s*(.*)?$/);
+    if (openMatch) {
+      const block = {
+        type: openMatch[1],
+        label: (openMatch[2] || "").trim(),
+        startLine: i,
+        endLine: -1,
+        depth: stack.length,
+        dividers: [],
+      };
+      stack.push(block);
+      blocks.push(block);
+      continue;
+    }
+
+    // Dividers: else, and (inside par)
+    const dividerMatch = trimmed.match(/^(else|and)\s*(.*)?$/);
+    if (dividerMatch && stack.length > 0) {
+      stack[stack.length - 1].dividers.push({
+        type: dividerMatch[1],
+        label: (dividerMatch[2] || "").trim(),
+        lineIndex: i,
+      });
+      continue;
+    }
+
+    // End block
+    if (trimmed === "end" && stack.length > 0) {
+      stack[stack.length - 1].endLine = i;
+      stack.pop();
+      continue;
+    }
+  }
+
+  return blocks;
+}
+
+/**
+ * Parse sequence diagram activations and notes.
+ * Returns { activations, notes }.
+ */
+export function parseSequenceExtras(code) {
+  const lines = code.split("\n");
+  const activations = [];
+  const notes = [];
+  const activeStack = {};
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed || trimmed.startsWith("%%")) continue;
+
+    // activate / deactivate
+    const actMatch = trimmed.match(/^(activate|deactivate)\s+(\w+)$/);
+    if (actMatch) {
+      if (actMatch[1] === "activate") {
+        if (!activeStack[actMatch[2]]) activeStack[actMatch[2]] = [];
+        activeStack[actMatch[2]].push(i);
+      } else {
+        const starts = activeStack[actMatch[2]];
+        if (starts && starts.length > 0) {
+          activations.push({ participantId: actMatch[2], startLine: starts.pop(), endLine: i });
+        }
+      }
+      continue;
+    }
+
+    // Note over A,B: text  or  Note right of A: text  or  Note left of A: text
+    const noteMatch = trimmed.match(/^Note\s+(over|right of|left of)\s+([\w,\s]+)\s*:\s*(.+)$/i);
+    if (noteMatch) {
+      const position = noteMatch[1].toLowerCase();
+      const actors = noteMatch[2].split(",").map((a) => a.trim());
+      notes.push({ position, actors, text: noteMatch[3].trim(), lineIndex: i });
+      continue;
+    }
+  }
+
+  return { activations, notes };
 }
 
 /* ────────────────────────────────────────────────────────  */
