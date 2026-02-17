@@ -943,6 +943,14 @@ export function parseClassDefs(code) {
     if (dashMatch) style.strokeDasharray = dashMatch[1].trim();
     const widthMatch = raw.match(/stroke-width:\s*([^,;]+)/);
     if (widthMatch) style.strokeWidth = widthMatch[1].trim();
+    const fontSizeMatch = raw.match(/font-size:\s*([^,;]+)/i);
+    if (fontSizeMatch) style.fontSize = fontSizeMatch[1].trim();
+    const fontWeightMatch = raw.match(/font-weight:\s*([^,;]+)/i);
+    if (fontWeightMatch) style.fontWeight = fontWeightMatch[1].trim();
+    const fontStyleMatch = raw.match(/font-style:\s*([^,;]+)/i);
+    if (fontStyleMatch) style.fontStyle = fontStyleMatch[1].trim();
+    const fontFamilyMatch = raw.match(/font-family:\s*([^,;]+)/i);
+    if (fontFamilyMatch) style.fontFamily = fontFamilyMatch[1].trim();
     result.push(style);
   }
   return result;

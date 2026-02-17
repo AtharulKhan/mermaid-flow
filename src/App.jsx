@@ -1054,6 +1054,8 @@ function getIframeSrcDoc() {
         line-height: 1.4;
         user-select: none;
         position: relative;
+        background-image: radial-gradient(circle, #d1d5db 0.5px, transparent 0.5px);
+        background-size: 20px 20px;
       }
       .mf-flow-node {
         position: absolute;
@@ -1587,6 +1589,9 @@ function getIframeSrcDoc() {
         color: #e4e6ed;
         box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       }
+      [data-theme="dark"] .mf-flow-container {
+        background-image: radial-gradient(circle, #2a2e3d 0.5px, transparent 0.5px);
+      }
       [data-theme="dark"] .mf-shape-rect { background: #1c1f2b; border-color: #818cf8; }
       [data-theme="dark"] .mf-shape-rounded { background: #172554; border-color: #60a5fa; }
       [data-theme="dark"] .mf-shape-stadium { background: #14532d; border-color: #4ade80; }
@@ -1601,6 +1606,16 @@ function getIframeSrcDoc() {
       }
       [data-theme="dark"] .mf-flow-edge text {
         fill: #9a9fb2;
+      }
+      [data-theme="dark"] #mf-arrow path,
+      [data-theme="dark"] #mf-arrow-rev path { fill: #6b7394; }
+      [data-theme="dark"] #mf-arrow-thick path,
+      [data-theme="dark"] #mf-arrow-thick-rev path { fill: #818cf8; }
+      [data-theme="dark"] #mf-circle circle { fill: #6b7394; }
+      [data-theme="dark"] #mf-cross path { stroke: #6b7394; }
+      [data-theme="dark"] .mf-edge-label-bg {
+        fill: #1c1f2b !important;
+        stroke: #2a2e3d !important;
       }
       /* Dark gantt header rows */
       [data-theme="dark"] .mf-gh-row {
@@ -3237,15 +3252,41 @@ function getIframeSrcDoc() {
 
       const buildEdgeSvgPath = (points) => {
         if (!points || points.length < 2) return "";
-        let d = "M " + points[0].x.toFixed(1) + " " + points[0].y.toFixed(1);
         if (points.length === 2) {
-          d += " L " + points[1].x.toFixed(1) + " " + points[1].y.toFixed(1);
-        } else {
-          for (let i = 1; i < points.length; i++) {
-            d += " L " + points[i].x.toFixed(1) + " " + points[i].y.toFixed(1);
+          const sp = points[0], tp = points[1];
+          const ddx = tp.x - sp.x, ddy = tp.y - sp.y;
+          const off = Math.max(Math.hypot(ddx, ddy) * 0.35, 25);
+          let c1x, c1y, c2x, c2y;
+          if (Math.abs(ddx) > Math.abs(ddy)) {
+            c1x = sp.x + (ddx > 0 ? off : -off); c1y = sp.y;
+            c2x = tp.x - (ddx > 0 ? off : -off); c2y = tp.y;
+          } else {
+            c1x = sp.x; c1y = sp.y + (ddy > 0 ? off : -off);
+            c2x = tp.x; c2y = tp.y - (ddy > 0 ? off : -off);
           }
+          return "M " + sp.x.toFixed(1) + " " + sp.y.toFixed(1) + " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + tp.x.toFixed(1) + " " + tp.y.toFixed(1);
+        }
+        // Multi-point: Catmull-Rom to cubic bezier
+        const pts = [points[0], ...points, points[points.length - 1]];
+        let d = "M " + points[0].x.toFixed(1) + " " + points[0].y.toFixed(1);
+        for (let i = 1; i < points.length; i++) {
+          const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2];
+          const t = 1 / 6;
+          const c1x = p1.x + t * (p2.x - p0.x);
+          const c1y = p1.y + t * (p2.y - p0.y);
+          const c2x = p2.x - t * (p3.x - p1.x);
+          const c2y = p2.y - t * (p3.y - p1.y);
+          d += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + p2.x.toFixed(1) + " " + p2.y.toFixed(1);
         }
         return d;
+      };
+
+      const buildSelfLoopPath = (nodeEl) => {
+        const nx = parseFloat(nodeEl.style.left), ny = parseFloat(nodeEl.style.top);
+        const nw = nodeEl.offsetWidth || 100, nh = nodeEl.offsetHeight || 40;
+        const cx = nx + nw / 2, topY = ny;
+        const loopH = 40, loopW = 30;
+        return "M " + (cx - loopW) + " " + topY + " C " + (cx - loopW) + " " + (topY - loopH) + " " + (cx + loopW) + " " + (topY - loopH) + " " + (cx + loopW) + " " + topY;
       };
 
       const updateFlowEdgesForNode = (edgeSvg, edges, nodeId, nodeEls, nodeDims) => {
@@ -3257,6 +3298,21 @@ function getIframeSrcDoc() {
           const srcEl = nodeEls[e.source];
           const tgtEl = nodeEls[e.target];
           if (!srcEl || !tgtEl) continue;
+          // Self-loop
+          if (e.source === e.target) {
+            const nd = buildSelfLoopPath(srcEl);
+            pathEl.setAttribute("d", nd);
+            if (hitEl) hitEl.setAttribute("d", nd);
+            const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
+            const lbl = edgeSvg.querySelector('.mf-edge-label[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
+            if (lbl) {
+              const nx = parseFloat(srcEl.style.left), ny = parseFloat(srcEl.style.top);
+              const nw = srcEl.offsetWidth || 100;
+              lbl.setAttribute("x", (nx + nw / 2).toFixed(1)); lbl.setAttribute("y", (ny - 25).toFixed(1));
+            }
+            if (bg && lbl) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(ex) {} }
+            continue;
+          }
           const sDim = nodeDims[e.source] || { width: 100, height: 40 };
           const tDim = nodeDims[e.target] || { width: 100, height: 40 };
           const sx = parseFloat(srcEl.style.left) + sDim.width / 2;
@@ -3282,11 +3338,15 @@ function getIframeSrcDoc() {
           const nd = "M " + sp.x.toFixed(1) + " " + sp.y.toFixed(1) + " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + tp.x.toFixed(1) + " " + tp.y.toFixed(1);
           pathEl.setAttribute("d", nd);
           if (hitEl) hitEl.setAttribute("d", nd);
-          // Update label position
+          // Update label position — bezier midpoint at t=0.5
           const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
           const lbl = edgeSvg.querySelector('.mf-edge-label[data-source="' + CSS.escape(e.source) + '"][data-target="' + CSS.escape(e.target) + '"]');
-          if (lbl) { lbl.setAttribute("x", ((sp.x + tp.x) / 2).toFixed(1)); lbl.setAttribute("y", ((sp.y + tp.y) / 2).toFixed(1)); }
-          if (bg && lbl) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(e) {} }
+          if (lbl) {
+            const mx = 0.125 * sp.x + 0.375 * c1x + 0.375 * c2x + 0.125 * tp.x;
+            const my = 0.125 * sp.y + 0.375 * c1y + 0.375 * c2y + 0.125 * tp.y;
+            lbl.setAttribute("x", mx.toFixed(1)); lbl.setAttribute("y", my.toFixed(1));
+          }
+          if (bg && lbl) { try { const bb = lbl.getBBox(); bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); } catch(ex) {} }
         }
       };
 
@@ -3295,6 +3355,9 @@ function getIframeSrcDoc() {
         clearGanttOverlay();
         canvas.innerHTML = "";
         canvas.style.justifyContent = "center";
+
+        const GRID_SIZE = 20;
+        const snapToGrid = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
 
         let multiSelected = new Set();
         let marqueeState = null;
@@ -3435,10 +3498,50 @@ function getIframeSrcDoc() {
         // Render edges
         const edgeGroup = document.createElementNS(ns, "g");
         for (const edge of (flowData.edges || [])) {
+          const at = edge.arrowType || "-->";
+          // Self-loop: use dagre node position to draw arc
+          if (edge.source === edge.target) {
+            const selfNode = g.node(edge.source);
+            if (!selfNode) continue;
+            const selfDim = nodeDims[edge.source] || { width: 100, height: 40 };
+            const ovr = positionOverrides[edge.source] || { dx: 0, dy: 0 };
+            const selfLeft = (selfNode.x - selfDim.width / 2) + (ovr.absX != null ? (ovr.absX - (selfNode.x - selfDim.width / 2)) : (ovr.dx || 0));
+            const selfTop = (selfNode.y - selfDim.height / 2) + (ovr.absX != null ? (ovr.absY - (selfNode.y - selfDim.height / 2)) : (ovr.dy || 0));
+            const selfCx = selfLeft + selfDim.width / 2;
+            const loopH = 40, loopW = 30;
+            const d = "M " + (selfCx - loopW) + " " + selfTop + " C " + (selfCx - loopW) + " " + (selfTop - loopH) + " " + (selfCx + loopW) + " " + (selfTop - loopH) + " " + (selfCx + loopW) + " " + selfTop;
+            const hit = document.createElementNS(ns, "path");
+            hit.setAttribute("d", d); hit.setAttribute("class", "mf-edge-hit");
+            hit.setAttribute("data-source", edge.source); hit.setAttribute("data-target", edge.target);
+            edgeGroup.appendChild(hit);
+            const path = document.createElementNS(ns, "path");
+            path.setAttribute("d", d); path.setAttribute("fill", "none");
+            path.setAttribute("stroke", "#8b9dc3"); path.setAttribute("stroke-width", "1.5");
+            path.setAttribute("marker-end", "url(#mf-arrow)");
+            path.setAttribute("class", "mf-edge");
+            path.setAttribute("data-source", edge.source); path.setAttribute("data-target", edge.target);
+            edgeGroup.appendChild(path);
+            if (edge.label) {
+              const bg = document.createElementNS(ns, "rect");
+              bg.setAttribute("class", "mf-edge-label-bg");
+              bg.setAttribute("data-source", edge.source); bg.setAttribute("data-target", edge.target);
+              bg.setAttribute("rx", "4"); bg.setAttribute("fill", "#f8f9fb"); bg.setAttribute("stroke", "#e2e8f0"); bg.setAttribute("stroke-width", "0.5");
+              edgeGroup.appendChild(bg);
+              const txt = document.createElementNS(ns, "text");
+              txt.setAttribute("x", selfCx); txt.setAttribute("y", selfTop - 25);
+              txt.setAttribute("text-anchor", "middle"); txt.setAttribute("dominant-baseline", "central");
+              txt.setAttribute("font-size", "11"); txt.setAttribute("font-family", "Manrope,system-ui,sans-serif");
+              txt.setAttribute("fill", "#475569"); txt.setAttribute("font-weight", "500");
+              txt.setAttribute("class", "mf-edge-label");
+              txt.setAttribute("data-source", edge.source); txt.setAttribute("data-target", edge.target);
+              txt.textContent = edge.label;
+              edgeGroup.appendChild(txt);
+            }
+            continue;
+          }
           const de = g.edge(edge.source, edge.target);
           if (!de || !de.points) continue;
           const d = buildEdgeSvgPath(de.points);
-          const at = edge.arrowType || "-->";
           const hasArrow = at === "-->" || at === "--->" || at === "==>" || at === "-.->";
           const isThick = at === "==>" || at === "===" || at === "<==>";
           const isDashed = at === "-.->" || at === "-.-" || at === "<-.->";
@@ -3513,12 +3616,17 @@ function getIframeSrcDoc() {
           el.setAttribute("data-node-id", node.id);
           el.setAttribute("data-shape", shape);
 
-          // Apply position (with overrides)
-          const ovr = positionOverrides[node.id] || { dx: 0, dy: 0 };
+          // Apply position (with overrides — absolute or delta)
+          const ovr = positionOverrides[node.id];
           const baseX = pos.x - dim.width / 2;
           const baseY = pos.y - dim.height / 2;
-          el.style.left = (baseX + (ovr.dx || 0)) + "px";
-          el.style.top = (baseY + (ovr.dy || 0)) + "px";
+          if (ovr && ovr.absX != null) {
+            el.style.left = ovr.absX + "px";
+            el.style.top = ovr.absY + "px";
+          } else {
+            el.style.left = (baseX + (ovr?.dx || 0)) + "px";
+            el.style.top = (baseY + (ovr?.dy || 0)) + "px";
+          }
           el.style.width = dim.width + "px";
           el.style.height = dim.height + "px";
 
@@ -3530,6 +3638,11 @@ function getIframeSrcDoc() {
             if (cd.stroke) { el.style.borderColor = cd.stroke; el.style.setProperty("--node-stroke", cd.stroke); }
             if (cd.color) el.style.color = cd.color;
             if (cd.strokeWidth) el.style.borderWidth = cd.strokeWidth;
+            if (cd.strokeDasharray) el.style.borderStyle = "dashed";
+            if (cd.fontSize) el.style.fontSize = cd.fontSize;
+            if (cd.fontWeight) el.style.fontWeight = cd.fontWeight;
+            if (cd.fontStyle) el.style.fontStyle = cd.fontStyle;
+            if (cd.fontFamily) el.style.fontFamily = cd.fontFamily;
           }
           // Per-node style directives (e.g. "style id1 fill:#f9f,stroke:#333")
           const sd = (styleDirectives || {})[node.id];
@@ -3572,7 +3685,21 @@ function getIframeSrcDoc() {
           el.appendChild(labelDiv);
 
           // Tooltip
-          el.setAttribute("data-mf-tip", (node.label || node.id) + " [" + node.id + "]");
+          // Rich tooltip
+          {
+            let tip = node.label || node.id;
+            tip += "\\nID: " + node.id;
+            const shapeNames = { rect: "Rectangle", rounded: "Rounded", diamond: "Decision", circle: "Circle", stadium: "Stadium", hexagon: "Hexagon", parallelogram: "Parallelogram", trapezoid: "Trapezoid", "double-circle": "Double Circle", cylinder: "Cylinder", subroutine: "Subroutine", asymmetric: "Asymmetric" };
+            tip += "\\nShape: " + (shapeNames[shape] || shape);
+            const inE = (flowData.edges || []).filter(e => e.target === node.id);
+            const outE = (flowData.edges || []).filter(e => e.source === node.id);
+            if (inE.length) tip += "\\nInputs: " + inE.map(e => e.source).join(", ");
+            if (outE.length) tip += "\\nOutputs: " + outE.map(e => e.target).join(", ");
+            const parentSg = (flowData.subgraphs || []).find(sg => (sg.nodeIds || []).includes(node.id));
+            if (parentSg) tip += "\\nGroup: " + (parentSg.label || parentSg.id);
+            if (assignedClass) tip += "\\nClass: " + assignedClass;
+            el.setAttribute("data-mf-tip", tip);
+          }
 
           // Click (with shift-click multi-select)
           el.addEventListener("click", (ev) => {
@@ -3647,15 +3774,17 @@ function getIframeSrcDoc() {
               for (const [nid, orig] of Object.entries(dragInfo.groupOrigins)) {
                 const nel = nodeEls[nid];
                 if (nel) {
-                  nel.style.left = (orig.left + dx) + "px";
-                  nel.style.top = (orig.top + dy) + "px";
+                  nel.style.left = snapToGrid(orig.left + dx) + "px";
+                  nel.style.top = snapToGrid(orig.top + dy) + "px";
                   updateFlowEdgesForNode(edgeSvg, flowData.edges, nid, nodeEls, nodeDims);
                 }
               }
+              updateSubgraphBounds();
             } else {
-              el.style.left = (dragInfo.origLeft + dx) + "px";
-              el.style.top = (dragInfo.origTop + dy) + "px";
+              el.style.left = snapToGrid(dragInfo.origLeft + dx) + "px";
+              el.style.top = snapToGrid(dragInfo.origTop + dy) + "px";
               updateFlowEdgesForNode(edgeSvg, flowData.edges, node.id, nodeEls, nodeDims);
+              updateSubgraphBounds();
               // Subgraph drop target highlighting (single drag only)
               const nodeCx = (dragInfo.origLeft + dx) + el.offsetWidth / 2;
               const nodeCy = (dragInfo.origTop + dy) + el.offsetHeight / 2;
@@ -3687,21 +3816,20 @@ function getIframeSrcDoc() {
               if (dragInfo.isGroupDrag) {
                 const moves = {};
                 for (const nid of Object.keys(dragInfo.groupOrigins)) {
-                  positionOverrides[nid] = positionOverrides[nid] || { dx: 0, dy: 0 };
-                  positionOverrides[nid].dx += dx;
-                  positionOverrides[nid].dy += dy;
-                  moves[nid] = { deltaX: dx, deltaY: dy, accumulatedDx: positionOverrides[nid].dx, accumulatedDy: positionOverrides[nid].dy };
+                  const nel = nodeEls[nid];
+                  if (nel) {
+                    positionOverrides[nid] = { absX: parseFloat(nel.style.left), absY: parseFloat(nel.style.top) };
+                  }
+                  moves[nid] = { deltaX: dx, deltaY: dy, absX: positionOverrides[nid]?.absX, absY: positionOverrides[nid]?.absY };
                 }
                 send("elements:dragged", { moves });
               } else {
-                positionOverrides[node.id] = positionOverrides[node.id] || { dx: 0, dy: 0 };
-                positionOverrides[node.id].dx += dx;
-                positionOverrides[node.id].dy += dy;
+                positionOverrides[node.id] = { absX: parseFloat(el.style.left), absY: parseFloat(el.style.top) };
                 // Check for subgraph drop
                 if (dragInfo.dropSubgraphId) {
                   send("node:dropped-into-subgraph", { nodeId: node.id, subgraphId: dragInfo.dropSubgraphId });
                 } else {
-                  send("element:dragged", { label: node.label || node.id, nodeId: node.id, deltaX: dx, deltaY: dy, accumulatedDx: positionOverrides[node.id].dx, accumulatedDy: positionOverrides[node.id].dy, isGanttTask: false });
+                  send("element:dragged", { label: node.label || node.id, nodeId: node.id, deltaX: dx, deltaY: dy, absX: positionOverrides[node.id].absX, absY: positionOverrides[node.id].absY, isGanttTask: false });
                 }
               }
             }
@@ -3746,6 +3874,40 @@ function getIframeSrcDoc() {
           container.appendChild(el);
           nodeEls[node.id] = el;
         }
+
+        // Dynamic subgraph bounds
+        const updateSubgraphBounds = () => {
+          for (const sg of (flowData.subgraphs || [])) {
+            const sgEl = subgraphEls[sg.id];
+            if (!sgEl) continue;
+            const childNodes = (sg.nodeIds || []).map(id => nodeEls[id]).filter(Boolean);
+            if (childNodes.length === 0) continue;
+            const pad = 20;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const ch of childNodes) {
+              const l = parseFloat(ch.style.left), t = parseFloat(ch.style.top);
+              minX = Math.min(minX, l); minY = Math.min(minY, t);
+              maxX = Math.max(maxX, l + ch.offsetWidth);
+              maxY = Math.max(maxY, t + ch.offsetHeight);
+            }
+            sgEl.style.left = (minX - pad) + "px";
+            sgEl.style.top = (minY - pad - 24) + "px";
+            sgEl.style.width = (maxX - minX + 2 * pad) + "px";
+            sgEl.style.height = (maxY - minY + 2 * pad + 24) + "px";
+          }
+        };
+        updateSubgraphBounds();
+
+        // Adjust edge label backgrounds after render
+        edgeSvg.querySelectorAll(".mf-edge-label").forEach(lbl => {
+          try {
+            const bb = lbl.getBBox();
+            const src = lbl.getAttribute("data-source");
+            const tgt = lbl.getAttribute("data-target");
+            const bg = edgeSvg.querySelector('.mf-edge-label-bg[data-source="' + CSS.escape(src) + '"][data-target="' + CSS.escape(tgt) + '"]');
+            if (bg) { bg.setAttribute("x", bb.x - 4); bg.setAttribute("y", bb.y - 2); bg.setAttribute("width", bb.width + 8); bg.setAttribute("height", bb.height + 4); }
+          } catch(ex) {}
+        });
 
         // Edge click/context handlers
         edgeSvg.addEventListener("click", (ev) => {
@@ -6785,7 +6947,11 @@ function App() {
         setPositionOverrides((prev) => {
           const next = { ...prev };
           for (const [nid, m] of Object.entries(moves)) {
-            next[nid] = { dx: m.accumulatedDx || 0, dy: m.accumulatedDy || 0 };
+            if (m.absX != null) {
+              next[nid] = { absX: m.absX, absY: m.absY };
+            } else {
+              next[nid] = { dx: m.accumulatedDx || 0, dy: m.accumulatedDy || 0 };
+            }
           }
           return next;
         });
@@ -6844,13 +7010,11 @@ function App() {
         setStyleToolbar(null);
         const payload = data.payload || {};
         if (!payload.isGanttTask && payload.nodeId) {
-          // Store accumulated position override from iframe (SVG-space values)
           setPositionOverrides((prev) => ({
             ...prev,
-            [payload.nodeId]: {
-              dx: payload.accumulatedDx || 0,
-              dy: payload.accumulatedDy || 0,
-            },
+            [payload.nodeId]: payload.absX != null
+              ? { absX: payload.absX, absY: payload.absY }
+              : { dx: payload.accumulatedDx || 0, dy: payload.accumulatedDy || 0 },
           }));
         }
         setDragFeedback(
@@ -6888,7 +7052,6 @@ function App() {
             setRenderMessage("Reconnected edge: " + srcNodeId + " --> " + newNodeId);
           }
           setCode(updated);
-          setPositionOverrides({});
         }
       }
 
@@ -7258,7 +7421,11 @@ function App() {
             const newStyleOverrides = { ...styleOverridesRef.current };
             for (const [oldId, newId] of Object.entries(idMap)) {
               const orig = positionOverrides[oldId] || {};
-              newPosOverrides[newId] = { dx: (orig.dx || 0) + 40, dy: (orig.dy || 0) + 40 };
+              if (orig.absX != null) {
+                newPosOverrides[newId] = { absX: orig.absX + 40, absY: orig.absY + 40 };
+              } else {
+                newPosOverrides[newId] = { dx: (orig.dx || 0) + 40, dy: (orig.dy || 0) + 40 };
+              }
               if (styleOverrides[oldId]) newStyleOverrides[newId] = { ...styleOverrides[oldId] };
             }
             setCode(currentCode);
@@ -7300,7 +7467,12 @@ function App() {
           setPositionOverrides((prev) => {
             const next = { ...prev };
             for (const nid of nodesToNudge) {
-              next[nid] = { dx: ((prev[nid]?.dx) || 0) + dx, dy: ((prev[nid]?.dy) || 0) + dy };
+              const p = prev[nid];
+              if (p && p.absX != null) {
+                next[nid] = { absX: p.absX + dx, absY: p.absY + dy };
+              } else {
+                next[nid] = { dx: ((p?.dx) || 0) + dx, dy: ((p?.dy) || 0) + dy };
+              }
             }
             return next;
           });
@@ -7357,7 +7529,11 @@ function App() {
         const newPosOverrides = { ...positionOverridesRef.current };
         for (const [oldId, newId] of Object.entries(idMap)) {
           const orig = flowClipboard.relativePositions[oldId] || {};
-          newPosOverrides[newId] = { dx: (orig.dx || 0) + 40, dy: (orig.dy || 0) + 40 };
+          if (orig.absX != null) {
+            newPosOverrides[newId] = { absX: orig.absX + 40, absY: orig.absY + 40 };
+          } else {
+            newPosOverrides[newId] = { dx: (orig.dx || 0) + 40, dy: (orig.dy || 0) + 40 };
+          }
         }
         // Style overrides
         const newStyleOverrides = { ...styleOverridesRef.current };
