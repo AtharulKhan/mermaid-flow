@@ -5634,6 +5634,7 @@ function App() {
   const [executiveView, setExecutiveView] = useState(false); // filtered view: milestones, crit, overdue only
   const [showRisks, setShowRisks] = useState(false);
   const [selectedAssignees, setSelectedAssignees] = useState([]);
+  const [assigneeFilterQuery, setAssigneeFilterQuery] = useState("");
   const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis" | "assignees"
   const [showChainView, setShowChainView] = useState(false);
   const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
@@ -5818,6 +5819,11 @@ function App() {
     }
     return merged.sort((a, b) => a.localeCompare(b));
   }, [allAssignees, selectedAssignees]);
+  const filteredAssigneeOptions = useMemo(() => {
+    const query = assigneeFilterQuery.trim().toLowerCase();
+    if (!query) return assigneeFilterOptions;
+    return assigneeFilterOptions.filter((name) => name.toLowerCase().includes(query));
+  }, [assigneeFilterOptions, assigneeFilterQuery]);
   const hasAssigneeFilter = selectedAssignees.length > 0;
   const flowchartData = useMemo(() => {
     if (toolsetKey === "flowchart") return parseFlowchart(code);
@@ -6190,6 +6196,11 @@ function App() {
     }, 2000);
     return () => window.clearTimeout(handle);
   }, [code, flowId, diagramType, flowMeta, currentUser]);
+
+  useEffect(() => {
+    if (ganttDropdown === "assignees" || mobileViewMenuOpen) return;
+    setAssigneeFilterQuery("");
+  }, [ganttDropdown, mobileViewMenuOpen]);
 
   /* ── Persist gantt view preferences ─────────────────── */
   useEffect(() => {
@@ -7505,8 +7516,17 @@ function App() {
                     {showRisks ? "Hide risks" : "Show risks"}
                   </button>
                   <div className="dropdown-sep" />
-                  {assigneeFilterOptions.length > 0 ? (
-                    assigneeFilterOptions.map((assignee) => {
+                  <div className="dropdown-search-wrap">
+                    <input
+                      type="search"
+                      className="dropdown-search-input"
+                      placeholder="Search assignee..."
+                      value={assigneeFilterQuery}
+                      onChange={(e) => setAssigneeFilterQuery(e.target.value)}
+                    />
+                  </div>
+                  {filteredAssigneeOptions.length > 0 ? (
+                    filteredAssigneeOptions.map((assignee) => {
                       const checked = selectedAssignees.some(
                         (name) => name.toLowerCase() === assignee.toLowerCase()
                       );
@@ -7524,7 +7544,9 @@ function App() {
                       );
                     })
                   ) : (
-                    <div className="dropdown-item-empty">No assignees found</div>
+                    <div className="dropdown-item-empty">
+                      {assigneeFilterQuery.trim() ? "No matching assignees" : "No assignees found"}
+                    </div>
                   )}
                   {hasAssigneeFilter && (
                     <button className="dropdown-item" onClick={() => { setSelectedAssignees([]); setMobileViewMenuOpen(false); }}>
@@ -7632,8 +7654,17 @@ function App() {
                       {hasAssigneeFilter ? `Assignees (${selectedAssignees.length})` : "Assignees"} &#x25BE;
                     </button>
                     <div className={`dropdown-menu gantt-assignee-menu${ganttDropdown === "assignees" ? " open" : ""}`}>
-                      {assigneeFilterOptions.length > 0 ? (
-                        assigneeFilterOptions.map((assignee) => {
+                      <div className="dropdown-search-wrap">
+                        <input
+                          type="search"
+                          className="dropdown-search-input"
+                          placeholder="Search assignee..."
+                          value={assigneeFilterQuery}
+                          onChange={(e) => setAssigneeFilterQuery(e.target.value)}
+                        />
+                      </div>
+                      {filteredAssigneeOptions.length > 0 ? (
+                        filteredAssigneeOptions.map((assignee) => {
                           const checked = selectedAssignees.some(
                             (name) => name.toLowerCase() === assignee.toLowerCase()
                           );
@@ -7648,7 +7679,9 @@ function App() {
                           );
                         })
                       ) : (
-                        <div className="dropdown-item-empty">No assignees found</div>
+                        <div className="dropdown-item-empty">
+                          {assigneeFilterQuery.trim() ? "No matching assignees" : "No assignees found"}
+                        </div>
                       )}
                       {hasAssigneeFilter && (
                         <>

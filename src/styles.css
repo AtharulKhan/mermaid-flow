@@ -607,6 +607,28 @@ input:focus {
   background: var(--panel-hover);
 }
 
+.dropdown-search-wrap {
+  padding: 6px 8px;
+}
+
+.dropdown-search-input {
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--panel-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0 9px;
+}
+
+.dropdown-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 .dropdown-item-empty {
   padding: 8px 12px;
   color: var(--ink-muted);
