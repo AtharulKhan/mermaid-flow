@@ -11947,14 +11947,20 @@ function App() {
                 <label>
                   Depends on
                   <div className="dep-picker">
-                    {ganttDraft.dependsOn.map((depId) => {
+                    {ganttDraft.dependsOn.map((depId, depIdx) => {
                       const depTask = ganttTasks.find((t) => (t.idToken || "").toLowerCase() === depId.toLowerCase() || (t.label || "").toLowerCase() === depId.toLowerCase());
                       return (
-                        <span className="dep-pill" key={depId}>
+                        <span className="dep-pill" key={`${depId}-${depIdx}`}>
                           {depTask ? depTask.label : depId}
                           <button
                             type="button"
-                            onClick={() => setGanttDraft((prev) => ({ ...prev, dependsOn: prev.dependsOn.filter((d) => d !== depId) }))}
+                            onClick={() => setGanttDraft((prev) => {
+                              const idx = prev.dependsOn.indexOf(depId);
+                              if (idx < 0) return prev;
+                              const next = [...prev.dependsOn];
+                              next.splice(idx, 1);
+                              return { ...prev, dependsOn: next };
+                            })}
                           >
                             &times;
                           </button>

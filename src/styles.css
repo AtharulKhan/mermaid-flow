@@ -911,7 +911,7 @@ input:focus {
   box-shadow: var(--shadow-lg);
   padding: 0;
   width: 90%;
-  max-width: 520px;
+  max-width: 680px;
   max-height: 85vh;
   overflow-y: auto;
   animation: slideUp 0.15s ease;
