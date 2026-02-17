@@ -5944,12 +5944,28 @@ function deleteDiagramFromStorage(name) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(diagrams));
 }
 
-function saveLastDiagram(code) {
-  try { localStorage.setItem(LAST_DIAGRAM_KEY, code); } catch {}
+function saveLastDiagram(code, tabs) {
+  try {
+    if (tabs && tabs.length > 0) {
+      localStorage.setItem(LAST_DIAGRAM_KEY, JSON.stringify({ code, tabs }));
+    } else {
+      localStorage.setItem(LAST_DIAGRAM_KEY, code);
+    }
+  } catch {}
 }
 
 function loadLastDiagram() {
-  try { return localStorage.getItem(LAST_DIAGRAM_KEY); } catch { return null; }
+  try {
+    const raw = localStorage.getItem(LAST_DIAGRAM_KEY);
+    if (!raw) return null;
+    // Try parsing as JSON (new format with tabs)
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && parsed.code) return parsed;
+    } catch {}
+    // Fallback: plain string (old format)
+    return raw;
+  } catch { return null; }
 }
 
 /* ── Main App ─────────────────────────────────────────── */
@@ -5984,13 +6000,17 @@ function App() {
   const isEditable = urlParams.current.editableParam;
 
   // Resolve initial code: URL param > localStorage > default
+  const lastDiagramData = useRef(loadLastDiagram());
   const initialCode = (() => {
     if (urlParams.current.codeParam) {
       const decoded = decodeCodeParam(urlParams.current.codeParam);
       if (decoded) return decoded;
     }
-    const last = loadLastDiagram();
-    if (last && !urlParams.current.embed) return last;
+    const last = lastDiagramData.current;
+    if (last && !urlParams.current.embed) {
+      if (typeof last === "object" && last.code) return last.code;
+      return last;
+    }
     return DEFAULT_CODE;
   })();
 
@@ -6031,9 +6051,22 @@ function App() {
   const [convertError, setConvertError] = useState("");
   const [aiPreview, setAiPreview] = useState(null); // { code, title, summary, source }
   const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
-  const [diagramTabs, setDiagramTabs] = useState([]); // [{ id, label, code }]
-  const [activeTabId, setActiveTabId] = useState("original");
-  const originalCodeRef = useRef(null);
+  const [diagramTabs, setDiagramTabs] = useState(() => {
+    const last = lastDiagramData.current;
+    if (last && typeof last === "object" && last.tabs && last.tabs.length > 0 && !urlParams.current.embed && !urlParams.current.codeParam) {
+      return last.tabs;
+    }
+    return [{ id: "tab-0", label: "Main", code: initialCode }];
+  });
+  const [activeTabId, setActiveTabId] = useState(() => {
+    const last = lastDiagramData.current;
+    if (last && typeof last === "object" && last.tabs && last.tabs.length > 0 && !urlParams.current.embed && !urlParams.current.codeParam) {
+      return last.tabs[0].id;
+    }
+    return "tab-0";
+  });
+  const [renamingTabId, setRenamingTabId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -6699,9 +6732,17 @@ function App() {
           const savedViewState = normalizeGanttViewState(flow.ganttViewState, defaultViewState);
           lastSavedGanttViewStateRef.current = JSON.stringify(savedViewState);
 
-          setCode(flow.code || DEFAULT_CODE);
+          const flowCode = flow.code || DEFAULT_CODE;
+          setCode(flowCode);
           clearHistory();
-          lastVersionCodeRef.current = flow.code || DEFAULT_CODE;
+          lastVersionCodeRef.current = flowCode;
+          if (flow.tabs && flow.tabs.length > 0) {
+            setDiagramTabs(flow.tabs);
+            setActiveTabId(flow.tabs[0].id);
+          } else {
+            setDiagramTabs([{ id: "tab-0", label: "Main", code: flowCode }]);
+            setActiveTabId("tab-0");
+          }
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
           setBaselineCode(flow.baselineCode || null);
@@ -6742,12 +6783,14 @@ function App() {
     if (!isOwner && userRole !== "edit" && !canPubliclyEdit) return;
     const handle = window.setTimeout(async () => {
       try {
-        await updateFlow(flowId, { code, diagramType });
+        const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
+        await updateFlow(flowId, { code, diagramType, tabs: tabsSnapshot });
         const now = Date.now();
         if (now - lastVersionSaveRef.current >= 10 * 60 * 1000 && code !== lastVersionCodeRef.current) {
           lastVersionSaveRef.current = now;
           lastVersionCodeRef.current = code;
-          saveFlowVersion(flowId, { code, diagramType }).catch(() => {});
+          const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
+          saveFlowVersion(flowId, { code, diagramType, tabs: tabsSnapshot }).catch(() => {});
         }
       } catch (err) {
         logAppFirestoreError("autoSave/updateFlow", err, {
@@ -6797,9 +6840,13 @@ function App() {
   /* ── Auto-save to localStorage ─────────────────────── */
   useEffect(() => {
     if (isEmbed) return; // don't save in embed mode
-    const handle = window.setTimeout(() => saveLastDiagram(code), 500);
+    const handle = window.setTimeout(() => {
+      // Save current tab's code into diagramTabs before persisting
+      const updatedTabs = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
+      saveLastDiagram(code, updatedTabs);
+    }, 500);
     return () => window.clearTimeout(handle);
-  }, [code]);
+  }, [code, diagramTabs, activeTabId]);
 
   /* ── Parent frame postMessage API (for Notion etc.) ── */
   useEffect(() => {
@@ -8041,16 +8088,14 @@ function App() {
 
   const handleAiPreviewAccept = () => {
     if (!aiPreview) return;
+    // Save current tab code before adding new tab
+    setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code } : t));
     const newTab = {
       id: Date.now().toString(),
       label: aiPreview.title || (aiPreview.source === "convert" ? "Conversion" : "AI Generated"),
       code: aiPreview.code,
     };
     setDiagramTabs((prev) => [...prev, newTab]);
-    // Switch to the new tab
-    if (activeTabId === "original") {
-      originalCodeRef.current = code;
-    }
     setCode(newTab.code);
     setActiveTabId(newTab.id);
     setSelectedElement(null);
@@ -8071,22 +8116,12 @@ function App() {
   const switchTab = (tabId) => {
     if (tabId === activeTabId) return;
     // Save current tab's code before switching
-    if (activeTabId === "original") {
-      originalCodeRef.current = code;
-    } else {
-      setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code } : t));
-    }
+    setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code } : t));
     // Load new tab's code
-    if (tabId === "original") {
-      setCode(originalCodeRef.current ?? code);
-      originalCodeRef.current = null;
-      setActiveTabId("original");
-    } else {
-      const tab = diagramTabs.find((t) => t.id === tabId);
-      if (tab) {
-        setCode(tab.code);
-        setActiveTabId(tabId);
-      }
+    const tab = diagramTabs.find((t) => t.id === tabId);
+    if (tab) {
+      setCode(tab.code);
+      setActiveTabId(tabId);
     }
     setSelectedElement(null);
     setHighlightLine(null);
@@ -8094,42 +8129,51 @@ function App() {
   };
 
   const closeTab = (tabId) => {
+    if (diagramTabs.length <= 1) return; // always keep at least one tab
+    const idx = diagramTabs.findIndex((t) => t.id === tabId);
     setDiagramTabs((prev) => prev.filter((t) => t.id !== tabId));
     if (activeTabId === tabId) {
-      if (originalCodeRef.current !== null) {
-        setCode(originalCodeRef.current);
-        originalCodeRef.current = null;
+      // Switch to adjacent tab
+      const nextTab = diagramTabs[idx === 0 ? 1 : idx - 1];
+      if (nextTab) {
+        setCode(nextTab.code);
+        setActiveTabId(nextTab.id);
       }
-      setActiveTabId("original");
       setSelectedElement(null);
       setHighlightLine(null);
       setPositionOverrides({});
     }
   };
 
-  const applyTabToOriginal = (tabId) => {
-    const tab = diagramTabs.find((t) => t.id === tabId);
-    if (!tab) return;
-    originalCodeRef.current = tab.code;
-    switchTab("original");
-    setRenderMessage(`Applied: ${tab.label}`);
-  };
-
   const addNewTab = () => {
+    // Save current tab's code first
+    setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code } : t));
     const newTab = {
       id: Date.now().toString(),
       label: `Tab ${diagramTabs.length + 1}`,
       code: "",
     };
     setDiagramTabs((prev) => [...prev, newTab]);
-    if (activeTabId === "original") {
-      originalCodeRef.current = code;
-    }
     setCode(newTab.code);
     setActiveTabId(newTab.id);
     setSelectedElement(null);
     setHighlightLine(null);
     setPositionOverrides({});
+  };
+
+  const startRenameTab = (tabId) => {
+    const tab = diagramTabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    setRenamingTabId(tabId);
+    setRenameValue(tab.label);
+  };
+
+  const commitRenameTab = () => {
+    if (renamingTabId && renameValue.trim()) {
+      setDiagramTabs((prev) => prev.map((t) => t.id === renamingTabId ? { ...t, label: renameValue.trim() } : t));
+    }
+    setRenamingTabId(null);
+    setRenameValue("");
   };
 
   const handleDeleteDiagram = (name) => {
@@ -8473,44 +8517,40 @@ function App() {
             </div>
           </div>
           <div className="editor-tab-bar">
-            <button
-              className={`editor-tab ${activeTabId === "original" ? "active" : ""}`}
-              onClick={() => switchTab("original")}
-            >
-              Original
-            </button>
             {diagramTabs.map((tab) => (
               <button
                 key={tab.id}
                 className={`editor-tab ${activeTabId === tab.id ? "active" : ""}`}
                 onClick={() => switchTab(tab.id)}
+                onDoubleClick={() => startRenameTab(tab.id)}
               >
-                <span className="editor-tab-label">{tab.label}</span>
-                <span
-                  className="editor-tab-close"
-                  onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                >
-                  &times;
-                </span>
+                {renamingTabId === tab.id ? (
+                  <input
+                    className="editor-tab-rename"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={commitRenameTab}
+                    onKeyDown={(e) => { if (e.key === "Enter") commitRenameTab(); if (e.key === "Escape") { setRenamingTabId(null); } }}
+                    onClick={(e) => e.stopPropagation()}
+                    autoFocus
+                  />
+                ) : (
+                  <span className="editor-tab-label">{tab.label}</span>
+                )}
+                {diagramTabs.length > 1 && (
+                  <span
+                    className="editor-tab-close"
+                    onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+                  >
+                    &times;
+                  </span>
+                )}
               </button>
             ))}
             <button className="editor-tab editor-tab-add" onClick={addNewTab} title="New tab">
               +
             </button>
           </div>
-          {activeTabId !== "original" && (
-            <div className="editor-tab-actions">
-              <button
-                className="soft-btn small primary"
-                onClick={() => applyTabToOriginal(activeTabId)}
-              >
-                Apply to original
-              </button>
-              <span style={{ fontSize: 11, color: "var(--ink-muted)" }}>
-                Copies this code to Original tab
-              </span>
-            </div>
-          )}
           <div className="editor-wrap">
             <pre className="line-gutter" aria-hidden="true">
               {Array.from({ length: lineCount }, (_, idx) => {
@@ -8526,20 +8566,17 @@ function App() {
               ref={editorRef}
               value={code}
               onChange={(e) => {
-                if (activeTabId === "original") {
-                  if (!pendingTypingSnapshotRef.current) {
-                    pendingTypingSnapshotRef.current = { code: codeRef.current, positionOverrides: positionOverridesRef.current, styleOverrides: styleOverridesRef.current };
-                  }
-                  clearTimeout(typingTimerRef.current);
-                  typingTimerRef.current = setTimeout(() => {
-                    if (pendingTypingSnapshotRef.current) {
-                      commitSnapshot(pendingTypingSnapshotRef.current.code, pendingTypingSnapshotRef.current.positionOverrides, pendingTypingSnapshotRef.current.styleOverrides);
-                      pendingTypingSnapshotRef.current = null;
-                    }
-                  }, 800);
-                } else {
-                  setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code: e.target.value } : t));
+                if (!pendingTypingSnapshotRef.current) {
+                  pendingTypingSnapshotRef.current = { code: codeRef.current, positionOverrides: positionOverridesRef.current, styleOverrides: styleOverridesRef.current };
                 }
+                clearTimeout(typingTimerRef.current);
+                typingTimerRef.current = setTimeout(() => {
+                  if (pendingTypingSnapshotRef.current) {
+                    commitSnapshot(pendingTypingSnapshotRef.current.code, pendingTypingSnapshotRef.current.positionOverrides, pendingTypingSnapshotRef.current.styleOverrides);
+                    pendingTypingSnapshotRef.current = null;
+                  }
+                }, 800);
+                setDiagramTabs((prev) => prev.map((t) => t.id === activeTabId ? { ...t, code: e.target.value } : t));
                 setCode(e.target.value); setPositionOverrides({});
               }}
               spellCheck={false}
@@ -10275,8 +10312,16 @@ function App() {
         <VersionHistoryPanel
           flowId={flowId}
           currentCode={code}
-          onRestore={(restoredCode, restoredType) => {
-            setCode(restoredCode);
+          onRestore={(restoredCode, restoredType, restoredTabs) => {
+            if (restoredTabs && restoredTabs.length > 0) {
+              setDiagramTabs(restoredTabs);
+              setActiveTabId(restoredTabs[0].id);
+              setCode(restoredTabs[0].code);
+            } else {
+              setDiagramTabs([{ id: "tab-0", label: "Main", code: restoredCode }]);
+              setActiveTabId("tab-0");
+              setCode(restoredCode);
+            }
             clearHistory();
             if (restoredType) setDiagramType(restoredType);
             setVersionPanelOpen(false);
