@@ -9299,20 +9299,14 @@ function App() {
   // Unlock the gantt draft when the modal closes so syncing can resume.
   // Declared before the sync useEffect so it fires first in the same commit.
   useEffect(() => {
-    console.log("[DEP-DEBUG] unlock useEffect fired", { contextMenuType: contextMenu?.type, locked: ganttDraftLockedRef.current });
     if (contextMenu?.type !== "gantt") {
       ganttDraftLockedRef.current = false;
     }
   }, [contextMenu]);
   useEffect(() => {
-    console.log("[DEP-DEBUG] sync useEffect fired", { locked: ganttDraftLockedRef.current, fingerprint: selectedGanttTaskFingerprint, hasTask: !!selectedGanttTask, deps: selectedGanttTask?.afterDeps });
     // While the Gantt modal is open, don't overwrite user edits to ganttDraft
-    if (ganttDraftLockedRef.current) {
-      console.log("[DEP-DEBUG] LOCKED — skipping sync");
-      return;
-    }
+    if (ganttDraftLockedRef.current) return;
     if (!selectedGanttTask) {
-      console.log("[DEP-DEBUG] No selected task — clearing draft");
       setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", progress: "", dependsOn: [] });
       return;
     }
@@ -9335,12 +9329,10 @@ function App() {
       progress: selectedGanttTask.progress !== null && selectedGanttTask.progress !== undefined ? String(selectedGanttTask.progress) : "",
       dependsOn: selectedGanttTask.afterDeps || [],
     });
-    console.log("[DEP-DEBUG] Draft synced from task", { deps: selectedGanttTask.afterDeps, contextMenuType: contextMenu?.type });
     // Lock the draft while the modal is open to prevent future syncs
     // from overwriting user edits (e.g., dep removal via X button)
     if (contextMenu?.type === "gantt") {
       ganttDraftLockedRef.current = true;
-      console.log("[DEP-DEBUG] LOCKED after sync (modal is open)");
     }
   }, [selectedGanttTaskFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -9440,7 +9432,6 @@ function App() {
 
       if (data.type === "element:selected") {
         const selected = data.payload || null;
-        console.log("[DEP-DEBUG] element:selected received", { label: selected?.label, elementType: selected?.elementType, isNull: !selected });
         setSelectedElement(selected);
         setLabelDraft(selected?.label || "");
         setHighlightLine(getMatchingLine(code, selected?.label || selected?.id || ""));
@@ -11977,18 +11968,13 @@ function App() {
                           {depTask ? depTask.label : depId}
                           <button
                             type="button"
-                            onClick={() => {
-                              console.log("[DEP-DEBUG] X clicked", { depId, locked: ganttDraftLockedRef.current });
-                              setGanttDraft((prev) => {
-                              console.log("[DEP-DEBUG] X updater running", { prevDeps: prev.dependsOn, removing: depId });
+                            onClick={() => setGanttDraft((prev) => {
                               const idx = prev.dependsOn.indexOf(depId);
                               if (idx < 0) return prev;
                               const next = [...prev.dependsOn];
                               next.splice(idx, 1);
-                              console.log("[DEP-DEBUG] X result", { newDeps: next });
                               return { ...prev, dependsOn: next };
-                            });
-                            }}
+                            })}
                           >
                             &times;
                           </button>
