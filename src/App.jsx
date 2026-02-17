@@ -8442,6 +8442,7 @@ function App() {
     dependsOn: [],
   });
   const [ganttDeleteConfirm, setGanttDeleteConfirm] = useState(null);
+  const skipDraftSyncRef = useRef(false);
 
   // UI state
   const [editorCollapsed, setEditorCollapsed] = useState(() => {
@@ -9297,6 +9298,13 @@ function App() {
       ].join("|")
     : "";
   useEffect(() => {
+    // After applyGanttTaskPatch, the draft is already correct — skip the
+    // automatic reset so the useEffect doesn't accidentally overwrite it
+    // with stale data from a mid-render selectedGanttTask.
+    if (skipDraftSyncRef.current) {
+      skipDraftSyncRef.current = false;
+      return;
+    }
     if (!selectedGanttTask) {
       setGanttDraft({ label: "", startDate: "", endDate: "", status: [], isMilestone: false, assignee: "", notes: "", link: "", section: "", progress: "", dependsOn: [] });
       return;
@@ -10321,6 +10329,9 @@ function App() {
     const finalTasks = parseGanttTasks(updated);
     const finalTask = findTaskByLabel(finalTasks, nextLabel);
 
+    // Prevent the draft-sync useEffect from resetting the draft after this
+    // code change — the draft already reflects the user's intended state.
+    skipDraftSyncRef.current = true;
     setCode(updated);
     setRenderMessage(`Updated "${nextLabel}"`);
     setHighlightLine(finalTask ? finalTask.lineIndex + 1 : null);
