@@ -773,7 +773,11 @@ export function updateGanttTask(code, task, updates) {
   const nextTokens = [...task.tokens];
   const nextLabel = (updates.label || task.label).trim();
 
-  if (updates.startDate && task.dateIndex >= 0) {
+  // If replacing an `after` dependency with an explicit start date,
+  // swap the after token for the new date.
+  if (updates.startDate && task.dateIndex < 0 && task.afterTokenIndex >= 0) {
+    nextTokens[task.afterTokenIndex] = updates.startDate;
+  } else if (updates.startDate && task.dateIndex >= 0) {
     nextTokens[task.dateIndex] = updates.startDate;
   }
 

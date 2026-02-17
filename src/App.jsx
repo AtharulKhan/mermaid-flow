@@ -6358,8 +6358,17 @@ function App() {
           setRenderMessage("Drag captured, but no matching Gantt task found");
           return;
         }
-        if (!task.hasExplicitDate || !task.durationDays || !payload.barWidth) {
-          setRenderMessage("Task uses dependency-based dates; use right-click edit to set date manually");
+        if (!task.durationDays || !payload.barWidth) {
+          setRenderMessage("Cannot resize: task has no duration");
+          return;
+        }
+
+        // Resolve dependencies to get computed start date for after-based tasks
+        const resolved = resolveDependencies(ganttTasks.map((t) => ({ ...t })));
+        const resolvedTask = findTaskByLabel(resolved, payload.label || "");
+        const effectiveStart = task.startDate || (resolvedTask && resolvedTask.resolvedStartDate) || "";
+        if (!effectiveStart) {
+          setRenderMessage("Cannot move: task has no resolved start date");
           return;
         }
 
@@ -6369,22 +6378,24 @@ function App() {
 
         const dragMode = payload.dragMode || "shift";
         if (dragMode === "resize-end") {
-          const currentEnd = task.endDate || shiftIsoDate(task.startDate, task.durationDays);
-          const nextEnd = shiftIsoDate(currentEnd, dayShift);
-          setCode((prev) => updateGanttTask(prev, task, { endDate: nextEnd }));
-          setRenderMessage(`Updated "${task.label}" end date to ${nextEnd}`);
+          // Change duration — works for both explicit-date and after-based tasks
+          const newDays = Math.max(1, task.durationDays + dayShift);
+          setCode((prev) => updateGanttTask(prev, task, { duration: newDays + "d" }));
+          setRenderMessage(`Updated "${task.label}" duration to ${newDays}d`);
         } else if (dragMode === "resize-start") {
-          const nextStart = shiftIsoDate(task.startDate, dayShift);
+          const nextStart = shiftIsoDate(effectiveStart, dayShift);
           setCode((prev) => updateGanttTask(prev, task, { startDate: nextStart }));
-          setRenderMessage(`Updated "${task.label}" start date to ${nextStart}`);
+          if (!task.hasExplicitDate) setRenderMessage(`Moved "${task.label}" start to ${nextStart} (replaced dependency)`);
+          else setRenderMessage(`Updated "${task.label}" start to ${nextStart}`);
         } else {
-          const nextStart = shiftIsoDate(task.startDate, dayShift);
+          const nextStart = shiftIsoDate(effectiveStart, dayShift);
           const updates = { startDate: nextStart };
           if (task.endDate) {
             updates.endDate = shiftIsoDate(task.endDate, dayShift);
           }
           setCode((prev) => updateGanttTask(prev, task, updates));
-          setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
+          if (!task.hasExplicitDate) setRenderMessage(`Moved "${task.label}" to ${nextStart} (replaced dependency)`);
+          else setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
         }
         setHighlightLine(task.lineIndex + 1);
       }
