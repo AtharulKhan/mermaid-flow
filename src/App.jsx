@@ -30,7 +30,7 @@ import {
   updateGanttDependency,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph } from "./flowchartUtils";
-import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, updateErEntity, updateErRelationship } from "./diagramUtils";
+import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, updateErEntity, updateErRelationship, parseSequenceDiagram, parseSequenceBlocks, parseSequenceExtras, updateSequenceMessageByIndex, removeSequenceMessageByIndex, reorderSequenceParticipants, addSequenceMessage } from "./diagramUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
 import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
@@ -1405,7 +1405,6 @@ function getIframeSrcDoc() {
         box-shadow: 0 1px 4px rgba(0,0,0,0.15);
       }
       .mf-flow-port:hover { opacity: 1 !important; transform: scale(1.1); }
-<<<<<<< HEAD
       /* ── Custom ER Diagram Styles ── */
       .mf-er-container {
         font-family: "Manrope", system-ui, sans-serif;
@@ -1561,6 +1560,171 @@ function getIframeSrcDoc() {
         word-break: break-word;
         display: none;
         box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      }
+
+      /* ── Custom Sequence Diagram ── */
+      .mf-seq-container {
+        font-family: "Manrope", system-ui, sans-serif;
+        font-size: 13px;
+        user-select: none;
+        position: relative;
+        margin: 24px auto;
+        min-height: 200px;
+      }
+      .mf-seq-actor {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 48px;
+        border-radius: 8px;
+        border: 1.5px solid var(--border, #d1d5db);
+        background: var(--panel, #ffffff);
+        cursor: grab;
+        transition: box-shadow 0.15s, border-color 0.15s;
+        z-index: 2;
+        gap: 2px;
+      }
+      .mf-seq-actor:hover {
+        border-color: var(--accent, #2563eb);
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+      }
+      .mf-seq-actor.mf-selected {
+        border-color: var(--accent, #2563eb);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+      }
+      .mf-seq-actor.mf-seq-actor-dragging {
+        opacity: 0.7;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+        z-index: 20;
+      }
+      .mf-seq-actor.mf-seq-connect-source {
+        border-color: #10b981;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+      }
+      .mf-seq-actor-icon {
+        color: var(--ink, #333);
+        line-height: 0;
+      }
+      .mf-seq-actor-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink, #333);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        text-align: center;
+        padding: 0 6px;
+      }
+      .mf-seq-actor-bottom .mf-seq-actor-label {
+        font-weight: 500;
+      }
+      .mf-seq-lifeline {
+        opacity: 0.5;
+      }
+      .mf-seq-activation {
+        opacity: 0.7;
+      }
+      .mf-seq-message {
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background 0.1s;
+        z-index: 1;
+      }
+      .mf-seq-message:hover {
+        background: rgba(37, 99, 235, 0.06);
+      }
+      .mf-seq-message.mf-selected {
+        background: rgba(37, 99, 235, 0.1);
+        outline: 1.5px solid var(--accent, #2563eb);
+      }
+      .mf-seq-msg-label {
+        pointer-events: none;
+      }
+      .mf-seq-drop-indicator {
+        position: absolute;
+        width: 3px;
+        background: var(--accent, #2563eb);
+        border-radius: 2px;
+        opacity: 0.6;
+        z-index: 15;
+        pointer-events: none;
+      }
+
+      /* Swimlane view */
+      .mf-seq-swimlane {
+        display: flex;
+        gap: 8px;
+        padding: 16px;
+        align-items: flex-start;
+      }
+      .mf-seq-lane {
+        border: 1px solid var(--border, #d1d5db);
+        border-radius: 10px;
+        background: var(--panel, #ffffff);
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+      .mf-seq-lane.mf-selected {
+        border-color: var(--accent, #2563eb);
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+      }
+      .mf-seq-lane-header {
+        font-size: 13px;
+        font-weight: 600;
+        padding: 10px 12px;
+        background: var(--bg-soft, #f9fafb);
+        border-bottom: 1px solid var(--border, #e5e7eb);
+        cursor: pointer;
+        text-align: center;
+      }
+      .mf-seq-lane-header:hover {
+        background: var(--bg-hover, #f3f4f6);
+      }
+      .mf-seq-lane-messages {
+        padding: 4px 0;
+      }
+      .mf-seq-lane-msg {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        font-size: 12px;
+        cursor: pointer;
+        min-height: 28px;
+        transition: background 0.1s;
+      }
+      .mf-seq-lane-msg:hover {
+        background: rgba(37, 99, 235, 0.05);
+      }
+      .mf-seq-lane-msg.mf-selected {
+        background: rgba(37, 99, 235, 0.1);
+      }
+      .mf-seq-lane-msg-blank {
+        min-height: 28px;
+        cursor: default;
+      }
+      .mf-seq-lane-msg-blank:hover {
+        background: none;
+      }
+      .mf-seq-lane-direction {
+        font-weight: 600;
+        color: var(--accent, #2563eb);
+        flex-shrink: 0;
+        width: 14px;
+        text-align: center;
+      }
+      .mf-seq-lane-peer {
+        font-weight: 500;
+        color: var(--ink-soft, #6b7280);
+        flex-shrink: 0;
+      }
+      .mf-seq-lane-text {
+        color: var(--ink, #333);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       /* ── Dark Theme ── */
@@ -1729,7 +1893,6 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-flow-edge text {
         fill: #9a9fb2;
       }
-<<<<<<< HEAD
       /* Dark ER diagram styles */
       [data-theme="dark"] .mf-er-entity {
         background: #1c1f2b;
@@ -1762,6 +1925,20 @@ function getIframeSrcDoc() {
       [data-theme="dark"] .mf-edge-label-bg {
         fill: #1c1f2b !important;
         stroke: #2a2e3d !important;
+      }
+      /* Dark sequence diagram */
+      [data-theme="dark"] .mf-seq-actor {
+        background: #1c1f2b;
+        border-color: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-seq-lane {
+        background: #1c1f2b;
+        border-color: #2a2e3d;
+      }
+      [data-theme="dark"] .mf-seq-lane-header {
+        background: #161922;
+        border-color: #2a2e3d;
+        color: #e4e6ed;
       }
       /* Dark gantt header rows */
       [data-theme="dark"] .mf-gh-row {
@@ -5108,6 +5285,684 @@ function getIframeSrcDoc() {
         window.parent.postMessage({ channel: "${CHANNEL}", type, payload }, "*");
       };
 
+      /* ── Custom Sequence Diagram Renderer ─────────────────── */
+      const renderCustomSequence = (participants, messages, blocks, extras, swimlaneView) => {
+        setGanttMode(false);
+        clearGanttOverlay();
+        canvas.innerHTML = "";
+        canvas.style.justifyContent = "center";
+
+        if (!participants.length && !messages.length) {
+          canvas.textContent = "Empty sequence diagram";
+          return;
+        }
+
+        const colWidth = 160;
+        const rowHeight = 44;
+        const actorHeight = 48;
+        const actorPad = 16;
+        const lifelineStartY = actorHeight + actorPad;
+        const msgStartY = lifelineStartY + 12;
+        const totalWidth = participants.length * colWidth;
+
+        const activations = (extras && extras.activations) || [];
+        const notes = (extras && extras.notes) || [];
+
+        // Compute message rows needed (including block labels and notes)
+        const rowItems = [];
+        let msgIdx = 0;
+        let blockStackDepth = 0;
+        const blockStarts = {};
+        const blockEnds = {};
+        if (blocks) {
+          for (const b of blocks) {
+            blockStarts[b.startLine] = b;
+            blockEnds[b.endLine] = b;
+            for (const d of (b.dividers || [])) {
+              blockStarts[d.lineIndex] = { ...b, dividerLabel: d.label, isDivider: true };
+            }
+          }
+        }
+
+        // Build row items from messages in order, interleaving block markers
+        for (let mi = 0; mi < messages.length; mi++) {
+          rowItems.push({ type: "message", index: mi, msg: messages[mi] });
+        }
+
+        // Also add notes as inline items after their line positions
+        for (const note of notes) {
+          rowItems.push({ type: "note", note });
+        }
+
+        const bodyHeight = Math.max(rowItems.length * rowHeight + 40, 120);
+        const totalHeight = actorHeight + actorPad + bodyHeight + actorHeight + actorPad;
+
+        // Participant center X positions
+        const actorCenterX = (idx) => idx * colWidth + colWidth / 2;
+
+        // --- Swimlane view ---
+        if (swimlaneView) {
+          const container = document.createElement("div");
+          container.className = "mf-seq-container mf-seq-swimlane";
+          container.style.width = totalWidth + "px";
+
+          for (let pi = 0; pi < participants.length; pi++) {
+            const p = participants[pi];
+            const lane = document.createElement("div");
+            lane.className = "mf-seq-lane";
+            lane.setAttribute("data-participant-id", p.id);
+            lane.style.width = colWidth + "px";
+
+            const header = document.createElement("div");
+            header.className = "mf-seq-lane-header";
+            header.textContent = p.label || p.id;
+            lane.appendChild(header);
+
+            // Click to select actor
+            header.addEventListener("click", (e) => {
+              e.stopPropagation();
+              container.querySelectorAll(".mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              lane.classList.add("mf-selected");
+              send("element:selected", { elementType: "node", nodeId: p.id, label: p.label || p.id });
+            });
+            header.addEventListener("contextmenu", (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              send("element:context", { elementType: "node", nodeId: p.id, label: p.label || p.id, pointerX: e.clientX, pointerY: e.clientY });
+            });
+
+            const msgList = document.createElement("div");
+            msgList.className = "mf-seq-lane-messages";
+
+            for (let mi = 0; mi < messages.length; mi++) {
+              const m = messages[mi];
+              const isSender = m.source === p.id;
+              const isReceiver = m.target === p.id;
+              if (!isSender && !isReceiver) {
+                // Blank row to maintain vertical alignment across lanes
+                const blank = document.createElement("div");
+                blank.className = "mf-seq-lane-msg mf-seq-lane-msg-blank";
+                msgList.appendChild(blank);
+                continue;
+              }
+
+              const row = document.createElement("div");
+              row.className = "mf-seq-lane-msg";
+              row.setAttribute("data-message-index", mi);
+
+              const dir = document.createElement("span");
+              dir.className = "mf-seq-lane-direction";
+              dir.textContent = isSender ? "\u2192" : "\u2190";
+              row.appendChild(dir);
+
+              const peer = document.createElement("span");
+              peer.className = "mf-seq-lane-peer";
+              peer.textContent = isSender ? (m.target) : (m.source);
+              row.appendChild(peer);
+
+              const text = document.createElement("span");
+              text.className = "mf-seq-lane-text";
+              text.textContent = m.text || "";
+              row.appendChild(text);
+
+              row.addEventListener("click", (e) => {
+                e.stopPropagation();
+                container.querySelectorAll(".mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+                row.classList.add("mf-selected");
+                send("element:selected", { elementType: "edge", edgeSource: m.source, edgeTarget: m.target, messageIndex: mi, label: m.text || "" });
+              });
+              row.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                send("element:context", { elementType: "edge", edgeSource: m.source, edgeTarget: m.target, messageIndex: mi, label: m.text || "", arrowType: m.arrowType || "->>", pointerX: e.clientX, pointerY: e.clientY });
+              });
+
+              msgList.appendChild(row);
+            }
+
+            lane.appendChild(msgList);
+            container.appendChild(lane);
+          }
+
+          // Deselect on background click
+          container.addEventListener("click", (e) => {
+            if (e.target === container) {
+              container.querySelectorAll(".mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+              send("element:selected", null);
+            }
+          });
+          container.addEventListener("contextmenu", (e) => {
+            if (e.target === container) {
+              e.preventDefault();
+              send("element:context", { elementType: "canvas", pointerX: e.clientX, pointerY: e.clientY });
+            }
+          });
+
+          canvas.appendChild(container);
+          return;
+        }
+
+        // --- Normal sequence view ---
+        const container = document.createElement("div");
+        container.className = "mf-seq-container";
+        container.style.width = totalWidth + "px";
+        container.style.minHeight = totalHeight + "px";
+        container.style.position = "relative";
+
+        // === SVG layer for lifelines and arrows ===
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("width", totalWidth);
+        svg.setAttribute("height", totalHeight);
+        svg.style.position = "absolute";
+        svg.style.top = "0";
+        svg.style.left = "0";
+        svg.style.pointerEvents = "none";
+        svg.style.overflow = "visible";
+
+        // Arrow marker definitions
+        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+        // Filled arrowhead (for ->> and -->>)
+        const mkFilled = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+        mkFilled.setAttribute("id", "mf-seq-arrow-filled");
+        mkFilled.setAttribute("markerWidth", "10");
+        mkFilled.setAttribute("markerHeight", "8");
+        mkFilled.setAttribute("refX", "9");
+        mkFilled.setAttribute("refY", "4");
+        mkFilled.setAttribute("orient", "auto");
+        const filledPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        filledPath.setAttribute("d", "M0,0 L10,4 L0,8 Z");
+        filledPath.setAttribute("fill", "var(--ink, #333)");
+        mkFilled.appendChild(filledPath);
+        defs.appendChild(mkFilled);
+
+        // Open arrowhead (for -> and -->)
+        const mkOpen = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+        mkOpen.setAttribute("id", "mf-seq-arrow-open");
+        mkOpen.setAttribute("markerWidth", "10");
+        mkOpen.setAttribute("markerHeight", "8");
+        mkOpen.setAttribute("refX", "9");
+        mkOpen.setAttribute("refY", "4");
+        mkOpen.setAttribute("orient", "auto");
+        const openPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        openPath.setAttribute("d", "M0,0 L10,4 L0,8");
+        openPath.setAttribute("fill", "none");
+        openPath.setAttribute("stroke", "var(--ink, #333)");
+        openPath.setAttribute("stroke-width", "1.5");
+        mkOpen.appendChild(openPath);
+        defs.appendChild(mkOpen);
+
+        // Reverse filled arrowhead (for left-pointing messages)
+        const mkFilledRev = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+        mkFilledRev.setAttribute("id", "mf-seq-arrow-filled-rev");
+        mkFilledRev.setAttribute("markerWidth", "10");
+        mkFilledRev.setAttribute("markerHeight", "8");
+        mkFilledRev.setAttribute("refX", "1");
+        mkFilledRev.setAttribute("refY", "4");
+        mkFilledRev.setAttribute("orient", "auto");
+        const filledRevPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        filledRevPath.setAttribute("d", "M10,0 L0,4 L10,8 Z");
+        filledRevPath.setAttribute("fill", "var(--ink, #333)");
+        mkFilledRev.appendChild(filledRevPath);
+        defs.appendChild(mkFilledRev);
+
+        // X marker (for -x and --x)
+        const mkX = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+        mkX.setAttribute("id", "mf-seq-arrow-x");
+        mkX.setAttribute("markerWidth", "12");
+        mkX.setAttribute("markerHeight", "12");
+        mkX.setAttribute("refX", "6");
+        mkX.setAttribute("refY", "6");
+        mkX.setAttribute("orient", "auto");
+        const xLine1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        xLine1.setAttribute("x1", "2"); xLine1.setAttribute("y1", "2");
+        xLine1.setAttribute("x2", "10"); xLine1.setAttribute("y2", "10");
+        xLine1.setAttribute("stroke", "var(--ink, #333)"); xLine1.setAttribute("stroke-width", "2");
+        const xLine2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        xLine2.setAttribute("x1", "10"); xLine2.setAttribute("y1", "2");
+        xLine2.setAttribute("x2", "2"); xLine2.setAttribute("y2", "10");
+        xLine2.setAttribute("stroke", "var(--ink, #333)"); xLine2.setAttribute("stroke-width", "2");
+        mkX.appendChild(xLine1);
+        mkX.appendChild(xLine2);
+        defs.appendChild(mkX);
+        svg.appendChild(defs);
+
+        // Draw lifelines
+        for (let pi = 0; pi < participants.length; pi++) {
+          const cx = actorCenterX(pi);
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", cx);
+          line.setAttribute("y1", lifelineStartY);
+          line.setAttribute("x2", cx);
+          line.setAttribute("y2", totalHeight - actorHeight - actorPad);
+          line.setAttribute("stroke", "var(--border, #ccc)");
+          line.setAttribute("stroke-width", "1");
+          line.setAttribute("stroke-dasharray", "6,4");
+          line.classList.add("mf-seq-lifeline");
+          svg.appendChild(line);
+        }
+
+        // Draw activations
+        for (const act of activations) {
+          const pIdx = participants.findIndex((p) => p.id === act.participantId);
+          if (pIdx < 0) continue;
+          // Find the message index range for this activation
+          const startMsgIdx = messages.findIndex((m) => m.lineIndex >= act.startLine);
+          const endMsgIdx = messages.findIndex((m) => m.lineIndex >= act.endLine);
+          if (startMsgIdx < 0) continue;
+          const cx = actorCenterX(pIdx);
+          const y1 = msgStartY + startMsgIdx * rowHeight;
+          const y2 = endMsgIdx >= 0 ? msgStartY + endMsgIdx * rowHeight : y1 + rowHeight;
+          const actRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          actRect.setAttribute("x", cx - 6);
+          actRect.setAttribute("y", y1 - 4);
+          actRect.setAttribute("width", "12");
+          actRect.setAttribute("height", Math.max(y2 - y1 + 8, 16));
+          actRect.setAttribute("rx", "2");
+          actRect.setAttribute("fill", "var(--accent-soft, rgba(37,99,235,0.12))");
+          actRect.setAttribute("stroke", "var(--accent, #2563eb)");
+          actRect.setAttribute("stroke-width", "1");
+          actRect.classList.add("mf-seq-activation");
+          svg.appendChild(actRect);
+        }
+
+        // Draw message arrows
+        for (let mi = 0; mi < messages.length; mi++) {
+          const m = messages[mi];
+          const srcIdx = participants.findIndex((p) => p.id === m.source);
+          const tgtIdx = participants.findIndex((p) => p.id === m.target);
+          if (srcIdx < 0 || tgtIdx < 0) continue;
+
+          const y = msgStartY + mi * rowHeight + rowHeight / 2;
+          const srcX = actorCenterX(srcIdx);
+          const tgtX = actorCenterX(tgtIdx);
+          const isSelf = srcIdx === tgtIdx;
+
+          const arrow = m.arrowType || "->>";
+          const isDashed = arrow.startsWith("--");
+          const isX = arrow.endsWith("x");
+          const isAsync = arrow.endsWith(")");
+          const isFilled = arrow.endsWith(">>");
+          const isOpen = arrow.endsWith(">") && !isFilled;
+
+          if (isSelf) {
+            // Self-message: loop to the right and back
+            const loopW = 30;
+            const loopH = 20;
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", "M" + srcX + "," + y + " H" + (srcX + loopW) + " V" + (y + loopH) + " H" + srcX);
+            path.setAttribute("fill", "none");
+            path.setAttribute("stroke", "var(--ink, #333)");
+            path.setAttribute("stroke-width", "1.5");
+            if (isDashed) path.setAttribute("stroke-dasharray", "6,3");
+            path.setAttribute("marker-end", isX ? "url(#mf-seq-arrow-x)" : isFilled ? "url(#mf-seq-arrow-filled-rev)" : "url(#mf-seq-arrow-open)");
+            svg.appendChild(path);
+          } else {
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", srcX);
+            line.setAttribute("y1", y);
+            line.setAttribute("x2", tgtX);
+            line.setAttribute("y2", y);
+            line.setAttribute("stroke", "var(--ink, #333)");
+            line.setAttribute("stroke-width", "1.5");
+            if (isDashed) line.setAttribute("stroke-dasharray", "6,3");
+            if (isX) {
+              line.setAttribute("marker-end", "url(#mf-seq-arrow-x)");
+            } else if (isFilled) {
+              line.setAttribute("marker-end", "url(#mf-seq-arrow-filled)");
+            } else {
+              line.setAttribute("marker-end", "url(#mf-seq-arrow-open)");
+            }
+            svg.appendChild(line);
+          }
+
+          // Message label
+          if (m.text) {
+            const labelX = isSelf ? srcX + 34 : (srcX + tgtX) / 2;
+            const labelY = isSelf ? y + 6 : y - 8;
+            const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            textEl.setAttribute("x", labelX);
+            textEl.setAttribute("y", labelY);
+            textEl.setAttribute("text-anchor", isSelf ? "start" : "middle");
+            textEl.setAttribute("font-size", "12");
+            textEl.setAttribute("fill", "var(--ink, #333)");
+            textEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
+            textEl.classList.add("mf-seq-msg-label");
+            textEl.textContent = m.text;
+            svg.appendChild(textEl);
+          }
+        }
+
+        // Draw block overlays (alt/loop/opt/break/par)
+        for (const block of (blocks || [])) {
+          // Find the message range this block covers
+          const startMsgIdx = messages.findIndex((m) => m.lineIndex > block.startLine);
+          let endMsgIdx = messages.length - 1;
+          if (block.endLine >= 0) {
+            for (let i = messages.length - 1; i >= 0; i--) {
+              if (messages[i].lineIndex < block.endLine) { endMsgIdx = i; break; }
+            }
+          }
+          if (startMsgIdx < 0) continue;
+
+          const y1 = msgStartY + startMsgIdx * rowHeight - 12;
+          const y2 = msgStartY + (endMsgIdx + 1) * rowHeight + 4;
+          const blockInset = 10 + block.depth * 8;
+          const bx = blockInset;
+          const bw = totalWidth - blockInset * 2;
+
+          const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          rect.setAttribute("x", bx);
+          rect.setAttribute("y", y1);
+          rect.setAttribute("width", bw);
+          rect.setAttribute("height", y2 - y1);
+          rect.setAttribute("rx", "4");
+          rect.setAttribute("fill", "none");
+          rect.setAttribute("stroke", "var(--border, #ccc)");
+          rect.setAttribute("stroke-width", "1");
+          rect.setAttribute("stroke-dasharray", "4,3");
+          svg.appendChild(rect);
+
+          // Block type label
+          const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          const labelText = block.type + (block.label ? " " + block.label : "");
+          labelBg.setAttribute("x", bx);
+          labelBg.setAttribute("y", y1);
+          labelBg.setAttribute("width", Math.min(labelText.length * 7 + 12, bw));
+          labelBg.setAttribute("height", "18");
+          labelBg.setAttribute("rx", "4");
+          labelBg.setAttribute("fill", "var(--panel, #f5f5f5)");
+          labelBg.setAttribute("stroke", "var(--border, #ccc)");
+          labelBg.setAttribute("stroke-width", "1");
+          svg.appendChild(labelBg);
+
+          const labelEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          labelEl.setAttribute("x", bx + 6);
+          labelEl.setAttribute("y", y1 + 13);
+          labelEl.setAttribute("font-size", "11");
+          labelEl.setAttribute("font-weight", "600");
+          labelEl.setAttribute("fill", "var(--ink-soft, #666)");
+          labelEl.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
+          labelEl.textContent = labelText;
+          svg.appendChild(labelEl);
+
+          // Divider lines (else / and)
+          for (const div of (block.dividers || [])) {
+            const divMsgIdx = messages.findIndex((m) => m.lineIndex > div.lineIndex);
+            if (divMsgIdx < 0) continue;
+            const divY = msgStartY + divMsgIdx * rowHeight - 12;
+            const divLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            divLine.setAttribute("x1", bx);
+            divLine.setAttribute("y1", divY);
+            divLine.setAttribute("x2", bx + bw);
+            divLine.setAttribute("y2", divY);
+            divLine.setAttribute("stroke", "var(--border, #ccc)");
+            divLine.setAttribute("stroke-dasharray", "4,3");
+            svg.appendChild(divLine);
+
+            if (div.label) {
+              const dLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+              dLabel.setAttribute("x", bx + 6);
+              dLabel.setAttribute("y", divY - 3);
+              dLabel.setAttribute("font-size", "10");
+              dLabel.setAttribute("fill", "var(--ink-soft, #666)");
+              dLabel.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
+              dLabel.textContent = "[" + div.label + "]";
+              svg.appendChild(dLabel);
+            }
+          }
+        }
+
+        // Draw notes
+        for (const note of notes) {
+          // Position note near the relevant actor(s)
+          const actorIdxs = note.actors.map((a) => participants.findIndex((p) => p.id === a || p.label === a)).filter((i) => i >= 0);
+          if (!actorIdxs.length) continue;
+          const minX = Math.min(...actorIdxs.map((i) => actorCenterX(i)));
+          const maxX = Math.max(...actorIdxs.map((i) => actorCenterX(i)));
+          // Find approximate Y from line index
+          const noteMsgIdx = messages.findIndex((m) => m.lineIndex > note.lineIndex);
+          const noteY = noteMsgIdx >= 0 ? msgStartY + noteMsgIdx * rowHeight - 6 : msgStartY + messages.length * rowHeight;
+          const noteW = Math.max(maxX - minX + 60, 80);
+          const noteX = (minX + maxX) / 2 - noteW / 2;
+          const noteRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          noteRect.setAttribute("x", noteX);
+          noteRect.setAttribute("y", noteY);
+          noteRect.setAttribute("width", noteW);
+          noteRect.setAttribute("height", "24");
+          noteRect.setAttribute("rx", "3");
+          noteRect.setAttribute("fill", "var(--note-bg, #fffde7)");
+          noteRect.setAttribute("stroke", "var(--note-border, #f9d71c)");
+          noteRect.setAttribute("stroke-width", "1");
+          svg.appendChild(noteRect);
+          const noteText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          noteText.setAttribute("x", noteX + noteW / 2);
+          noteText.setAttribute("y", noteY + 16);
+          noteText.setAttribute("text-anchor", "middle");
+          noteText.setAttribute("font-size", "11");
+          noteText.setAttribute("fill", "var(--ink, #333)");
+          noteText.setAttribute("font-family", '"Manrope", system-ui, sans-serif');
+          noteText.textContent = note.text;
+          svg.appendChild(noteText);
+        }
+
+        container.appendChild(svg);
+
+        // === Actor header boxes (HTML, positioned absolutely above lifelines) ===
+        const actorPositions = [];
+        for (let pi = 0; pi < participants.length; pi++) {
+          const p = participants[pi];
+          const cx = actorCenterX(pi);
+          actorPositions.push({ id: p.id, cx });
+
+          // Top actor box
+          const topBox = document.createElement("div");
+          topBox.className = "mf-seq-actor" + (p.type === "actor" ? " mf-seq-actor-person" : "");
+          topBox.setAttribute("data-participant-id", p.id);
+          topBox.style.left = (cx - colWidth / 2 + 8) + "px";
+          topBox.style.top = "0";
+          topBox.style.width = (colWidth - 16) + "px";
+          topBox.style.position = "absolute";
+
+          if (p.type === "actor") {
+            const icon = document.createElement("div");
+            icon.className = "mf-seq-actor-icon";
+            icon.innerHTML = '<svg width="20" height="24" viewBox="0 0 20 24"><circle cx="10" cy="5" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="9" x2="10" y2="17" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="13" x2="17" y2="13" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="17" x2="4" y2="23" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="17" x2="16" y2="23" stroke="currentColor" stroke-width="1.5"/></svg>';
+            topBox.appendChild(icon);
+          }
+
+          const label = document.createElement("div");
+          label.className = "mf-seq-actor-label";
+          label.textContent = p.label || p.id;
+          topBox.appendChild(label);
+
+          // Event listeners
+          topBox.addEventListener("click", (e) => {
+            e.stopPropagation();
+            container.querySelectorAll(".mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+            topBox.classList.add("mf-selected");
+            // Also highlight bottom box
+            const bottomMatch = container.querySelector('.mf-seq-actor-bottom[data-participant-id="' + CSS.escape(p.id) + '"]');
+            if (bottomMatch) bottomMatch.classList.add("mf-selected");
+            send("element:selected", { elementType: "node", nodeId: p.id, label: p.label || p.id });
+          });
+          topBox.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            send("element:context", { elementType: "node", nodeId: p.id, label: p.label || p.id, pointerX: e.clientX, pointerY: e.clientY });
+          });
+
+          // Drag to reorder
+          let dragStartX = 0, dragOrigLeft = 0, isDragging = false;
+          topBox.addEventListener("pointerdown", (e) => {
+            if (e.button !== 0) return;
+            dragStartX = e.clientX;
+            dragOrigLeft = parseFloat(topBox.style.left);
+            isDragging = false;
+            topBox.setPointerCapture(e.pointerId);
+            topBox.style.zIndex = "10";
+            topBox.style.cursor = "grabbing";
+          });
+          topBox.addEventListener("pointermove", (e) => {
+            if (!topBox.hasPointerCapture(e.pointerId)) return;
+            const dx = e.clientX - dragStartX;
+            if (Math.abs(dx) > 4) isDragging = true;
+            if (isDragging) {
+              topBox.style.left = (dragOrigLeft + dx) + "px";
+              topBox.classList.add("mf-seq-actor-dragging");
+              // Highlight drop position
+              const currentCx = dragOrigLeft + dx + (colWidth - 16) / 2;
+              let newIdx = 0;
+              for (let i = 0; i < actorPositions.length; i++) {
+                if (currentCx > actorPositions[i].cx) newIdx = i + 1;
+              }
+              container.querySelectorAll(".mf-seq-drop-indicator").forEach((el) => el.remove());
+              const indicator = document.createElement("div");
+              indicator.className = "mf-seq-drop-indicator";
+              const dropX = newIdx === 0 ? 4 : (actorPositions[Math.min(newIdx - 1, actorPositions.length - 1)].cx + colWidth / 2 - 1);
+              indicator.style.left = dropX + "px";
+              indicator.style.top = "0";
+              indicator.style.height = totalHeight + "px";
+              container.appendChild(indicator);
+            }
+          });
+          topBox.addEventListener("pointerup", (e) => {
+            if (!topBox.hasPointerCapture(e.pointerId)) return;
+            topBox.releasePointerCapture(e.pointerId);
+            topBox.style.zIndex = "";
+            topBox.style.cursor = "";
+            topBox.classList.remove("mf-seq-actor-dragging");
+            container.querySelectorAll(".mf-seq-drop-indicator").forEach((el) => el.remove());
+            if (isDragging) {
+              const dx = e.clientX - dragStartX;
+              const currentCx = dragOrigLeft + dx + (colWidth - 16) / 2;
+              let newIdx = 0;
+              for (let i = 0; i < actorPositions.length; i++) {
+                if (currentCx > actorPositions[i].cx) newIdx = i + 1;
+              }
+              // Adjust: if dragged right past own position, subtract 1
+              const currentIdx = participants.findIndex((pp) => pp.id === p.id);
+              if (newIdx > currentIdx) newIdx = Math.max(0, newIdx - 1);
+              if (newIdx !== currentIdx) {
+                send("seq:reorder", { participantId: p.id, newIndex: newIdx });
+              } else {
+                topBox.style.left = dragOrigLeft + "px";
+              }
+            }
+            isDragging = false;
+          });
+
+          container.appendChild(topBox);
+
+          // Bottom actor box (mirror)
+          const bottomBox = document.createElement("div");
+          bottomBox.className = "mf-seq-actor mf-seq-actor-bottom" + (p.type === "actor" ? " mf-seq-actor-person" : "");
+          bottomBox.setAttribute("data-participant-id", p.id);
+          bottomBox.style.left = (cx - colWidth / 2 + 8) + "px";
+          bottomBox.style.top = (totalHeight - actorHeight) + "px";
+          bottomBox.style.width = (colWidth - 16) + "px";
+          bottomBox.style.position = "absolute";
+          const bottomLabel = document.createElement("div");
+          bottomLabel.className = "mf-seq-actor-label";
+          bottomLabel.textContent = p.label || p.id;
+          bottomBox.appendChild(bottomLabel);
+          bottomBox.addEventListener("click", (e) => {
+            e.stopPropagation();
+            container.querySelectorAll(".mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+            topBox.classList.add("mf-selected");
+            bottomBox.classList.add("mf-selected");
+            send("element:selected", { elementType: "node", nodeId: p.id, label: p.label || p.id });
+          });
+          container.appendChild(bottomBox);
+        }
+
+        // === Clickable message hit areas (HTML overlays) ===
+        for (let mi = 0; mi < messages.length; mi++) {
+          const m = messages[mi];
+          const srcIdx = participants.findIndex((p) => p.id === m.source);
+          const tgtIdx = participants.findIndex((p) => p.id === m.target);
+          if (srcIdx < 0 || tgtIdx < 0) continue;
+
+          const y = msgStartY + mi * rowHeight + rowHeight / 2;
+          const srcX = actorCenterX(srcIdx);
+          const tgtX = actorCenterX(tgtIdx);
+          const isSelf = srcIdx === tgtIdx;
+
+          const hitArea = document.createElement("div");
+          hitArea.className = "mf-seq-message";
+          hitArea.setAttribute("data-message-index", mi);
+          hitArea.setAttribute("data-msg-source", m.source);
+          hitArea.setAttribute("data-msg-target", m.target);
+          const minX = isSelf ? srcX : Math.min(srcX, tgtX);
+          const maxX = isSelf ? srcX + 50 : Math.max(srcX, tgtX);
+          hitArea.style.left = (minX - 4) + "px";
+          hitArea.style.top = (y - 16) + "px";
+          hitArea.style.width = (maxX - minX + 8) + "px";
+          hitArea.style.height = (isSelf ? 36 : 32) + "px";
+          hitArea.style.position = "absolute";
+
+          hitArea.addEventListener("click", (e) => {
+            e.stopPropagation();
+            container.querySelectorAll(".mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+            hitArea.classList.add("mf-selected");
+            send("element:selected", { elementType: "edge", edgeSource: m.source, edgeTarget: m.target, messageIndex: mi, label: m.text || "" });
+          });
+          hitArea.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            send("element:context", { elementType: "edge", edgeSource: m.source, edgeTarget: m.target, messageIndex: mi, label: m.text || "", arrowType: m.arrowType || "->>", pointerX: e.clientX, pointerY: e.clientY });
+          });
+          container.appendChild(hitArea);
+        }
+
+        // === Connect mode listener ===
+        let seqConnectMode = null;
+        window.addEventListener("message", (e) => {
+          if (!e.data || e.data.channel !== "${CHANNEL}") return;
+          if (e.data.type === "mode:connect") {
+            seqConnectMode = e.data.payload || {};
+            container.style.cursor = "crosshair";
+            // Highlight source actor
+            const srcEl = container.querySelector('.mf-seq-actor[data-participant-id="' + CSS.escape(seqConnectMode.sourceId) + '"]');
+            if (srcEl) srcEl.classList.add("mf-seq-connect-source");
+          }
+          if (e.data.type === "mode:normal") {
+            seqConnectMode = null;
+            container.style.cursor = "";
+            container.querySelectorAll(".mf-seq-connect-source").forEach((el) => el.classList.remove("mf-seq-connect-source"));
+          }
+        });
+
+        // Actor click in connect mode
+        container.querySelectorAll(".mf-seq-actor").forEach((actorEl) => {
+          actorEl.addEventListener("click", (e) => {
+            if (!seqConnectMode) return;
+            const targetId = actorEl.getAttribute("data-participant-id");
+            if (targetId && targetId !== seqConnectMode.sourceId) {
+              send("connect:complete", { sourceId: seqConnectMode.sourceId, targetId });
+              seqConnectMode = null;
+              container.style.cursor = "";
+              container.querySelectorAll(".mf-seq-connect-source").forEach((el) => el.classList.remove("mf-seq-connect-source"));
+            }
+          });
+        });
+
+        // Deselect on background click
+        container.addEventListener("click", (e) => {
+          if (e.target === container) {
+            container.querySelectorAll(".mf-selected").forEach((el) => el.classList.remove("mf-selected"));
+            send("element:selected", null);
+          }
+        });
+        container.addEventListener("contextmenu", (e) => {
+          if (e.target === container) {
+            e.preventDefault();
+            send("element:context", { elementType: "canvas", pointerX: e.clientX, pointerY: e.clientY });
+          }
+        });
+
+        canvas.appendChild(container);
+      };
+
       /* ── Diagram-aware node resolution ─────────────────── */
       const classifyForDrag = (dtype) => {
         const d = (dtype || "").toLowerCase();
@@ -6738,6 +7593,11 @@ function getIframeSrcDoc() {
             const ed = data.payload?.erData || {};
             renderCustomErDiagram(ed.parsed || { entities: [], relationships: [] }, ed.styleOverrides || {}, ed.layoutDirection || "LR");
             send("render:success", { diagramType: currentDiagramType, svg: "", isCustomEr: true });
+          } else if (dtLower.includes("sequence")) {
+            // Custom Sequence Diagram renderer
+            const sd = data.payload?.sequenceData || {};
+            renderCustomSequence(sd.participants || [], sd.messages || [], sd.blocks || [], sd.extras || {}, sd.swimlaneView || false);
+            send("render:success", { diagramType: currentDiagramType, svg: "", isCustomSequence: true });
           } else {
             setGanttMode(false);
             // Standard Mermaid SVG rendering
@@ -7043,6 +7903,8 @@ function App() {
   const [assigneeFilterQuery, setAssigneeFilterQuery] = useState("");
   const [ganttDropdown, setGanttDropdown] = useState(null); // null | "view" | "analysis" | "assignees"
   const [showChainView, setShowChainView] = useState(false);
+  const [sequenceSwimlaneView, setSequenceSwimlaneView] = useState(false);
+  const [messageCreationForm, setMessageCreationForm] = useState(null);
   const toggleGanttDropdown = (name) => setGanttDropdown((prev) => prev === name ? null : name);
   const [baselineCode, setBaselineCode] = useState(null);
   const [baselineSetAt, setBaselineSetAt] = useState(null);
@@ -7487,7 +8349,9 @@ function App() {
       const items = data.states || data.classes || data.participants || [];
       const item = items.find(i => i.id === nodeId);
       if (item) {
-        return { type: "node", nodeId, label: item.label || item.id || nodeId, shape: "rect", connections };
+        const result = { type: "node", nodeId, label: item.label || item.id || nodeId, shape: "rect", connections };
+        if (item.type === "actor" || item.type === "participant") result.participantType = item.type;
+        return result;
       }
     }
     return { type: "node", nodeId, label: nodeId, shape: "rect", connections };
@@ -7583,6 +8447,16 @@ function App() {
       layoutDirection: erLayoutDir,
     };
 
+    // Pre-compute sequence data so the iframe can render custom sequence diagram
+    const seqParsed = parseSequenceDiagram(code);
+    const sequencePayload = {
+      participants: seqParsed.participants,
+      messages: seqParsed.messages,
+      blocks: parseSequenceBlocks(code),
+      extras: parseSequenceExtras(code),
+      swimlaneView: sequenceSwimlaneView,
+    };
+
     frame.contentWindow.postMessage(
       {
         channel: CHANNEL,
@@ -7593,6 +8467,7 @@ function App() {
           ganttData,
           flowchartData: flowchartPayload,
           erData: erPayload,
+          sequenceData: sequencePayload,
         },
       },
       "*"
@@ -7604,7 +8479,7 @@ function App() {
     if (!autoRender) return;
     const handle = window.setTimeout(postRender, 360);
     return () => window.clearTimeout(handle);
-  }, [code, autoRender, mermaidRenderConfig, showCriticalPath, showDepLines, erLayoutDir]);
+  }, [code, autoRender, mermaidRenderConfig, showCriticalPath, showDepLines, erLayoutDir, sequenceSwimlaneView]);
 
   /* ── Sync app theme to iframe ─────────────────────────── */
   useEffect(() => {
@@ -7864,7 +8739,8 @@ function App() {
         const isCustomGantt = payload.isCustomGantt || false;
         const isCustomFlowchart = payload.isCustomFlowchart || false;
         const isCustomEr = payload.isCustomEr || false;
-        const isCustomRenderer = isCustomGantt || isCustomFlowchart || isCustomEr;
+        const isCustomSequence = payload.isCustomSequence || false;
+        const isCustomRenderer = isCustomGantt || isCustomFlowchart || isCustomEr || isCustomSequence;
 
         // Apply position overrides after re-render (SVG diagrams only)
         if (!isCustomRenderer && Object.keys(positionOverrides).length > 0) {
@@ -8044,9 +8920,13 @@ function App() {
             const src = selected?.edgeSource || "";
             const tgt = selected?.edgeTarget || "";
             let arrowType = "-->";
+            let messageIndex;
             if (toolsetKey === "flowchart") {
               const edge = flowchartData.edges.find(e => e.source === src && e.target === tgt);
               if (edge) arrowType = edge.arrowType || "-->";
+            } else if (toolsetKey === "sequenceDiagram") {
+              arrowType = selected?.arrowType || "->>";
+              messageIndex = selected?.messageIndex;
             }
             setNodeEditModal({
               type: "edge",
@@ -8054,6 +8934,7 @@ function App() {
               edgeTarget: tgt,
               label: selected?.label || "",
               arrowType,
+              messageIndex,
             });
           } else if (elementType === "canvas") {
             // Canvas right-click: keep as small context menu
@@ -8137,6 +9018,9 @@ function App() {
               return prev + "\n    " + payload.sourceId + " ||--o{ " + payload.targetId + " : relates";
             });
             setRenderMessage(`Added relationship ${payload.sourceId} --> ${payload.targetId}`);
+          } else if (toolsetKey === "sequenceDiagram") {
+            // Open message creation form instead of immediately adding
+            setMessageCreationForm({ source: payload.sourceId, target: payload.targetId, text: "", arrowType: "->>" });
           } else {
             setCode((prev) => addFlowchartEdge(prev, { source: payload.sourceId, target: payload.targetId }));
             setRenderMessage(`Added edge ${payload.sourceId} --> ${payload.targetId}`);
@@ -8180,6 +9064,14 @@ function App() {
         if (source && target && cardinality) {
           setCode((prev) => updateErRelationship(prev, source, target, { cardinality }));
           setRenderMessage(`Changed cardinality on ${source} → ${target}`);
+        }
+      }
+
+      if (data.type === "seq:reorder") {
+        const payload = data.payload || {};
+        if (payload.participantId !== undefined && payload.newIndex !== undefined) {
+          setCode((prev) => reorderSequenceParticipants(prev, payload.participantId, payload.newIndex));
+          setRenderMessage("Reordered " + payload.participantId);
         }
       }
 
@@ -9923,6 +10815,14 @@ function App() {
                   )}
                 </>
               )}
+              {toolsetKey === "sequenceDiagram" && (
+                <button
+                  className={`date-toggle-btn${sequenceSwimlaneView ? " active" : ""}`}
+                  onClick={() => setSequenceSwimlaneView((v) => !v)}
+                >
+                  {sequenceSwimlaneView ? "Timeline" : "Swimlane"}
+                </button>
+              )}
               Click, right-click, and drag to edit
             </span>
             <span className="mobile-preview-tip mobile-only">Tap bars to edit</span>
@@ -10521,6 +11421,18 @@ function App() {
                     autoFocus
                   />
                 </label>
+                {toolsetKey === "sequenceDiagram" && (
+                  <label>
+                    Type
+                    <select
+                      value={nodeEditModal.participantType || "participant"}
+                      onChange={(e) => setNodeEditModal((prev) => ({ ...prev, participantType: e.target.value }))}
+                    >
+                      <option value="participant">Participant (box)</option>
+                      <option value="actor">Actor (stick figure)</option>
+                    </select>
+                  </label>
+                )}
                 {/* Flowchart description (body text after title) */}
                 {nodeEditModal.description !== undefined && (
                   <label>
@@ -10613,6 +11525,7 @@ function App() {
                         label: nodeEditModal.label,
                         attributes: nodeEditModal.attributes,
                         newName: nodeEditModal.label,
+                        participantType: nodeEditModal.participantType,
                       })
                     );
                   } else {
@@ -10704,12 +11617,23 @@ function App() {
       {/* ── Edge Edit Modal (right-click on edge) ────── */}
       {nodeEditModal?.type === "edge" && (() => {
         const arrowTypes = ["-->", "--->", "-.->", "==>", "---", "-.-", "==="];
+        const seqArrowTypes = [
+          { value: "->>", label: "Sync (solid)" },
+          { value: "-->>", label: "Async (dashed)" },
+          { value: "->", label: "Solid open" },
+          { value: "-->", label: "Dashed open" },
+          { value: "-x", label: "Lost (solid)" },
+          { value: "--x", label: "Lost (dashed)" },
+          { value: "-)", label: "Async (solid)" },
+          { value: "--)", label: "Async (dashed)" },
+        ];
+        const isSeq = toolsetKey === "sequenceDiagram";
         const adapter = getDiagramAdapter(toolsetKey);
         return (
           <div className="modal-backdrop" onClick={() => setNodeEditModal(null)}>
             <div className="node-edit-modal" onClick={(e) => e.stopPropagation()}>
               <div className="task-modal-header">
-                <h2>Edit Edge</h2>
+                <h2>{isSeq ? "Edit Message" : "Edit Edge"}</h2>
                 <button className="drawer-close-btn" onClick={() => setNodeEditModal(null)}>&times;</button>
               </div>
               <div className="task-modal-body">
@@ -10718,7 +11642,7 @@ function App() {
                   <input
                     value={nodeEditModal.label}
                     onChange={(e) => setNodeEditModal((prev) => ({ ...prev, label: e.target.value }))}
-                    placeholder="e.g. Yes, No..."
+                    placeholder={isSeq ? "e.g. HTTP GET /users..." : "e.g. Yes, No..."}
                     autoFocus
                   />
                 </label>
@@ -10738,6 +11662,23 @@ function App() {
                     </div>
                   </>
                 )}
+                {isSeq && (
+                  <>
+                    <label>Arrow Type</label>
+                    <div className="arrow-type-grid">
+                      {seqArrowTypes.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          className={`arrow-type-btn ${nodeEditModal.arrowType === value ? "active" : ""}`}
+                          onClick={() => setNodeEditModal((prev) => ({ ...prev, arrowType: value }))}
+                        >
+                          <code style={{ fontSize: 11 }}>{value}</code>
+                          <span style={{ fontSize: 10, opacity: 0.7 }}>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 <p style={{ fontSize: 12, color: "var(--ink-muted)" }}>
                   {nodeEditModal.edgeSource} {nodeEditModal.arrowType || "-->"} {nodeEditModal.edgeTarget}
                 </p>
@@ -10746,7 +11687,10 @@ function App() {
                 <button className="soft-btn" onClick={() => setNodeEditModal(null)}>Cancel</button>
                 <button className="soft-btn danger" onClick={() => {
                   commitSnapshotNow();
-                  if (toolsetKey === "flowchart") {
+                  if (isSeq && nodeEditModal.messageIndex !== undefined) {
+                    setCode((prev) => removeSequenceMessageByIndex(prev, nodeEditModal.messageIndex));
+                    setRenderMessage("Deleted message");
+                  } else if (toolsetKey === "flowchart") {
                     setCode((prev) => removeFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget));
                     setPositionOverrides({});
                     setRenderMessage(`Deleted edge ${nodeEditModal.edgeSource} --> ${nodeEditModal.edgeTarget}`);
@@ -10765,7 +11709,10 @@ function App() {
                   const updates = {};
                   if (nodeEditModal.label !== undefined) updates.label = nodeEditModal.label;
                   if (nodeEditModal.arrowType) updates.arrowType = nodeEditModal.arrowType;
-                  if (toolsetKey === "flowchart") {
+                  if (isSeq && nodeEditModal.messageIndex !== undefined) {
+                    setCode((prev) => updateSequenceMessageByIndex(prev, nodeEditModal.messageIndex, updates));
+                    setRenderMessage("Updated message");
+                  } else if (toolsetKey === "flowchart") {
                     setCode((prev) => updateFlowchartEdge(prev, nodeEditModal.edgeSource, nodeEditModal.edgeTarget, updates));
                     setRenderMessage("Updated edge");
                   } else if (adapter?.updateEdge) {
@@ -10859,6 +11806,79 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* ── Message Creation Modal (Sequence) ───────────── */}
+      {messageCreationForm && (() => {
+        const seqArrows = [
+          { value: "->>",  label: "Sync (solid)" },
+          { value: "-->>", label: "Async (dashed)" },
+          { value: "->",   label: "Solid open" },
+          { value: "-->",  label: "Dashed open" },
+          { value: "-x",   label: "Lost (solid)" },
+          { value: "--x",  label: "Lost (dashed)" },
+          { value: "-)",   label: "Async open (solid)" },
+          { value: "--)",  label: "Async open (dashed)" },
+        ];
+        return (
+          <div className="modal-backdrop" onClick={() => setMessageCreationForm(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+              <h3>Add Message</h3>
+              <div style={{ marginBottom: 12, fontSize: 13, color: "var(--text-secondary)" }}>
+                {messageCreationForm.source} → {messageCreationForm.target}
+              </div>
+              <label>
+                Label
+                <input
+                  type="text"
+                  value={messageCreationForm.text}
+                  onChange={(e) => setMessageCreationForm((prev) => ({ ...prev, text: e.target.value }))}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setCode((prev) => addSequenceMessage(prev, {
+                        source: messageCreationForm.source,
+                        target: messageCreationForm.target,
+                        text: messageCreationForm.text,
+                        arrowType: messageCreationForm.arrowType,
+                      }));
+                      setRenderMessage(`Added message ${messageCreationForm.source} → ${messageCreationForm.target}`);
+                      setMessageCreationForm(null);
+                    }
+                  }}
+                />
+              </label>
+              <label style={{ marginTop: 8 }}>Arrow type</label>
+              <div className="arrow-type-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 4 }}>
+                {seqArrows.map((a) => (
+                  <button
+                    key={a.value}
+                    className={`soft-btn${messageCreationForm.arrowType === a.value ? " primary" : ""}`}
+                    style={{ fontSize: 12, padding: "4px 8px", textAlign: "left" }}
+                    onClick={() => setMessageCreationForm((prev) => ({ ...prev, arrowType: a.value }))}
+                  >
+                    <code style={{ marginRight: 4 }}>{a.value}</code> {a.label}
+                  </button>
+                ))}
+              </div>
+              <div className="modal-actions" style={{ marginTop: 12 }}>
+                <button className="soft-btn" onClick={() => setMessageCreationForm(null)}>Cancel</button>
+                <button className="soft-btn primary" onClick={() => {
+                  setCode((prev) => addSequenceMessage(prev, {
+                    source: messageCreationForm.source,
+                    target: messageCreationForm.target,
+                    text: messageCreationForm.text,
+                    arrowType: messageCreationForm.arrowType,
+                  }));
+                  setRenderMessage(`Added message ${messageCreationForm.source} → ${messageCreationForm.target}`);
+                  setMessageCreationForm(null);
+                }}>
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Floating Style Toolbar ─────────────────────── */}
       {styleToolbar && (() => {

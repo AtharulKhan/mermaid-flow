@@ -41,8 +41,13 @@ export const DIAGRAM_LIBRARY = [
 `,
     quickTools: [
       { label: "Add participant", snippet: "\n    participant Service\n" },
-      { label: "Send message", snippet: "\n    App->>Service: Request\n" },
-      { label: "Add alt block", snippet: "\n    alt Valid\n      App-->>User: Continue\n    else Invalid\n      App-->>User: Error\n    end\n" },
+      { label: "Add actor", snippet: "\n    actor Client\n" },
+      { label: "Sync message", snippet: "\n    App->>Service: Request\n" },
+      { label: "Async response", snippet: "\n    Service-->>App: Response\n" },
+      { label: "Alt block", snippet: "\n    alt Valid\n      App-->>User: Continue\n    else Invalid\n      App-->>User: Error\n    end\n" },
+      { label: "Loop", snippet: "\n    loop Every minute\n      App->>API: Poll\n    end\n" },
+      { label: "Note", snippet: "\n    Note over App,API: Shared context\n" },
+      { label: "Activate", snippet: "\n    activate App\n    App->>API: Request\n    API-->>App: Response\n    deactivate App\n" },
     ],
   },
   {
