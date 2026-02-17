@@ -419,7 +419,7 @@ function getIframeSrcDoc() {
         position: sticky;
         left: 0;
         top: 0;
-        z-index: 5;
+        z-index: 11;
         background: #eef2ff;
         border-bottom: 1px solid #d9dee8;
         border-right: 2px solid #d9dee8;
@@ -461,7 +461,7 @@ function getIframeSrcDoc() {
       .mf-gantt-timeline-header {
         position: sticky;
         top: 0;
-        z-index: 3;
+        z-index: 10;
       }
       .mf-gantt-role-cell {
         position: sticky;
