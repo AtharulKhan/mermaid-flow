@@ -840,7 +840,7 @@ export function deleteGanttTask(code, task) {
 }
 
 /**
- * Find all tasks that depend on the given task (via "after" references).
+ * Find all tasks that directly depend on the given task (via "after" references).
  * Matches by both idToken and label.
  */
 export function findDependentTasks(tasks, task) {
@@ -855,11 +855,36 @@ export function findDependentTasks(tasks, task) {
 }
 
 /**
- * Remove all "after" references to the given task from the code.
- * For each dependent task, removes the deleted task's id/label from
- * the "after ..." token. If no deps remain, removes the "after" token entirely.
+ * Find all tasks that depend on the given task, directly or transitively.
+ * e.g. A → B → C: deleting A affects both B and C.
  */
-export function removeDependencyReferences(code, allTasks, deletedTask) {
+export function findAllDependentTasks(tasks, task) {
+  if (!task) return [];
+  const result = [];
+  const visited = new Set();
+  const queue = [task];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const deps = findDependentTasks(tasks, current);
+    for (const dep of deps) {
+      const key = dep.label.toLowerCase();
+      if (!visited.has(key)) {
+        visited.add(key);
+        result.push(dep);
+        queue.push(dep);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Remove all "after" references to the given task from the code.
+ * When a dependent loses all its "after" deps and has no explicit date,
+ * replaces the "after" token with a resolved start date so downstream
+ * chains keep working.
+ */
+export function removeDependencyReferences(code, allTasks, resolvedTasks, deletedTask) {
   if (!deletedTask) return code;
   const keys = new Set();
   if (deletedTask.idToken) keys.add(deletedTask.idToken.toLowerCase());
@@ -868,14 +893,36 @@ export function removeDependencyReferences(code, allTasks, deletedTask) {
   const dependents = findDependentTasks(allTasks, deletedTask);
   if (dependents.length === 0) return code;
 
+  // Build a lookup from resolved tasks so we can grab computed start dates
+  const resolvedByLabel = new Map();
+  for (const t of resolvedTasks) {
+    resolvedByLabel.set(t.label.toLowerCase(), t);
+  }
+
   let updated = code;
-  // Process dependents in reverse line order so splicing doesn't shift indices
+  // Process dependents in reverse line order so line indices stay valid
   const sorted = [...dependents].sort((a, b) => b.lineIndex - a.lineIndex);
   for (const dep of sorted) {
     const remaining = (dep.afterDeps || []).filter(
       (d) => !keys.has(d.toLowerCase())
     );
-    updated = updateGanttDependency(updated, dep, remaining);
+    if (remaining.length > 0) {
+      // Still has other deps — just remove the deleted task's reference
+      updated = updateGanttDependency(updated, dep, remaining);
+    } else if (!dep.startDate) {
+      // No remaining deps AND no explicit date — replace "after" with
+      // the resolved start date so downstream tasks still resolve.
+      const resolved = resolvedByLabel.get(dep.label.toLowerCase());
+      const fallbackDate = resolved?.resolvedStartDate || resolved?.startDate;
+      if (fallbackDate) {
+        updated = updateGanttTask(updated, dep, { startDate: fallbackDate });
+      } else {
+        updated = updateGanttDependency(updated, dep, []);
+      }
+    } else {
+      // Has an explicit date — just remove the after token
+      updated = updateGanttDependency(updated, dep, []);
+    }
   }
   return updated;
 }
