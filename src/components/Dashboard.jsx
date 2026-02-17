@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../firebase/AuthContext";
+import logoSvg from "../assets/logo.svg";
 import { logOut } from "../firebase/auth";
 import { getStoredTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "../themeUtils";
 import {
@@ -258,7 +259,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="dash-loading">
-        <div className="brand-mark">MF</div>
+        <img src={logoSvg} alt="MF" className="brand-mark" />
         <p>Loading...</p>
       </div>
     );
@@ -269,7 +270,7 @@ export default function Dashboard() {
       {/* ── Top Bar ────────────────────────────────────── */}
       <header className="dash-header">
         <div className="brand">
-          <div className="brand-mark">MF</div>
+          <img src={logoSvg} alt="MF" className="brand-mark" />
           <h1>Mermaid Flow</h1>
         </div>
         <div className="dash-header-actions">
