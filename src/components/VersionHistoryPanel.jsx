@@ -66,11 +66,15 @@ export default function VersionHistoryPanel({ flowId, currentCode, onRestore, on
         )}
         {versions.map((v) => {
           const isCurrent = v.code === currentCode;
+          const tabCount = v.tabs ? v.tabs.length : 1;
           return (
             <div key={v.id} className="version-item">
               <div className="version-meta">
                 <span>{timeAgo(v.createdAt)}</span>
-                <span className="version-type">{v.diagramType || "diagram"}</span>
+                <span className="version-type">
+                  {v.diagramType || "diagram"}
+                  {tabCount > 1 ? ` · ${tabCount} tabs` : ""}
+                </span>
               </div>
               <div className="version-preview">{previewCode(v.code)}</div>
               {isCurrent ? (
@@ -78,7 +82,7 @@ export default function VersionHistoryPanel({ flowId, currentCode, onRestore, on
               ) : (
                 <button
                   className="version-restore-btn"
-                  onClick={() => onRestore(v.code, v.diagramType)}
+                  onClick={() => onRestore(v.code, v.diagramType, v.tabs || null)}
                 >
                   Restore
                 </button>

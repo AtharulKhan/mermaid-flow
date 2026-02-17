@@ -3640,6 +3640,18 @@ input:focus {
   color: var(--accent);
   background: var(--panel-hover);
 }
+.editor-tab-rename {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--ink);
+  outline: none;
+  width: 80px;
+}
+
 .editor-tab-actions {
   display: flex;
   align-items: center;
