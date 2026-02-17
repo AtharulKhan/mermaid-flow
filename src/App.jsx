@@ -2566,15 +2566,14 @@ function getIframeSrcDoc() {
               tip += "\\nDepends on: " + task.afterDeps.join(", ");
             }
             if (task.conflicts && task.conflicts.length) {
-              tip += "\\n\\u26a0 Conflict: starts before " + task.conflicts.map(function(c) { return '"' + c.depLabel + '"'; }).join(", ") + " finishes";
+              tip += "\\n\\u26a0 Scheduling conflict: this task starts before " + task.conflicts.map(function(c) { return '"' + c.depLabel + '" finishes (' + c.overlapDays + "d overlap)"; }).join(", ");
             }
             if (typeof task.slackDays === "number" && task.slackDays > 0) {
-              tip += "\\nSlack: " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "");
+              tip += "\\nBuffer: " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "") + " before this delays the project";
             }
-            if (task.isCriticalPath) tip += "\\n\\u2b50 Critical path";
+            if (task.isCriticalPath) tip += "\\n\\u2b50 Critical path \\u2014 any delay here delays the project";
             const taskRisk = showRisks && riskFlags[task.label];
             if (taskRisk && taskRisk.reasons.length > 0) {
-              tip += "\\n--- Risks ---";
               for (const r of taskRisk.reasons) tip += "\\n\\u26A0 " + r;
             }
             bar.setAttribute("data-mf-tip", tip);
@@ -2618,8 +2617,8 @@ function getIframeSrcDoc() {
               conflictBadge.style.left = (barLeft - 14) + "px";
               conflictBadge.style.top = (top - 2) + "px";
               conflictBadge.setAttribute("data-mf-tip",
-                "Scheduling conflict:\\n" +
-                task.conflicts.map(function(c) { return 'Starts before "' + c.depLabel + '" ends (' + c.overlapDays + "d overlap)"; }).join("\\n")
+                "Scheduling conflict \\u2014 this task starts too early:\\n" +
+                task.conflicts.map(function(c) { return 'Starts ' + c.overlapDays + " day" + (c.overlapDays !== 1 ? "s" : "") + ' before "' + c.depLabel + '" finishes'; }).join("\\n")
               );
               track.appendChild(conflictBadge);
             }
@@ -2633,7 +2632,7 @@ function getIframeSrcDoc() {
               slackBar.style.width = Math.min(slackPx, timelineWidth - barLeft - barPixelWidth) + "px";
               slackBar.style.top = (top + barHeight / 2 - 2) + "px";
               slackBar.style.height = "4px";
-              slackBar.setAttribute("data-mf-tip", "Slack: " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "") + "\\nCan slip without delaying project");
+              slackBar.setAttribute("data-mf-tip", "Buffer: " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "") + "\\nThis task can slip by " + task.slackDays + " day" + (task.slackDays !== 1 ? "s" : "") + " without delaying the project");
               track.appendChild(slackBar);
             }
 

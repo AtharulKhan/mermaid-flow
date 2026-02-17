@@ -1119,7 +1119,7 @@ export function computeRiskFlags(tasks) {
     if (deps.length >= MANY_DEPS_THRESHOLD) {
       const entry = getEntry(task.label);
       entry.flags.push("many-deps");
-      entry.reasons.push("Has " + deps.length + " dependencies");
+      entry.reasons.push("Bottleneck: waiting on " + deps.length + " tasks to finish before this can start");
     }
 
     // Condition 2: Broken dependency (starts before dep ends)
@@ -1132,7 +1132,7 @@ export function computeRiskFlags(tasks) {
         if (depEndMs !== null && taskStartMs < depEndMs) {
           const entry = getEntry(task.label);
           entry.flags.push("broken-dep");
-          entry.reasons.push("Starts before '" + (dep.label || depId) + "' ends");
+          entry.reasons.push("Broken dependency: this task starts before '" + (dep.label || depId) + "' finishes");
         }
       }
     }
@@ -1209,7 +1209,7 @@ export function computeRiskFlags(tasks) {
         const entry = getEntry(task.label);
         if (!entry.flags.includes("overloaded-assignee")) {
           entry.flags.push("overloaded-assignee");
-          entry.reasons.push(displayName + " has " + peakConcurrent + " concurrent tasks");
+          entry.reasons.push("Overloaded: " + displayName + " has " + peakConcurrent + " tasks at the same time");
         }
       }
     }
