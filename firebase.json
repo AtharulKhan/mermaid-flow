@@ -25,6 +25,13 @@
         }
       },
       {
+        "source": "/api/ai{,/**}",
+        "function": {
+          "functionId": "aiGenerate",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

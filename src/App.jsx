@@ -5507,6 +5507,11 @@ function App() {
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [resourcePanelOpen, setResourcePanelOpen] = useState(false);
   const [notionSyncOpen, setNotionSyncOpen] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiChartType, setAiChartType] = useState("gantt");
+  const [aiContext, setAiContext] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -6882,6 +6887,41 @@ function App() {
     setRenderMessage(`Loaded "${diagram.name}"`);
   };
 
+  const handleAiGenerate = async () => {
+    if (!aiContext.trim()) {
+      setAiError("Please describe your project or requirements.");
+      return;
+    }
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chartType: aiChartType,
+          context: aiContext.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Request failed (${res.status})`);
+      }
+      const data = await res.json();
+      setCode(data.code);
+      setSelectedElement(null);
+      setHighlightLine(null);
+      setPositionOverrides({});
+      setRenderMessage(`AI generated: ${data.title || "Chart"}`);
+      setAiModalOpen(false);
+      setAiContext("");
+    } catch (err) {
+      setAiError(err.message || "Generation failed. Please try again.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const handleDeleteDiagram = (name) => {
     deleteDiagramFromStorage(name);
     setSavedDiagrams(loadSavedDiagrams());
@@ -7189,7 +7229,15 @@ function App() {
         >
           <div className="panel-header">
             <h2>Code</h2>
-            <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                className="soft-btn small ai-btn"
+                onClick={() => setAiModalOpen(true)}
+              >
+                Create with AI
+              </button>
+              <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
+            </div>
           </div>
           <div className="editor-wrap">
             <pre className="line-gutter" aria-hidden="true">
@@ -8841,6 +8889,80 @@ function App() {
               Note: Direct Notion API calls require a server proxy due to CORS.
               If proxy sync fails, payloads are copied so you can send them from your own server.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI Generate Modal ────────────────────────── */}
+      {aiModalOpen && (
+        <div className="modal-overlay" onClick={() => !aiLoading && setAiModalOpen(false)}>
+          <div className="modal save-modal ai-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create with AI</h3>
+            <p style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+              Describe your project and we'll generate a Mermaid diagram for you.
+            </p>
+
+            <div className="settings-field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Chart type</label>
+              <select
+                className="modal-input"
+                value={aiChartType}
+                onChange={(e) => setAiChartType(e.target.value)}
+                disabled={aiLoading}
+                style={{ padding: "6px 10px" }}
+              >
+                <option value="gantt">Gantt Chart</option>
+                <option value="flowchart">Flowchart</option>
+                <option value="sequenceDiagram">Sequence Diagram</option>
+                <option value="erDiagram">ER Diagram</option>
+                <option value="classDiagram">Class Diagram</option>
+                <option value="stateDiagram">State Diagram</option>
+                <option value="mindmap">Mindmap</option>
+                <option value="timeline">Timeline</option>
+                <option value="pie">Pie Chart</option>
+                <option value="journey">User Journey</option>
+              </select>
+            </div>
+
+            <div className="settings-field">
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Describe your project</label>
+              <textarea
+                className="modal-input ai-context-input"
+                placeholder={"e.g. A 3-month product launch plan with design, development,\nQA, and marketing phases. Team of 5 people. Launch date is June 15."}
+                value={aiContext}
+                onChange={(e) => setAiContext(e.target.value)}
+                disabled={aiLoading}
+                rows={6}
+                style={{ resize: "vertical", minHeight: 100 }}
+              />
+            </div>
+
+            {aiError && (
+              <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8 }}>{aiError}</p>
+            )}
+
+            {aiLoading && (
+              <p style={{ fontSize: 13, color: "var(--accent)", marginTop: 12 }}>
+                Generating your diagram...
+              </p>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button
+                className="soft-btn"
+                onClick={() => { setAiModalOpen(false); setAiError(""); }}
+                disabled={aiLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="soft-btn primary"
+                onClick={handleAiGenerate}
+                disabled={aiLoading || !aiContext.trim()}
+              >
+                {aiLoading ? "Generating..." : "Generate"}
+              </button>
+            </div>
           </div>
         </div>
       )}
