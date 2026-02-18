@@ -9270,6 +9270,12 @@ function App() {
       try {
         const tmpl = await getTemplate(editingTemplateId);
         if (tmpl) {
+          if (!currentUser || (tmpl.ownerId && tmpl.ownerId !== currentUser.uid)) {
+            setRenderMessage("This template belongs to another account.");
+            navigate(currentUser ? "/dashboard" : "/");
+            flowLoadedRef.current = true;
+            return;
+          }
           editingTemplateRef.current = tmpl;
           setTemplateDisplayName(tmpl.name || "");
           const tmplCode = tmpl.code || DEFAULT_CODE;
@@ -9311,6 +9317,7 @@ function App() {
   useEffect(() => {
     if (!editingTemplateId || isEmbed) return;
     if (!flowLoadedRef.current) return;
+    if (!currentUser || editingTemplateRef.current?.ownerId !== currentUser.uid) return;
     const handle = window.setTimeout(async () => {
       try {
         const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
