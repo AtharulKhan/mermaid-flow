@@ -4227,7 +4227,7 @@ function getIframeSrcDoc() {
           // Tooltip
           // Rich tooltip
           {
-            let tip = (node.label || node.id).replace(/<br\s*\/?>/gi, "\\n");
+            let tip = (node.label || node.id).replace(brRe2, "\\n");
             tip += "\\nID: " + node.id;
             const shapeNames = { rect: "Rectangle", rounded: "Rounded", diamond: "Decision", circle: "Circle", stadium: "Stadium", hexagon: "Hexagon", parallelogram: "Parallelogram", trapezoid: "Trapezoid", "double-circle": "Double Circle", cylinder: "Cylinder", subroutine: "Subroutine", asymmetric: "Asymmetric" };
             tip += "\\nShape: " + (shapeNames[shape] || shape);
