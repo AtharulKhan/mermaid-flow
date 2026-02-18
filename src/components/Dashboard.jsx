@@ -73,12 +73,6 @@ export default function Dashboard() {
   const [useTemplateName, setUseTemplateName] = useState("");
   const [useTemplateProject, setUseTemplateProject] = useState("");
   const [useTemplateNewProject, setUseTemplateNewProject] = useState("");
-  const [editTemplateDialog, setEditTemplateDialog] = useState(null); // template for editing details
-  const [editTemplateName, setEditTemplateName] = useState("");
-  const [editTemplateDesc, setEditTemplateDesc] = useState("");
-  const [editTemplateTags, setEditTemplateTags] = useState("");
-  const [editTemplateTabs, setEditTemplateTabs] = useState([]); // [{id, label, code}]
-  const [editTemplateActiveTab, setEditTemplateActiveTab] = useState("");
 
   const logDashboardError = (operation, err, context = {}) => {
     console.error(`[Dashboard] ${operation} failed`, {
@@ -443,34 +437,6 @@ export default function Dashboard() {
       navigate(`/editor/${flow.id}`);
     } catch (err) {
       logDashboardError("handleUseTemplate", err, { templateId: t.id });
-    }
-  };
-
-  const handleEditTemplateSubmit = async () => {
-    if (!editTemplateDialog) return;
-    const parsedTags = editTemplateTags
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
-    const mainCode = editTemplateTabs.length > 0 ? editTemplateTabs[0].code : editTemplateDialog.code;
-    try {
-      await updateTemplate(editTemplateDialog.id, {
-        name: editTemplateName.trim() || "Untitled Template",
-        description: editTemplateDesc.trim(),
-        tags: parsedTags,
-        code: mainCode,
-        tabs: editTemplateTabs,
-      });
-      setTemplates((prev) =>
-        prev.map((t) =>
-          t.id === editTemplateDialog.id
-            ? { ...t, name: editTemplateName.trim() || "Untitled Template", description: editTemplateDesc.trim(), tags: parsedTags, code: mainCode, tabs: editTemplateTabs }
-            : t
-        )
-      );
-      setEditTemplateDialog(null);
-    } catch (err) {
-      logDashboardError("handleEditTemplate", err, { templateId: editTemplateDialog.id });
     }
   };
 
@@ -897,15 +863,7 @@ export default function Dashboard() {
                             className="dash-card-action"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setEditTemplateDialog(t);
-                              setEditTemplateName(t.name || "");
-                              setEditTemplateDesc(t.description || "");
-                              setEditTemplateTags((t.tags || []).join(", "));
-                              const tabs = t.tabs && t.tabs.length > 0
-                                ? t.tabs.map((tab) => ({ ...tab }))
-                                : [{ id: "main", label: "Main", code: t.code || "" }];
-                              setEditTemplateTabs(tabs);
-                              setEditTemplateActiveTab(tabs[0].id);
+                              navigate(`/editor/template/${t.id}`);
                             }}
                             aria-label="Edit template"
                           >
@@ -1172,87 +1130,6 @@ export default function Dashboard() {
             <div className="modal-actions">
               <button className="soft-btn" onClick={() => setUseTemplateDialog(null)}>Cancel</button>
               <button className="soft-btn primary" onClick={handleUseTemplate}>Create Flow</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Edit Template Dialog ─────────────────────── */}
-      {editTemplateDialog && (
-        <div className="modal-backdrop" onClick={() => setEditTemplateDialog(null)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
-            <h3 style={{ margin: "0 0 12px" }}>Edit Template</h3>
-            <div style={{ display: "grid", gap: 12 }}>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
-                Name
-                <input
-                  className="modal-input"
-                  value={editTemplateName}
-                  onChange={(e) => setEditTemplateName(e.target.value)}
-                  placeholder="Template name"
-                  autoFocus
-                  style={{ marginTop: 4 }}
-                />
-              </label>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
-                Description
-                <textarea
-                  className="modal-input"
-                  value={editTemplateDesc}
-                  onChange={(e) => setEditTemplateDesc(e.target.value)}
-                  placeholder="What is this template for?"
-                  rows={2}
-                  style={{ marginTop: 4, resize: "vertical", fontFamily: "inherit" }}
-                />
-              </label>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
-                Tags
-                <input
-                  className="modal-input"
-                  value={editTemplateTags}
-                  onChange={(e) => setEditTemplateTags(e.target.value)}
-                  placeholder="e.g. onboarding, sprint (comma-separated)"
-                  style={{ marginTop: 4 }}
-                />
-              </label>
-              <div>
-                <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)", display: "block", marginBottom: 4 }}>
-                  Code
-                </span>
-                {editTemplateTabs.length > 1 && (
-                  <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                    {editTemplateTabs.map((tab) => (
-                      <button
-                        key={tab.id}
-                        className={`soft-btn small${editTemplateActiveTab === tab.id ? " primary" : ""}`}
-                        onClick={() => setEditTemplateActiveTab(tab.id)}
-                        style={{ fontSize: "0.78rem", padding: "3px 10px" }}
-                      >
-                        {tab.label || "Tab"}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <textarea
-                  className="modal-input"
-                  value={editTemplateTabs.find((tab) => tab.id === editTemplateActiveTab)?.code || ""}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setEditTemplateTabs((prev) =>
-                      prev.map((tab) =>
-                        tab.id === editTemplateActiveTab ? { ...tab, code: val } : tab
-                      )
-                    );
-                  }}
-                  rows={10}
-                  style={{ marginTop: 0, resize: "vertical", fontFamily: "monospace", fontSize: "0.82rem", lineHeight: 1.5, tabSize: 2 }}
-                  spellCheck={false}
-                />
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button className="soft-btn" onClick={() => setEditTemplateDialog(null)}>Cancel</button>
-              <button className="soft-btn primary" onClick={handleEditTemplateSubmit}>Save Changes</button>
             </div>
           </div>
         </div>

@@ -61,6 +61,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/editor/template/:templateId"
+        element={
+          <ProtectedRoute>
+            <App />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/editor/:flowId"
         element={
           <ProtectedRoute>
