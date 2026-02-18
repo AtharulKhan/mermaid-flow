@@ -227,3 +227,64 @@ function triggerDownload(blob, filename) {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Capture serialized iframe DOM to a PNG data URL using html2canvas in the parent.
+ * Receives HTML + styles from the sandboxed iframe and renders in an offscreen container.
+ */
+export async function captureHtmlToPng(html, styles, width, height, theme) {
+  const container = document.createElement("div");
+  container.setAttribute("data-theme", theme || "light");
+  container.style.cssText = `position:absolute;left:-99999px;top:-99999px;width:${width}px;height:${height}px;background:#fff;overflow:hidden;`;
+
+  const styleEl = document.createElement("style");
+  styleEl.textContent = styles;
+  container.appendChild(styleEl);
+
+  const content = document.createElement("div");
+  content.innerHTML = html;
+  container.appendChild(content);
+
+  document.body.appendChild(container);
+
+  try {
+    const canvas = await html2canvas(container, {
+      scale: 3,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+      width,
+      height,
+    });
+    const dataUrl = canvas.toDataURL("image/png", 1.0);
+    return { dataUrl, width: canvas.width, height: canvas.height };
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+/**
+ * Download PNG directly from a data URL (for custom-rendered diagrams captured via html2canvas).
+ */
+export function downloadPngFromDataUrl(dataUrl, filename = "diagram.png") {
+  const [meta, base64] = dataUrl.split(",");
+  const mime = meta.match(/:(.*?);/)[1];
+  const binary = atob(base64);
+  const arr = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  const blob = new Blob([arr], { type: mime });
+  triggerDownload(blob, filename);
+}
+
+/**
+ * Download PDF from a PNG data URL (for custom-rendered diagrams captured via html2canvas).
+ */
+export function downloadPdfFromDataUrl(dataUrl, width, height, filename = "diagram.pdf") {
+  const scale = 3;
+  const pdfW = width / scale;
+  const pdfH = height / scale;
+  const orientation = pdfW > pdfH ? "landscape" : "portrait";
+  const pdf = new jsPDF({ orientation, unit: "px", format: [pdfW, pdfH] });
+  pdf.addImage(dataUrl, "PNG", 0, 0, pdfW, pdfH);
+  pdf.save(filename);
+}

@@ -39,7 +39,7 @@ import {
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, addStateDiagramState, addStateDiagramTransition, updateErEntity, updateErRelationship, parseSequenceDiagram, parseSequenceBlocks, parseSequenceExtras, updateSequenceMessageByIndex, removeSequenceMessageByIndex, reorderSequenceParticipants, addSequenceMessage } from "./diagramUtils";
 import { parseStateDiagramEnhanced, xstateToMermaid, mermaidToXState, generateStateId, toggleStateDiagramDirection } from "./stateUtils";
-import { downloadSvgHQ, downloadPngHQ, downloadPdf } from "./exportUtils";
+import { downloadSvgHQ, downloadPngHQ, downloadPdf, captureHtmlToPng, downloadPngFromDataUrl, downloadPdfFromDataUrl } from "./exportUtils";
 import { useAuth } from "./firebase/AuthContext";
 import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
@@ -8168,6 +8168,20 @@ function getIframeSrcDoc() {
           return;
         }
 
+        if (data.type === "capture:request") {
+          try {
+            const styles = Array.from(document.querySelectorAll("style")).map(s => s.textContent).join("\\n");
+            const html = canvas.innerHTML;
+            const width = canvas.scrollWidth;
+            const height = canvas.scrollHeight;
+            const theme = document.documentElement.getAttribute("data-theme") || "light";
+            send("capture:response", { html, styles, width, height, theme });
+          } catch (err) {
+            send("capture:response", { error: err.message });
+          }
+          return;
+        }
+
         if (data.type !== "render") return;
 
         const { code, config } = data.payload || {};
@@ -10531,27 +10545,97 @@ function App() {
     setRenderMessage("Iframe embed snippet copied");
   };
 
-  const downloadSvg = () => {
-    if (!renderSvg) return;
-    const name = flowMeta?.name || "diagram";
-    downloadSvgHQ(renderSvg, `${name}.svg`);
+  const requestCapture = () => {
+    return new Promise((resolve) => {
+      let resolved = false;
+      const handler = (event) => {
+        if (event.data?.channel === CHANNEL && event.data.type === "capture:response") {
+          window.removeEventListener("message", handler);
+          resolved = true;
+          resolve(event.data.payload || {});
+        }
+      };
+      window.addEventListener("message", handler);
+      const frame = iframeRef.current;
+      if (frame?.contentWindow) {
+        frame.contentWindow.postMessage({ channel: CHANNEL, type: "capture:request" }, "*");
+      } else {
+        resolve({});
+      }
+      setTimeout(() => {
+        if (!resolved) {
+          window.removeEventListener("message", handler);
+          resolve({});
+        }
+      }, 10000);
+    });
   };
 
-  const downloadPng = async () => {
-    if (!renderSvg) return;
-    const name = flowMeta?.name || "diagram";
+  const getCaptureDataUrl = async () => {
+    setRenderMessage("Generating export…");
+    const capture = await requestCapture();
+    if (capture.error) {
+      setRenderMessage("Export failed: " + capture.error);
+      return null;
+    }
+    if (!capture.html) {
+      setRenderMessage("Export failed: no content to capture");
+      return null;
+    }
     try {
-      await downloadPngHQ(renderSvg, `${name}.png`, 3);
+      return await captureHtmlToPng(capture.html, capture.styles, capture.width, capture.height, capture.theme);
     } catch (err) {
-      setRenderMessage("PNG export failed: " + err.message);
+      setRenderMessage("Export failed: " + err.message);
+      return null;
     }
   };
 
+  const downloadSvg = async () => {
+    if (renderSvg) {
+      const name = flowMeta?.name || "diagram";
+      downloadSvgHQ(renderSvg, `${name}.svg`);
+      return;
+    }
+    const result = await getCaptureDataUrl();
+    if (!result) return;
+    const name = flowMeta?.name || "diagram";
+    downloadPngFromDataUrl(result.dataUrl, `${name}.png`);
+    setRenderMessage("Downloaded as PNG (SVG not available for this diagram type)");
+  };
+
+  const downloadPng = async () => {
+    if (renderSvg) {
+      const name = flowMeta?.name || "diagram";
+      try {
+        await downloadPngHQ(renderSvg, `${name}.png`, 3);
+      } catch (err) {
+        setRenderMessage("PNG export failed: " + err.message);
+      }
+      return;
+    }
+    const result = await getCaptureDataUrl();
+    if (!result) return;
+    const name = flowMeta?.name || "diagram";
+    downloadPngFromDataUrl(result.dataUrl, `${name}.png`);
+    setRenderMessage("PNG downloaded");
+  };
+
   const handleDownloadPdf = async () => {
-    if (!renderSvg) return;
+    if (renderSvg) {
+      const name = flowMeta?.name || "diagram";
+      try {
+        await downloadPdf(renderSvg, `${name}.pdf`);
+        setRenderMessage("PDF downloaded");
+      } catch (err) {
+        setRenderMessage("PDF export failed: " + err.message);
+      }
+      return;
+    }
+    const result = await getCaptureDataUrl();
+    if (!result) return;
     const name = flowMeta?.name || "diagram";
     try {
-      await downloadPdf(renderSvg, `${name}.pdf`);
+      downloadPdfFromDataUrl(result.dataUrl, result.width, result.height, `${name}.pdf`);
       setRenderMessage("PDF downloaded");
     } catch (err) {
       setRenderMessage("PDF export failed: " + err.message);
