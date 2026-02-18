@@ -54,6 +54,8 @@ export default function Dashboard() {
   const [newFlowName, setNewFlowName] = useState("");
   const [loadError, setLoadError] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { type, id, message }
+  const [filterProject, setFilterProject] = useState(""); // projectId or ""
+  const [filterType, setFilterType] = useState(""); // diagramType or ""
 
   const logDashboardError = (operation, err, context = {}) => {
     console.error(`[Dashboard] ${operation} failed`, {
@@ -134,6 +136,20 @@ export default function Dashboard() {
     return [...tags].sort();
   }, [allFlows]);
 
+  // All unique diagram types
+  const allDiagramTypes = useMemo(() => {
+    const types = new Set();
+    allFlows.forEach((f) => { if (f.diagramType) types.add(f.diagramType); });
+    return [...types].sort();
+  }, [allFlows]);
+
+  // Project lookup for search
+  const projectMap = useMemo(() => {
+    const map = {};
+    projects.forEach((p) => { map[p.id] = p; });
+    return map;
+  }, [projects]);
+
   // Filtered flows
   const filteredFlows = useMemo(() => {
     let list = view === "project-detail" ? projectFlows : allFlows;
@@ -143,14 +159,36 @@ export default function Dashboard() {
         (f) =>
           f.name?.toLowerCase().includes(q) ||
           f.diagramType?.toLowerCase().includes(q) ||
-          f.tags?.some((t) => t.toLowerCase().includes(q))
+          f.tags?.some((t) => t.toLowerCase().includes(q)) ||
+          (f.projectId && projectMap[f.projectId]?.name?.toLowerCase().includes(q))
       );
     }
     if (filterTag) {
       list = list.filter((f) => f.tags?.includes(filterTag));
     }
+    if (filterProject && view === "all") {
+      if (filterProject === "__none__") {
+        list = list.filter((f) => !f.projectId);
+      } else {
+        list = list.filter((f) => f.projectId === filterProject);
+      }
+    }
+    if (filterType && view === "all") {
+      list = list.filter((f) => f.diagramType === filterType);
+    }
     return list;
-  }, [view, allFlows, projectFlows, searchQuery, filterTag]);
+  }, [view, allFlows, projectFlows, searchQuery, filterTag, filterProject, filterType]);
+
+  // Filtered projects for projects view
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery) return projects;
+    const q = searchQuery.toLowerCase();
+    return projects.filter(
+      (p) =>
+        p.name?.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q)
+    );
+  }, [projects, searchQuery]);
 
   // Handlers
   const handleCreateProject = async () => {
@@ -377,13 +415,21 @@ export default function Dashboard() {
 
           {/* Search */}
           <div className="dash-search-bar">
-            <input
-              type="text"
-              placeholder="Search flows..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="dash-search-input"
-            />
+            <div className="dash-search-wrap">
+              <svg className="dash-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input
+                type="text"
+                placeholder={view === "projects" ? "Search projects..." : "Search flows, projects, tags..."}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="dash-search-input"
+              />
+              {searchQuery && (
+                <button className="dash-search-clear" onClick={() => setSearchQuery("")} aria-label="Clear search">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ── All Flows View ─────────────────────────── */}
@@ -391,7 +437,39 @@ export default function Dashboard() {
             <>
               <div className="dash-section-header">
                 <h2>All Flows</h2>
-                <span className="dash-count">{filteredFlows.length} flows</span>
+                <span className="dash-count">{filteredFlows.length} {filteredFlows.length === 1 ? "flow" : "flows"}</span>
+              </div>
+              {/* Filters */}
+              <div className="dash-filters">
+                <select
+                  className={`dash-filter-select${filterProject ? " active" : ""}`}
+                  value={filterProject}
+                  onChange={(e) => setFilterProject(e.target.value)}
+                >
+                  <option value="">All Projects</option>
+                  <option value="__none__">No Project</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <select
+                  className={`dash-filter-select${filterType ? " active" : ""}`}
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                >
+                  <option value="">All Types</option>
+                  {allDiagramTypes.map((t) => (
+                    <option key={t} value={t}>{formatDiagramType(t)}</option>
+                  ))}
+                </select>
+                {(filterProject || filterType || filterTag) && (
+                  <button
+                    className="dash-filter-clear"
+                    onClick={() => { setFilterProject(""); setFilterType(""); setFilterTag(""); }}
+                  >
+                    Clear filters
+                  </button>
+                )}
               </div>
               <FlowGrid
                 flows={filteredFlows}
@@ -415,12 +493,20 @@ export default function Dashboard() {
             <>
               <div className="dash-section-header">
                 <h2>Projects</h2>
-                <button className="soft-btn small" onClick={() => setShowNewProject(true)}>
-                  + New Project
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="dash-count">{filteredProjects.length} {filteredProjects.length === 1 ? "project" : "projects"}</span>
+                  <button className="soft-btn small" onClick={() => setShowNewProject(true)}>
+                    + New Project
+                  </button>
+                </div>
               </div>
+              {filteredProjects.length === 0 && searchQuery ? (
+                <div className="dash-empty">
+                  <p>No projects matching "{searchQuery}"</p>
+                </div>
+              ) : (
               <div className="dash-project-grid">
-                {projects.map((p) => {
+                {filteredProjects.map((p) => {
                   const flowCount = allFlows.filter((f) => f.projectId === p.id).length;
                   return (
                     <div
@@ -452,6 +538,7 @@ export default function Dashboard() {
                   );
                 })}
               </div>
+              )}
             </>
           )}
 
