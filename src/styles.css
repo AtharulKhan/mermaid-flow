@@ -2991,6 +2991,28 @@ input:focus {
   opacity: 0.6;
 }
 
+.dash-flow-tabs-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-bottom: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dash-flow-tabs-info svg {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.dash-flow-tab-names {
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .dash-flow-tags {
   display: flex;
   flex-wrap: wrap;
