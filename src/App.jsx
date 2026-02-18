@@ -5928,7 +5928,7 @@ function getIframeSrcDoc() {
         const MAX_COL_W = 350;
         const MSG_MAX_COL_W = 600;
         const MARGIN = 40;
-        const rowHeight = 52;
+        const rowHeight = 68;
         const actorHeight = 44;
         const actorPad = 16;
         const lifelineStartY = actorHeight + actorPad;
@@ -6314,9 +6314,10 @@ function getIframeSrcDoc() {
           if (!actorIdxs.length) continue;
           const minX = Math.min(...actorIdxs.map((i) => actorCenterX(i)));
           const maxX = Math.max(...actorIdxs.map((i) => actorCenterX(i)));
-          // Find approximate Y from line index
+          // Find approximate Y from line index — position below the preceding message arrow
           const noteMsgIdx = messages.findIndex((m) => m.lineIndex > note.lineIndex);
-          const noteY = noteMsgIdx >= 0 ? msgStartY + noteMsgIdx * rowHeight - 6 : msgStartY + messages.length * rowHeight;
+          const prevIdx = noteMsgIdx > 0 ? noteMsgIdx - 1 : (noteMsgIdx < 0 ? messages.length - 1 : 0);
+          const noteY = msgStartY + prevIdx * rowHeight + rowHeight / 2 + 8;
           const noteW = Math.max(maxX - minX + 60, 80);
           const noteX = (minX + maxX) / 2 - noteW / 2;
           const noteRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
