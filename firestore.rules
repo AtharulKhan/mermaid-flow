@@ -149,5 +149,20 @@ service cloud.firestore {
         allow update: if false;
       }
     }
+
+    match /templates/{templateId} {
+      allow create: if signedIn() &&
+        request.resource.data.ownerId == request.auth.uid;
+
+      allow read: if signedIn() &&
+        resource.data.ownerId == request.auth.uid;
+
+      allow update: if signedIn() &&
+        resource.data.ownerId == request.auth.uid &&
+        request.resource.data.ownerId == resource.data.ownerId;
+
+      allow delete: if signedIn() &&
+        resource.data.ownerId == request.auth.uid;
+    }
   }
 }

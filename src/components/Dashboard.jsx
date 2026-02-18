@@ -19,9 +19,14 @@ import {
   addFlowTag,
   removeFlowTag,
   formatFirestoreError,
+  getUserTemplates,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
 } from "../firebase/firestore";
 import { DEFAULT_CODE } from "../diagramData";
 import ConfirmDialog from "./ConfirmDialog";
+import SaveTemplateDialog from "./SaveTemplateDialog";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -60,6 +65,18 @@ export default function Dashboard() {
   const [moveSearch, setMoveSearch] = useState("");
   const [moveNewName, setMoveNewName] = useState("");
 
+  // Templates
+  const [templates, setTemplates] = useState([]);
+  const [templateCategory, setTemplateCategory] = useState("");
+  const [saveTemplateFlow, setSaveTemplateFlow] = useState(null); // flow object when saving from card
+  const [useTemplateDialog, setUseTemplateDialog] = useState(null); // template object when using
+  const [useTemplateName, setUseTemplateName] = useState("");
+  const [useTemplateProject, setUseTemplateProject] = useState("");
+  const [editTemplateDialog, setEditTemplateDialog] = useState(null); // template for editing details
+  const [editTemplateName, setEditTemplateName] = useState("");
+  const [editTemplateDesc, setEditTemplateDesc] = useState("");
+  const [editTemplateTags, setEditTemplateTags] = useState("");
+
   const logDashboardError = (operation, err, context = {}) => {
     console.error(`[Dashboard] ${operation} failed`, {
       error: formatFirestoreError(err),
@@ -77,9 +94,10 @@ export default function Dashboard() {
   const loadAll = async () => {
     setLoading(true);
     setLoadError("");
-    const [projectsResult, flowsResult] = await Promise.allSettled([
+    const [projectsResult, flowsResult, templatesResult] = await Promise.allSettled([
       getUserProjects(user.uid),
       getAllUserFlows(user.uid),
+      getUserTemplates(user.uid),
     ]);
 
     if (projectsResult.status === "fulfilled") {
@@ -95,6 +113,12 @@ export default function Dashboard() {
       logDashboardError("loadAll/getAllUserFlows", flowsResult.reason, { uid: user.uid });
       const flowsError = `Flows load failed: ${formatFirestoreError(flowsResult.reason)}`;
       setLoadError((prev) => (prev ? `${prev} | ${flowsError}` : flowsError));
+    }
+
+    if (templatesResult.status === "fulfilled") {
+      setTemplates(templatesResult.value);
+    } else {
+      logDashboardError("loadAll/getUserTemplates", templatesResult.reason, { uid: user.uid });
     }
 
     setLoading(false);
@@ -292,6 +316,9 @@ export default function Dashboard() {
       await deleteFlow(id);
       setAllFlows((prev) => prev.filter((f) => f.id !== id));
       setProjectFlows((prev) => prev.filter((f) => f.id !== id));
+    } else if (type === "template") {
+      await deleteTemplate(id);
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
     }
   }, [deleteConfirm, selectedProject, selectedSubproject]);
 
@@ -370,6 +397,95 @@ export default function Dashboard() {
     handleMoveToProject(moveFlow.flowId, proj.id, null);
   };
 
+  // Template handlers
+  const handleDeleteTemplate = async (templateId) => {
+    setDeleteConfirm({
+      type: "template",
+      id: templateId,
+      message: "Delete this template permanently?",
+    });
+  };
+
+  const handleUseTemplate = async () => {
+    if (!useTemplateDialog) return;
+    const t = useTemplateDialog;
+    const name = useTemplateName.trim() || t.name || "Untitled";
+    try {
+      const flow = await createFlow(user.uid, {
+        name,
+        code: t.code || "",
+        diagramType: t.diagramType || "flowchart",
+        projectId: useTemplateProject || null,
+        subprojectId: null,
+        tags: [],
+        ganttViewState: t.ganttViewState || null,
+      });
+      if (t.tabs && t.tabs.length > 0) {
+        await updateFlow(flow.id, {
+          tabs: t.tabs.map((tab) => ({ id: tab.id, label: tab.label, code: tab.code })),
+          activeTabId: t.tabs[0]?.id || null,
+        });
+      }
+      setUseTemplateDialog(null);
+      setUseTemplateName("");
+      setUseTemplateProject("");
+      navigate(`/editor/${flow.id}`);
+    } catch (err) {
+      logDashboardError("handleUseTemplate", err, { templateId: t.id });
+    }
+  };
+
+  const handleEditTemplateSubmit = async () => {
+    if (!editTemplateDialog) return;
+    const parsedTags = editTemplateTags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    try {
+      await updateTemplate(editTemplateDialog.id, {
+        name: editTemplateName.trim() || "Untitled Template",
+        description: editTemplateDesc.trim(),
+        tags: parsedTags,
+      });
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.id === editTemplateDialog.id
+            ? { ...t, name: editTemplateName.trim() || "Untitled Template", description: editTemplateDesc.trim(), tags: parsedTags }
+            : t
+        )
+      );
+      setEditTemplateDialog(null);
+    } catch (err) {
+      logDashboardError("handleEditTemplate", err, { templateId: editTemplateDialog.id });
+    }
+  };
+
+  // Filtered templates
+  const filteredTemplates = useMemo(() => {
+    let list = templates;
+    if (templateCategory) {
+      list = list.filter((t) => t.category === templateCategory);
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (t) =>
+          t.name?.toLowerCase().includes(q) ||
+          t.description?.toLowerCase().includes(q) ||
+          t.category?.toLowerCase().includes(q) ||
+          t.tags?.some((tag) => tag.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [templates, templateCategory, searchQuery]);
+
+  // Template categories
+  const templateCategories = useMemo(() => {
+    const cats = new Set();
+    templates.forEach((t) => { if (t.category) cats.add(t.category); });
+    return [...cats].sort();
+  }, [templates]);
+
   const formatDate = (ts) => {
     if (!ts) return "";
     const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -425,6 +541,12 @@ export default function Dashboard() {
               Projects
             </button>
             <button
+              className={`dash-nav-item ${view === "templates" ? "active" : ""}`}
+              onClick={() => { setView("templates"); setSelectedProject(null); setSelectedSubproject(null); }}
+            >
+              Templates
+            </button>
+            <button
               className="dash-nav-item"
               onClick={() => navigate("/settings")}
             >
@@ -477,7 +599,7 @@ export default function Dashboard() {
               <svg className="dash-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input
                 type="text"
-                placeholder={view === "projects" ? "Search projects..." : "Search flows, projects, tags..."}
+                placeholder={view === "projects" ? "Search projects..." : view === "templates" ? "Search templates..." : "Search flows, projects, tags..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="dash-search-input"
@@ -538,6 +660,7 @@ export default function Dashboard() {
                 formatDate={formatDate}
                 onDelete={handleDeleteFlow}
                 onMove={(id) => { setMoveFlow({ flowId: id, step: "project" }); setMoveSearch(""); setMoveNewName(""); }}
+                onSaveAsTemplate={(f) => setSaveTemplateFlow(f)}
                 onAddTag={(id) => { setShowTagInput(id); setNewTag(""); }}
                 onRemoveTag={handleRemoveTag}
                 showTagInput={showTagInput}
@@ -697,6 +820,7 @@ export default function Dashboard() {
                 formatDate={formatDate}
                 onDelete={handleDeleteFlow}
                 onMove={(id) => { setMoveFlow({ flowId: id, step: "project" }); setMoveSearch(""); setMoveNewName(""); }}
+                onSaveAsTemplate={(f) => setSaveTemplateFlow(f)}
                 onAddTag={(id) => { setShowTagInput(id); setNewTag(""); }}
                 onRemoveTag={handleRemoveTag}
                 showTagInput={showTagInput}
@@ -706,6 +830,115 @@ export default function Dashboard() {
                 onCancelTag={() => setShowTagInput(null)}
                 hideProject
               />
+            </>
+          )}
+
+          {/* ── Templates View ──────────────────────────── */}
+          {view === "templates" && (
+            <>
+              <div className="dash-section-header">
+                <h2>My Templates</h2>
+                <span className="dash-count">{filteredTemplates.length} {filteredTemplates.length === 1 ? "template" : "templates"}</span>
+              </div>
+              {templateCategories.length > 0 && (
+                <div className="dash-filters">
+                  <SearchableSelect
+                    value={templateCategory}
+                    onChange={setTemplateCategory}
+                    placeholder="All Types"
+                    options={templateCategories.map((c) => ({ value: c, label: formatDiagramType(c) }))}
+                  />
+                  {templateCategory && (
+                    <button className="dash-filter-clear" onClick={() => setTemplateCategory("")}>
+                      Clear filter
+                    </button>
+                  )}
+                </div>
+              )}
+              {filteredTemplates.length === 0 ? (
+                <div className="dash-empty">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--ink-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4, marginBottom: 12 }}>
+                    <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v6"/>
+                  </svg>
+                  <p>No templates yet</p>
+                  <p style={{ fontSize: 13, marginTop: 4 }}>Save a flow as a template from the editor or flow cards</p>
+                </div>
+              ) : (
+                <div className="dash-flow-grid">
+                  {filteredTemplates.map((t) => (
+                    <div key={t.id} className="dash-flow-card template-card">
+                      <MermaidThumb
+                        thumbnailUrl={t.thumbnailUrl}
+                        code={t.code}
+                        diagramType={t.diagramType}
+                        flowId={t.id}
+                      />
+                      <div className="dash-flow-card-top">
+                        <span className="dash-flow-type-badge">
+                          {getDiagramIcon(t.diagramType || t.category)}
+                          {formatDiagramType(t.diagramType || t.category)}
+                        </span>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            className="dash-card-action"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditTemplateDialog(t);
+                              setEditTemplateName(t.name || "");
+                              setEditTemplateDesc(t.description || "");
+                              setEditTemplateTags((t.tags || []).join(", "));
+                            }}
+                            aria-label="Edit template"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                          </button>
+                          <button
+                            className="dash-card-delete"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t.id); }}
+                            aria-label="Delete template"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <h4 className="dash-flow-card-title">{t.name || "Untitled Template"}</h4>
+                      {t.description && (
+                        <p className="template-description">{t.description}</p>
+                      )}
+                      {t.tabs && t.tabs.length > 1 && (
+                        <div className="dash-flow-tabs-info">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v6"/></svg>
+                          <span>{t.tabs.length} tabs</span>
+                        </div>
+                      )}
+                      {(t.tags || []).length > 0 && (
+                        <div className="dash-flow-tags">
+                          {t.tags.map((tag) => (
+                            <span key={tag} className="dash-flow-tag">{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="dash-flow-card-footer">
+                        <span className="dash-card-meta">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                          {formatDate(t.updatedAt)}
+                        </span>
+                        <button
+                          className="template-use-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setUseTemplateDialog(t);
+                            setUseTemplateName(t.name || "");
+                            setUseTemplateProject("");
+                          }}
+                        >
+                          Use Template
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </main>
@@ -867,12 +1100,146 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ── Use Template Dialog ───────────────────────── */}
+      {useTemplateDialog && (
+        <div className="modal-backdrop" onClick={() => setUseTemplateDialog(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 12px" }}>Create Flow from Template</h3>
+            <p style={{ margin: "0 0 12px", fontSize: "0.82rem", color: "var(--ink-soft)" }}>
+              This will create a new flow from "{useTemplateDialog.name}".
+            </p>
+            <div style={{ display: "grid", gap: 12 }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
+                Flow Name
+                <input
+                  className="modal-input"
+                  value={useTemplateName}
+                  onChange={(e) => setUseTemplateName(e.target.value)}
+                  placeholder="Flow name"
+                  autoFocus
+                  style={{ marginTop: 4 }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleUseTemplate(); }}
+                />
+              </label>
+              {projects.length > 0 && (
+                <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
+                  Project (optional)
+                  <select
+                    className="modal-input"
+                    value={useTemplateProject}
+                    onChange={(e) => setUseTemplateProject(e.target.value)}
+                    style={{ marginTop: 4 }}
+                  >
+                    <option value="">No Project</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="soft-btn" onClick={() => setUseTemplateDialog(null)}>Cancel</button>
+              <button className="soft-btn primary" onClick={handleUseTemplate}>Create Flow</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Template Dialog ─────────────────────── */}
+      {editTemplateDialog && (
+        <div className="modal-backdrop" onClick={() => setEditTemplateDialog(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 12px" }}>Edit Template</h3>
+            <div style={{ display: "grid", gap: 12 }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
+                Name
+                <input
+                  className="modal-input"
+                  value={editTemplateName}
+                  onChange={(e) => setEditTemplateName(e.target.value)}
+                  placeholder="Template name"
+                  autoFocus
+                  style={{ marginTop: 4 }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleEditTemplateSubmit(); }}
+                />
+              </label>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
+                Description
+                <textarea
+                  className="modal-input"
+                  value={editTemplateDesc}
+                  onChange={(e) => setEditTemplateDesc(e.target.value)}
+                  placeholder="What is this template for?"
+                  rows={3}
+                  style={{ marginTop: 4, resize: "vertical", fontFamily: "inherit" }}
+                />
+              </label>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
+                Tags
+                <input
+                  className="modal-input"
+                  value={editTemplateTags}
+                  onChange={(e) => setEditTemplateTags(e.target.value)}
+                  placeholder="e.g. onboarding, sprint (comma-separated)"
+                  style={{ marginTop: 4 }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleEditTemplateSubmit(); }}
+                />
+              </label>
+            </div>
+            <div className="modal-actions">
+              <button className="soft-btn" onClick={() => setEditTemplateDialog(null)}>Cancel</button>
+              <button className="soft-btn primary" onClick={handleEditTemplateSubmit}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Save as Template Dialog (from flow card) ──── */}
+      <SaveTemplateDialog
+        open={!!saveTemplateFlow}
+        onClose={() => setSaveTemplateFlow(null)}
+        existingTemplates={templates}
+        defaultName={saveTemplateFlow?.name || ""}
+        diagramType={saveTemplateFlow?.diagramType || "flowchart"}
+        onSave={async ({ name, description, tags }) => {
+          if (!saveTemplateFlow) return;
+          const f = saveTemplateFlow;
+          await createTemplate(user.uid, {
+            name,
+            description,
+            category: f.diagramType || "flowchart",
+            code: f.code || "",
+            diagramType: f.diagramType || "flowchart",
+            tabs: (f.tabs || []).map((tab) => ({ id: tab.id, label: tab.label, code: tab.code })),
+            tags,
+            ganttViewState: f.ganttViewState || null,
+          });
+          const updated = await getUserTemplates(user.uid);
+          setTemplates(updated);
+        }}
+        onUpdate={async (templateId) => {
+          if (!saveTemplateFlow) return;
+          const f = saveTemplateFlow;
+          await updateTemplate(templateId, {
+            code: f.code || "",
+            diagramType: f.diagramType || "flowchart",
+            category: f.diagramType || "flowchart",
+            tabs: (f.tabs || []).map((tab) => ({ id: tab.id, label: tab.label, code: tab.code })),
+            ganttViewState: f.ganttViewState || null,
+          });
+          const updated = await getUserTemplates(user.uid);
+          setTemplates(updated);
+        }}
+      />
+
       {/* ── Delete Confirmation Dialog ──────────────────── */}
       <ConfirmDialog
         open={!!deleteConfirm}
         title={
           deleteConfirm?.type === "project" ? "Delete Project" :
           deleteConfirm?.type === "subproject" ? "Delete Subproject" :
+          deleteConfirm?.type === "template" ? "Delete Template" :
           "Delete Flow"
         }
         message={deleteConfirm?.message || ""}
@@ -943,6 +1310,7 @@ function FlowGrid({
   formatDate,
   onDelete,
   onMove,
+  onSaveAsTemplate,
   onAddTag,
   onRemoveTag,
   showTagInput,
@@ -992,6 +1360,16 @@ function FlowGrid({
                 {formatDiagramType(f.diagramType)}
               </span>
               <div style={{ display: "flex", gap: 4 }}>
+                {onSaveAsTemplate && (
+                  <button
+                    className="dash-card-action"
+                    onClick={(e) => { e.stopPropagation(); onSaveAsTemplate(f); }}
+                    aria-label="Save as template"
+                    title="Save as template"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v6"/></svg>
+                  </button>
+                )}
                 <button
                   className="dash-card-action"
                   onClick={(e) => { e.stopPropagation(); onMove(f.id); }}
