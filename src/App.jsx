@@ -9391,10 +9391,15 @@ function App() {
       return;
     }
     let computedEnd = selectedGanttTask.endDate || "";
-    if (!computedEnd && selectedGanttTask.startDate && selectedGanttTask.durationDays) {
-      const d = new Date(selectedGanttTask.startDate + "T00:00:00Z");
-      d.setUTCDate(d.getUTCDate() + selectedGanttTask.durationDays);
-      computedEnd = d.toISOString().slice(0, 10);
+    if (!computedEnd && selectedGanttTask.startDate && (selectedGanttTask.durationMs || selectedGanttTask.durationDays)) {
+      const sMs = dateToMs(selectedGanttTask.startDate);
+      if (sMs !== null) {
+        if (selectedGanttTask.durationMs && ganttSubDay) {
+          computedEnd = msToDateStr(sMs + selectedGanttTask.durationMs, true);
+        } else if (selectedGanttTask.durationDays) {
+          computedEnd = msToDateStr(sMs + selectedGanttTask.durationDays * 86400000, ganttSubDay);
+        }
+      }
     }
     setGanttDraft({
       label: selectedGanttTask.label || "",
