@@ -16,7 +16,7 @@ import {
   writeBatch,
   limit,
 } from "firebase/firestore";
-import { db } from "./config";
+import { db, auth } from "./config";
 
 function normalizeFirestoreError(err) {
   return {
@@ -151,11 +151,14 @@ export async function deleteProject(projectId) {
     await batch.commit();
   }
 
-  // Unlink flows (don't delete them)
-  const flowsQ = query(collection(db, "flows"), where("projectId", "==", projectId));
-  const flowSnap = await getDocs(flowsQ);
-  for (const d of flowSnap.docs) {
-    await updateDoc(d.ref, { projectId: null, subprojectId: null });
+  // Unlink flows owned by current user (don't delete them)
+  const uid = auth.currentUser?.uid;
+  if (uid) {
+    const flowsQ = query(collection(db, "flows"), where("projectId", "==", projectId), where("ownerId", "==", uid));
+    const flowSnap = await getDocs(flowsQ);
+    for (const d of flowSnap.docs) {
+      await updateDoc(d.ref, { projectId: null, subprojectId: null });
+    }
   }
 }
 
@@ -210,15 +213,19 @@ export async function updateSubproject(projectId, subprojectId, updates) {
 
 export async function deleteSubproject(projectId, subprojectId) {
   await deleteDoc(doc(db, "projects", projectId, "subprojects", subprojectId));
-  // Unlink flows
-  const flowsQ = query(
-    collection(db, "flows"),
-    where("projectId", "==", projectId),
-    where("subprojectId", "==", subprojectId)
-  );
-  const snap = await getDocs(flowsQ);
-  for (const d of snap.docs) {
-    await updateDoc(d.ref, { subprojectId: null });
+  // Unlink flows owned by current user
+  const uid = auth.currentUser?.uid;
+  if (uid) {
+    const flowsQ = query(
+      collection(db, "flows"),
+      where("projectId", "==", projectId),
+      where("subprojectId", "==", subprojectId),
+      where("ownerId", "==", uid)
+    );
+    const snap = await getDocs(flowsQ);
+    for (const d of snap.docs) {
+      await updateDoc(d.ref, { subprojectId: null });
+    }
   }
 }
 

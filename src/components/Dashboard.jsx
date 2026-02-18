@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../firebase/AuthContext";
 import logoSvg from "../assets/logo.svg";
@@ -21,6 +21,7 @@ import {
   formatFirestoreError,
 } from "../firebase/firestore";
 import { DEFAULT_CODE } from "../diagramData";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -52,6 +53,7 @@ export default function Dashboard() {
   const [newSubprojectName, setNewSubprojectName] = useState("");
   const [newFlowName, setNewFlowName] = useState("");
   const [loadError, setLoadError] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { type, id, message }
 
   const logDashboardError = (operation, err, context = {}) => {
     console.error(`[Dashboard] ${operation} failed`, {
@@ -161,13 +163,11 @@ export default function Dashboard() {
   };
 
   const handleDeleteProject = async (projectId) => {
-    if (!window.confirm("Delete this project? Flows will be unlinked but not deleted.")) return;
-    await deleteProject(projectId);
-    setProjects((prev) => prev.filter((p) => p.id !== projectId));
-    if (selectedProject?.id === projectId) {
-      setSelectedProject(null);
-      setView("projects");
-    }
+    setDeleteConfirm({
+      type: "project",
+      id: projectId,
+      message: "Delete this project? Flows will be unlinked but not deleted.",
+    });
   };
 
   const handleCreateSubproject = async () => {
@@ -180,10 +180,11 @@ export default function Dashboard() {
 
   const handleDeleteSubproject = async (subId) => {
     if (!selectedProject) return;
-    if (!window.confirm("Delete this subproject? Flows will be unlinked.")) return;
-    await deleteSubproject(selectedProject.id, subId);
-    setSubprojects((prev) => prev.filter((s) => s.id !== subId));
-    if (selectedSubproject?.id === subId) setSelectedSubproject(null);
+    setDeleteConfirm({
+      type: "subproject",
+      id: subId,
+      message: "Delete this subproject? Flows will be unlinked.",
+    });
   };
 
   const handleCreateFlow = async () => {
@@ -212,11 +213,34 @@ export default function Dashboard() {
   };
 
   const handleDeleteFlow = async (flowId) => {
-    if (!window.confirm("Delete this flow permanently?")) return;
-    await deleteFlow(flowId);
-    setAllFlows((prev) => prev.filter((f) => f.id !== flowId));
-    setProjectFlows((prev) => prev.filter((f) => f.id !== flowId));
+    setDeleteConfirm({
+      type: "flow",
+      id: flowId,
+      message: "Delete this flow permanently?",
+    });
   };
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm) return;
+    const { type, id } = deleteConfirm;
+    setDeleteConfirm(null);
+    if (type === "project") {
+      await deleteProject(id);
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      if (selectedProject?.id === id) {
+        setSelectedProject(null);
+        setView("projects");
+      }
+    } else if (type === "subproject") {
+      await deleteSubproject(selectedProject.id, id);
+      setSubprojects((prev) => prev.filter((s) => s.id !== id));
+      if (selectedSubproject?.id === id) setSelectedSubproject(null);
+    } else if (type === "flow") {
+      await deleteFlow(id);
+      setAllFlows((prev) => prev.filter((f) => f.id !== id));
+      setProjectFlows((prev) => prev.filter((f) => f.id !== id));
+    }
+  }, [deleteConfirm, selectedProject, selectedSubproject]);
 
   const handleAddTag = async (flowId) => {
     if (!newTag.trim()) return;
@@ -371,6 +395,7 @@ export default function Dashboard() {
               </div>
               <FlowGrid
                 flows={filteredFlows}
+                projects={projects}
                 navigate={navigate}
                 formatDate={formatDate}
                 onDelete={handleDeleteFlow}
@@ -395,23 +420,37 @@ export default function Dashboard() {
                 </button>
               </div>
               <div className="dash-project-grid">
-                {projects.map((p) => (
-                  <div
-                    key={p.id}
-                    className="dash-project-card"
-                    onClick={() => { setSelectedProject(p); setSelectedSubproject(null); setView("project-detail"); }}
-                  >
-                    <h3>{p.name}</h3>
-                    {p.description && <p>{p.description}</p>}
-                    <span className="dash-card-meta">{formatDate(p.createdAt)}</span>
-                    <button
-                      className="dash-card-delete"
-                      onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }}
+                {projects.map((p) => {
+                  const flowCount = allFlows.filter((f) => f.projectId === p.id).length;
+                  return (
+                    <div
+                      key={p.id}
+                      className="dash-project-card"
+                      onClick={() => { setSelectedProject(p); setSelectedSubproject(null); setView("project-detail"); }}
                     >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                      <div className="dash-project-card-accent" />
+                      <div className="dash-project-card-body">
+                        <div className="dash-project-card-top">
+                          <h3>{p.name}</h3>
+                          <button
+                            className="dash-card-delete"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                          </button>
+                        </div>
+                        {p.description && <p className="dash-project-desc">{p.description}</p>}
+                        <div className="dash-project-card-footer">
+                          <span className="dash-project-stat">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            {flowCount} {flowCount === 1 ? "flow" : "flows"}
+                          </span>
+                          <span className="dash-card-meta">{formatDate(p.createdAt)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}
@@ -474,6 +513,7 @@ export default function Dashboard() {
               </div>
               <FlowGrid
                 flows={filteredFlows}
+                projects={projects}
                 navigate={navigate}
                 formatDate={formatDate}
                 onDelete={handleDeleteFlow}
@@ -484,6 +524,7 @@ export default function Dashboard() {
                 setNewTag={setNewTag}
                 onSubmitTag={handleAddTag}
                 onCancelTag={() => setShowTagInput(null)}
+                hideProject
               />
             </>
           )}
@@ -564,13 +605,79 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* ── Delete Confirmation Dialog ──────────────────── */}
+      <ConfirmDialog
+        open={!!deleteConfirm}
+        title={
+          deleteConfirm?.type === "project" ? "Delete Project" :
+          deleteConfirm?.type === "subproject" ? "Delete Subproject" :
+          "Delete Flow"
+        }
+        message={deleteConfirm?.message || ""}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
+}
+
+/* ── Diagram type icons ───────────────────────────────── */
+const DIAGRAM_ICONS = {
+  flowchart: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4"/><path d="M6.5 10v4"/><path d="M14 17.5h-4"/><path d="M17.5 14v-4"/>
+    </svg>
+  ),
+  "flowchart-v2": (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4"/><path d="M6.5 10v4"/><path d="M14 17.5h-4"/><path d="M17.5 14v-4"/>
+    </svg>
+  ),
+  gantt: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="14" height="4" rx="1"/><rect x="5" y="10" width="12" height="4" rx="1"/><rect x="7" y="16" width="8" height="4" rx="1"/>
+    </svg>
+  ),
+  sequence: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="6" y1="3" x2="6" y2="21"/><line x1="18" y1="3" x2="18" y2="21"/><line x1="6" y1="9" x2="18" y2="9"/><polyline points="15 6 18 9 15 12"/>
+    </svg>
+  ),
+  state: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>
+    </svg>
+  ),
+  er: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="8" height="6" rx="1"/><rect x="14" y="3" width="8" height="6" rx="1"/><rect x="8" y="15" width="8" height="6" rx="1"/><line x1="6" y1="9" x2="12" y2="15"/><line x1="18" y1="9" x2="12" y2="15"/>
+    </svg>
+  ),
+  pie: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>
+    </svg>
+  ),
+};
+
+function getDiagramIcon(type) {
+  if (!type) return DIAGRAM_ICONS.flowchart;
+  const key = type.toLowerCase().replace(/\s+/g, "-");
+  return DIAGRAM_ICONS[key] || DIAGRAM_ICONS.flowchart;
+}
+
+function formatDiagramType(type) {
+  if (!type) return "Diagram";
+  return type.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /* ── Flow Grid Sub-component ──────────────────────────── */
 function FlowGrid({
   flows,
+  projects = [],
   navigate,
   formatDate,
   onDelete,
@@ -581,59 +688,93 @@ function FlowGrid({
   setNewTag,
   onSubmitTag,
   onCancelTag,
+  hideProject = false,
 }) {
+  const projectMap = useMemo(() => {
+    const map = {};
+    projects.forEach((p) => { map[p.id] = p; });
+    return map;
+  }, [projects]);
+
   if (flows.length === 0) {
-    return <div className="dash-empty">No flows yet. Create one to get started.</div>;
+    return (
+      <div className="dash-empty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--ink-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4, marginBottom: 12 }}>
+          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4"/><path d="M6.5 10v4"/><path d="M14 17.5h-4"/><path d="M17.5 14v-4"/>
+        </svg>
+        <p>No flows yet</p>
+        <p style={{ fontSize: 13, marginTop: 4 }}>Create one to get started</p>
+      </div>
+    );
   }
 
   return (
     <div className="dash-flow-grid">
-      {flows.map((f) => (
-        <div
-          key={f.id}
-          className="dash-flow-card"
-          onClick={() => navigate(`/editor/${f.id}`)}
-        >
-          <div className="dash-flow-card-header">
-            <h4>{f.name || "Untitled"}</h4>
-            <button
-              className="dash-card-delete"
-              onClick={(e) => { e.stopPropagation(); onDelete(f.id); }}
-            >
-              ×
-            </button>
-          </div>
-          <span className="dash-flow-type">{f.diagramType || "diagram"}</span>
-          <div className="dash-flow-tags" onClick={(e) => e.stopPropagation()}>
-            {(f.tags || []).map((t) => (
-              <span key={t} className="dash-flow-tag">
-                {t}
-                <button onClick={() => onRemoveTag(f.id, t)}>×</button>
+      {flows.map((f) => {
+        const project = !hideProject && f.projectId ? projectMap[f.projectId] : null;
+        return (
+          <div
+            key={f.id}
+            className="dash-flow-card"
+            onClick={() => navigate(`/editor/${f.id}`)}
+          >
+            <div className="dash-flow-card-top">
+              <span className="dash-flow-type-badge">
+                {getDiagramIcon(f.diagramType)}
+                {formatDiagramType(f.diagramType)}
               </span>
-            ))}
-            {showTagInput === f.id ? (
-              <span className="dash-tag-input-wrap">
-                <input
-                  className="dash-tag-input"
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") onSubmitTag(f.id);
-                    if (e.key === "Escape") onCancelTag();
-                  }}
-                  placeholder="tag"
-                  autoFocus
-                />
-              </span>
-            ) : (
-              <button className="dash-tag-add" onClick={() => onAddTag(f.id)}>
-                +
+              <button
+                className="dash-card-delete"
+                onClick={(e) => { e.stopPropagation(); onDelete(f.id); }}
+                aria-label="Delete flow"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
               </button>
+            </div>
+            <h4 className="dash-flow-card-title">{f.name || "Untitled"}</h4>
+            {project && (
+              <span className="dash-flow-project-badge">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                {project.name}
+              </span>
             )}
+            <div className="dash-flow-tags" onClick={(e) => e.stopPropagation()}>
+              {(f.tags || []).map((t) => (
+                <span key={t} className="dash-flow-tag">
+                  {t}
+                  <button onClick={() => onRemoveTag(f.id, t)} aria-label={`Remove tag ${t}`}>×</button>
+                </span>
+              ))}
+              {showTagInput === f.id ? (
+                <span className="dash-tag-input-wrap">
+                  <input
+                    className="dash-tag-input"
+                    value={newTag}
+                    onChange={(e) => setNewTag(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") onSubmitTag(f.id);
+                      if (e.key === "Escape") onCancelTag();
+                    }}
+                    placeholder="tag"
+                    autoFocus
+                  />
+                </span>
+              ) : (
+                <button className="dash-tag-add" onClick={() => onAddTag(f.id)} aria-label="Add tag">
+                  +
+                </button>
+              )}
+            </div>
+            <div className="dash-flow-card-footer">
+              <span className="dash-card-meta">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                {formatDate(f.updatedAt)}
+              </span>
+              <svg className="dash-flow-card-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
           </div>
-          <span className="dash-card-meta">{formatDate(f.updatedAt)}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
