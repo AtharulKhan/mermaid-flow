@@ -82,6 +82,12 @@ async function runFirestoreOperation(operation, context, fn) {
 // flows/{flowId}/comments/{commentId}
 //   - authorId, authorName, text, createdAt
 //
+// templates/{templateId}
+//   - name, description, category, code (mermaid), diagramType
+//   - tabs: [{ id, label, code }], ganttViewState (nullable)
+//   - ownerId, thumbnailUrl (nullable), tags: string[]
+//   - createdAt, updatedAt
+//
 // users/{uid}/settings/integrations
 //   - notion: { apiKey, defaultDatabaseId }
 //   - (extensible for future integrations)
@@ -557,4 +563,61 @@ export async function updateUserSettings(uid, settings) {
     settings,
     { merge: true }
   );
+}
+
+// ── Templates ────────────────────────────────────────
+
+export async function createTemplate(ownerId, { name, description, category, code, diagramType, tabs, tags, ganttViewState }) {
+  return runFirestoreOperation("createTemplate", { ownerId, name }, async () => {
+    const ref = await addDoc(collection(db, "templates"), {
+      name: name || "Untitled Template",
+      description: description || "",
+      category: category || "flowchart",
+      code: code || "",
+      diagramType: diagramType || "flowchart",
+      tabs: tabs || [],
+      ganttViewState: ganttViewState || null,
+      ownerId,
+      thumbnailUrl: null,
+      tags: tags || [],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return { id: ref.id, name, description, category, code, diagramType, tabs: tabs || [], tags: tags || [], ownerId, ganttViewState: ganttViewState || null };
+  });
+}
+
+export async function getTemplate(templateId) {
+  return runFirestoreOperation("getTemplate", { templateId }, async () => {
+    const snap = await getDoc(doc(db, "templates", templateId));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  });
+}
+
+export async function getUserTemplates(uid, { category } = {}) {
+  return runFirestoreOperation("getUserTemplates", { uid, category: category || null }, async () => {
+    const constraints = [where("ownerId", "==", uid)];
+    if (category) {
+      constraints.push(where("category", "==", category));
+    }
+    constraints.push(orderBy("updatedAt", "desc"));
+    const q = query(collection(db, "templates"), ...constraints);
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  });
+}
+
+export async function updateTemplate(templateId, updates) {
+  return runFirestoreOperation("updateTemplate", { templateId, updateKeys: Object.keys(updates || {}) }, async () => {
+    await updateDoc(doc(db, "templates", templateId), {
+      ...updates,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function deleteTemplate(templateId) {
+  return runFirestoreOperation("deleteTemplate", { templateId }, async () => {
+    await deleteDoc(doc(db, "templates", templateId));
+  });
 }

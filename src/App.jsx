@@ -43,13 +43,14 @@ import { parseStateDiagramEnhanced, xstateToMermaid, mermaidToXState, generateSt
 import { downloadSvgHQ, downloadPngHQ, downloadPdf, captureHtmlToPng, downloadPngFromDataUrl, downloadPdfFromDataUrl, svgToPngBlob } from "./exportUtils";
 import { uploadThumbnail } from "./firebase/storage";
 import { useAuth } from "./firebase/AuthContext";
-import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
+import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline, createTemplate, updateTemplate, getUserTemplates, getTemplate } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 import VersionHistoryPanel from "./components/VersionHistoryPanel";
 import ResourceLoadPanel from "./components/ResourceLoadPanel";
 import PromptDialog from "./components/PromptDialog";
+import SaveTemplateDialog from "./components/SaveTemplateDialog";
 import { getStoredTheme, getResolvedTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "./themeUtils";
 
 const CHANNEL = "mermaid-flow";
@@ -8385,6 +8386,7 @@ function App() {
   const params = useParams();
   const navigate = useNavigate();
   const flowId = params?.flowId || null;
+  const editingTemplateId = params?.templateId || null;
 
   // Auth context
   const { user: currentUser } = useAuth();
@@ -8439,6 +8441,8 @@ function App() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
+  const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
+  const [userTemplates, setUserTemplates] = useState([]);
   const [resourcePanelOpen, setResourcePanelOpen] = useState(false);
   const [notionSyncOpen, setNotionSyncOpen] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -8571,7 +8575,9 @@ function App() {
   // Derived
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
   const lineCount = code.split("\n").length;
-  const flowHeaderName = String(flowMeta?.name || "").trim();
+  const flowHeaderName = editingTemplateId
+    ? String(editingTemplateRef.current?.name || "Template").trim()
+    : String(flowMeta?.name || "").trim();
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
   const ganttDateFormat = useMemo(() => parseGanttDirectives(code).dateFormat, [code]);
@@ -9248,9 +9254,77 @@ function App() {
     })();
   }, [flowId]);
 
+  /* ── Load template for editing ─────────────────────── */
+  const editingTemplateRef = useRef(null);
+  useEffect(() => {
+    if (!editingTemplateId) {
+      editingTemplateRef.current = null;
+      return;
+    }
+    flowLoadedRef.current = false;
+    (async () => {
+      try {
+        const tmpl = await getTemplate(editingTemplateId);
+        if (tmpl) {
+          editingTemplateRef.current = tmpl;
+          const tmplCode = tmpl.code || DEFAULT_CODE;
+          clearHistory();
+          if (tmpl.tabs && tmpl.tabs.length > 0) {
+            setDiagramTabs(tmpl.tabs);
+            setActiveTabId(tmpl.tabs[0].id);
+            setCode(tmpl.tabs[0].code);
+          } else {
+            setDiagramTabs([{ id: "tab-0", label: "Main", code: tmplCode }]);
+            setActiveTabId("tab-0");
+            setCode(tmplCode);
+          }
+          if (tmpl.diagramType) setDiagramType(tmpl.diagramType);
+          if (tmpl.ganttViewState) {
+            const vs = tmpl.ganttViewState;
+            if (vs.showDates != null) setShowDates(vs.showDates);
+            if (vs.showGrid != null) setShowGrid(vs.showGrid);
+            if (vs.ganttScale) setGanttScale(vs.ganttScale);
+            if (vs.pinCategories) setPinCategories(vs.pinCategories);
+            if (vs.showCriticalPath != null) setShowCriticalPath(vs.showCriticalPath);
+            if (vs.showDepLines != null) setShowDepLines(vs.showDepLines);
+            if (vs.executiveView != null) setExecutiveView(vs.executiveView);
+            if (vs.showRisks != null) setShowRisks(vs.showRisks);
+            if (vs.selectedAssignees) setSelectedAssignees(vs.selectedAssignees);
+          }
+          setFlowMeta({ name: tmpl.name, ownerId: tmpl.ownerId });
+          window.setTimeout(() => { flowLoadedRef.current = true; }, 3000);
+        }
+      } catch (err) {
+        logAppFirestoreError("loadTemplate/getTemplate", err, { templateId: editingTemplateId });
+        setRenderMessage(`Load failed: ${formatFirestoreError(err)}`);
+        flowLoadedRef.current = true;
+      }
+    })();
+  }, [editingTemplateId]);
+
+  /* ── Auto-save template (debounced) ────────────────── */
+  useEffect(() => {
+    if (!editingTemplateId || isEmbed) return;
+    if (!flowLoadedRef.current) return;
+    const handle = window.setTimeout(async () => {
+      try {
+        const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
+        await updateTemplate(editingTemplateId, {
+          code,
+          diagramType,
+          tabs: tabsSnapshot,
+          ganttViewState,
+        });
+      } catch (err) {
+        console.warn("Template auto-save failed:", formatFirestoreError(err));
+      }
+    }, 2000);
+    return () => window.clearTimeout(handle);
+  }, [code, editingTemplateId, diagramType, diagramTabs, activeTabId, ganttViewState]);
+
   /* ── Auto-save to Firestore (debounced) ────────────── */
   useEffect(() => {
-    if (!flowId || isEmbed) return;
+    if (!flowId || isEmbed || editingTemplateId) return;
     // Don't save until the flow has loaded (prevents overwriting with default)
     if (!flowLoadedRef.current) return;
     // Only save if user has edit permissions
@@ -11019,6 +11093,26 @@ function App() {
   const handleManualSave = async () => {
     if (manualSaving || cloudSaving) return;
 
+    if (editingTemplateId) {
+      setManualSaving(true);
+      try {
+        const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
+        await updateTemplate(editingTemplateId, {
+          code,
+          diagramType,
+          tabs: tabsSnapshot,
+          ganttViewState,
+        });
+        setRenderMessage("Template saved");
+      } catch (err) {
+        logAppFirestoreError("manualSave/updateTemplate", err, { templateId: editingTemplateId });
+        setRenderMessage(`Save failed: ${formatFirestoreError(err)}`);
+      } finally {
+        setManualSaving(false);
+      }
+      return;
+    }
+
     if (flowId) {
       if (!canEditCurrentFlow) {
         setRenderMessage("You do not have edit access for this flow");
@@ -11108,6 +11202,11 @@ function App() {
           <img src={logoSvg} alt="MF" className="brand-mark" />
           <div className="brand-text">
             <h1>Mermaid Flow</h1>
+            {editingTemplateId && (
+              <span className="flow-name-badge" style={{ background: "var(--accent)", color: "#fff", borderRadius: 4, padding: "1px 6px", fontSize: "0.7rem" }}>
+                Template
+              </span>
+            )}
             {flowHeaderName && (
               <span className="flow-name-badge" title={flowHeaderName}>
                 · {flowHeaderName}
@@ -11184,6 +11283,18 @@ function App() {
               <button className="dropdown-item" onClick={() => { setSaveDialogOpen(true); setExportMenuOpen(false); }}>
                 Save local copy
               </button>
+              {currentUser && (
+                <>
+                  <div className="dropdown-sep" />
+                  <button className="dropdown-item" onClick={() => {
+                    setSaveTemplateDialogOpen(true);
+                    setExportMenuOpen(false);
+                    getUserTemplates(currentUser.uid).then(setUserTemplates).catch(() => {});
+                  }}>
+                    Save as Template
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -11274,6 +11385,15 @@ function App() {
               <button className="dropdown-item" onClick={() => { setSaveDialogOpen(true); setMobileActionsOpen(false); }}>
                 Save local copy
               </button>
+              {currentUser && (
+                <button className="dropdown-item" onClick={() => {
+                  setSaveTemplateDialogOpen(true);
+                  setMobileActionsOpen(false);
+                  getUserTemplates(currentUser.uid).then(setUserTemplates).catch(() => {});
+                }}>
+                  Save as Template
+                </button>
+              )}
               {flowId && currentUser && canEditCurrentFlow && (
                 <button className="dropdown-item" onClick={() => { setShareDialogOpen(true); setMobileActionsOpen(false); }}>
                   Share
@@ -13530,6 +13650,44 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* ── Save as Template Dialog ──────────────────── */}
+      <SaveTemplateDialog
+        open={saveTemplateDialogOpen}
+        onClose={() => setSaveTemplateDialogOpen(false)}
+        existingTemplates={userTemplates}
+        defaultName={flowMeta?.name || "Untitled"}
+        diagramType={diagramType}
+        onSave={async ({ name, description, tags }) => {
+          const updatedTabs = diagramTabs.map((t) =>
+            t.id === activeTabId ? { ...t, code } : t
+          );
+          await createTemplate(currentUser.uid, {
+            name,
+            description,
+            category: diagramType,
+            code,
+            diagramType,
+            tabs: updatedTabs.map((t) => ({ id: t.id, label: t.label, code: t.code })),
+            tags,
+            ganttViewState: ganttViewState || null,
+          });
+          setRenderMessage("Template saved");
+        }}
+        onUpdate={async (templateId) => {
+          const updatedTabs = diagramTabs.map((t) =>
+            t.id === activeTabId ? { ...t, code } : t
+          );
+          await updateTemplate(templateId, {
+            code,
+            diagramType,
+            category: diagramType,
+            tabs: updatedTabs.map((t) => ({ id: t.id, label: t.label, code: t.code })),
+            ganttViewState: ganttViewState || null,
+          });
+          setRenderMessage("Template updated");
+        }}
+      />
 
       {/* ── Share Dialog ───────────────────────────────── */}
       {shareDialogOpen && flowId && (
