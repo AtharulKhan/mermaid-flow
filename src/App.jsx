@@ -5926,6 +5926,7 @@ function getIframeSrcDoc() {
 
         const MIN_COL_W = 200;
         const MAX_COL_W = 350;
+        const MSG_MAX_COL_W = 600;
         const MARGIN = 40;
         const rowHeight = 52;
         const actorHeight = 44;
@@ -5961,7 +5962,7 @@ function getIframeSrcDoc() {
           for (let i = lo; i <= hi; i++) avail += colWidths[i];
           if (textW > avail) {
             const perCol = Math.ceil((textW - avail) / (hi - lo + 1));
-            for (let i = lo; i <= hi; i++) colWidths[i] = Math.min(MAX_COL_W, colWidths[i] + perCol);
+            for (let i = lo; i <= hi; i++) colWidths[i] = Math.min(MSG_MAX_COL_W, colWidths[i] + perCol);
           }
         }
         document.body.removeChild(measurer);
@@ -6266,6 +6267,7 @@ function getIframeSrcDoc() {
           if (m.text) {
             const labelX = isSelf ? srcX + 40 : (srcX + tgtX) / 2;
             const labelY = isSelf ? y + 6 : y - 10;
+            const maxLabelW = isSelf ? colWidths[srcIdx] - 50 : Math.abs(tgtX - srcX) - 20;
             const labelBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
             labelBg.setAttribute("rx", "2");
             labelBg.setAttribute("fill", "var(--panel, #ffffff)");
@@ -6282,7 +6284,7 @@ function getIframeSrcDoc() {
             textEl.classList.add("mf-seq-msg-label");
             textEl.textContent = m.text;
             svg.appendChild(textEl);
-            labelPairs.push({ bg: labelBg, text: textEl });
+            labelPairs.push({ bg: labelBg, text: textEl, fullText: m.text, maxW: maxLabelW });
           }
         }
 
@@ -6559,6 +6561,19 @@ function getIframeSrcDoc() {
         // Deferred getBBox pass — size label backgrounds after DOM attachment
         for (const pair of labelPairs) {
           try {
+            // Truncate text if it exceeds available width
+            if (pair.maxW && pair.maxW > 0 && pair.fullText) {
+              let bb = pair.text.getBBox();
+              if (bb.width > pair.maxW) {
+                let txt = pair.fullText;
+                while (txt.length > 1) {
+                  txt = txt.slice(0, -1);
+                  pair.text.textContent = txt + "\u2026";
+                  bb = pair.text.getBBox();
+                  if (bb.width <= pair.maxW) break;
+                }
+              }
+            }
             const bb = pair.text.getBBox();
             const px = pair.padX || 6;
             const py = pair.padY || 2;
