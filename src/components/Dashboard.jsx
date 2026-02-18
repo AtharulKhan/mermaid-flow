@@ -936,12 +936,17 @@ function MermaidThumb({ thumbnailUrl, code, diagramType, flowId }) {
     let cancelled = false;
     loadMermaid().then(async (mermaid) => {
       if (cancelled) return;
+      const id = `mthumb-${flowId}-${thumbCounter++}`;
+      const offscreen = document.createElement("div");
+      offscreen.style.cssText = "position:absolute;left:-9999px;top:-9999px;";
+      document.body.appendChild(offscreen);
       try {
-        const id = `mthumb-${flowId}-${thumbCounter++}`;
-        const { svg } = await mermaid.render(id, code);
+        const { svg } = await mermaid.render(id, code, offscreen);
         if (!cancelled) setSvgHtml(svg);
       } catch {
         if (!cancelled) setFailed(true);
+      } finally {
+        offscreen.remove();
       }
     });
     return () => { cancelled = true; };
