@@ -43,13 +43,14 @@ import { parseStateDiagramEnhanced, xstateToMermaid, mermaidToXState, generateSt
 import { downloadSvgHQ, downloadPngHQ, downloadPdf, captureHtmlToPng, downloadPngFromDataUrl, downloadPdfFromDataUrl, svgToPngBlob } from "./exportUtils";
 import { uploadThumbnail } from "./firebase/storage";
 import { useAuth } from "./firebase/AuthContext";
-import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
+import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline, createTemplate, updateTemplate, getUserTemplates } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
 import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 import VersionHistoryPanel from "./components/VersionHistoryPanel";
 import ResourceLoadPanel from "./components/ResourceLoadPanel";
 import PromptDialog from "./components/PromptDialog";
+import SaveTemplateDialog from "./components/SaveTemplateDialog";
 import { getStoredTheme, getResolvedTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "./themeUtils";
 
 const CHANNEL = "mermaid-flow";
@@ -8439,6 +8440,8 @@ function App() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
+  const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
+  const [userTemplates, setUserTemplates] = useState([]);
   const [resourcePanelOpen, setResourcePanelOpen] = useState(false);
   const [notionSyncOpen, setNotionSyncOpen] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -11184,6 +11187,18 @@ function App() {
               <button className="dropdown-item" onClick={() => { setSaveDialogOpen(true); setExportMenuOpen(false); }}>
                 Save local copy
               </button>
+              {currentUser && (
+                <>
+                  <div className="dropdown-sep" />
+                  <button className="dropdown-item" onClick={() => {
+                    setSaveTemplateDialogOpen(true);
+                    setExportMenuOpen(false);
+                    getUserTemplates(currentUser.uid).then(setUserTemplates).catch(() => {});
+                  }}>
+                    Save as Template
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -11274,6 +11289,15 @@ function App() {
               <button className="dropdown-item" onClick={() => { setSaveDialogOpen(true); setMobileActionsOpen(false); }}>
                 Save local copy
               </button>
+              {currentUser && (
+                <button className="dropdown-item" onClick={() => {
+                  setSaveTemplateDialogOpen(true);
+                  setMobileActionsOpen(false);
+                  getUserTemplates(currentUser.uid).then(setUserTemplates).catch(() => {});
+                }}>
+                  Save as Template
+                </button>
+              )}
               {flowId && currentUser && canEditCurrentFlow && (
                 <button className="dropdown-item" onClick={() => { setShareDialogOpen(true); setMobileActionsOpen(false); }}>
                   Share
@@ -13530,6 +13554,44 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* ── Save as Template Dialog ──────────────────── */}
+      <SaveTemplateDialog
+        open={saveTemplateDialogOpen}
+        onClose={() => setSaveTemplateDialogOpen(false)}
+        existingTemplates={userTemplates}
+        defaultName={flowMeta?.name || "Untitled"}
+        diagramType={diagramType}
+        onSave={async ({ name, description, tags }) => {
+          const updatedTabs = diagramTabs.map((t) =>
+            t.id === activeTabId ? { ...t, code } : t
+          );
+          await createTemplate(currentUser.uid, {
+            name,
+            description,
+            category: diagramType,
+            code,
+            diagramType,
+            tabs: updatedTabs.map((t) => ({ id: t.id, label: t.label, code: t.code })),
+            tags,
+            ganttViewState: ganttViewState || null,
+          });
+          setRenderMessage("Template saved");
+        }}
+        onUpdate={async (templateId) => {
+          const updatedTabs = diagramTabs.map((t) =>
+            t.id === activeTabId ? { ...t, code } : t
+          );
+          await updateTemplate(templateId, {
+            code,
+            diagramType,
+            category: diagramType,
+            tabs: updatedTabs.map((t) => ({ id: t.id, label: t.label, code: t.code })),
+            ganttViewState: ganttViewState || null,
+          });
+          setRenderMessage("Template updated");
+        }}
+      />
 
       {/* ── Share Dialog ───────────────────────────────── */}
       {shareDialogOpen && flowId && (
