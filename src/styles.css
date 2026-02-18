@@ -2716,6 +2716,154 @@ input:focus {
   background: var(--accent-soft);
 }
 
+/* Searchable Select */
+.dash-ss-wrap {
+  position: relative;
+}
+
+.dash-ss-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  min-width: 200px;
+  z-index: 30;
+}
+
+.dash-ss-search {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dash-ss-search input {
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  padding: 0 8px;
+  outline: none;
+}
+
+.dash-ss-search input:focus {
+  border-color: var(--accent);
+}
+
+.dash-ss-options {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.dash-ss-option {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  color: var(--ink);
+  transition: background var(--transition);
+}
+
+.dash-ss-option:hover {
+  background: var(--panel-hover, var(--bg));
+}
+
+.dash-ss-option.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.dash-ss-empty {
+  padding: 8px 10px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+/* Move to Project modal list */
+.dash-move-list {
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.dash-move-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background var(--transition);
+  border-bottom: 1px solid var(--line);
+}
+
+.dash-move-item:last-child {
+  border-bottom: none;
+}
+
+.dash-move-item:hover {
+  background: var(--accent-soft);
+}
+
+.dash-move-item svg {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.dash-move-create {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+  align-items: center;
+}
+
+.dash-move-create .modal-input {
+  flex: 1;
+  margin: 0;
+}
+
+/* Card action button (move to project) */
+.dash-card-action {
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  opacity: 0;
+  transition: all var(--transition);
+}
+
+.dash-flow-card:hover .dash-card-action {
+  opacity: 1;
+}
+
+.dash-card-action:hover {
+  color: var(--accent);
+}
+
 .dash-section-header {
   display: flex;
   align-items: center;

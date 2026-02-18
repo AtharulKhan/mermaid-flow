@@ -56,6 +56,9 @@ export default function Dashboard() {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { type, id, message }
   const [filterProject, setFilterProject] = useState(""); // projectId or ""
   const [filterType, setFilterType] = useState(""); // diagramType or ""
+  const [moveFlow, setMoveFlow] = useState(null); // { flowId, step: "project"|"subproject", projectId, subs }
+  const [moveSearch, setMoveSearch] = useState("");
+  const [moveNewName, setMoveNewName] = useState("");
 
   const logDashboardError = (operation, err, context = {}) => {
     console.error(`[Dashboard] ${operation} failed`, {
@@ -312,6 +315,49 @@ export default function Dashboard() {
     );
   };
 
+  const handleMoveToProject = async (flowId, projectId, subprojectId = null) => {
+    try {
+      await updateFlow(flowId, { projectId, subprojectId });
+      const updater = (f) =>
+        f.id === flowId ? { ...f, projectId, subprojectId } : f;
+      setAllFlows((prev) => prev.map(updater));
+      setProjectFlows((prev) => prev.map(updater));
+      setMoveFlow(null);
+      setMoveSearch("");
+      setMoveNewName("");
+    } catch (err) {
+      logDashboardError("handleMoveToProject", err, { flowId, projectId });
+    }
+  };
+
+  const handleMovePickProject = async (projectId) => {
+    if (!projectId) {
+      // "No Project" — unassign
+      handleMoveToProject(moveFlow.flowId, null, null);
+      return;
+    }
+    // Load subprojects for this project
+    try {
+      const subs = await getSubprojects(projectId);
+      if (subs.length > 0) {
+        setMoveFlow((prev) => ({ ...prev, step: "subproject", projectId, subs }));
+        setMoveSearch("");
+      } else {
+        handleMoveToProject(moveFlow.flowId, projectId, null);
+      }
+    } catch {
+      handleMoveToProject(moveFlow.flowId, projectId, null);
+    }
+  };
+
+  const handleMoveCreateProject = async () => {
+    if (!moveNewName.trim()) return;
+    const proj = await createProject(user.uid, moveNewName.trim());
+    setProjects((prev) => [proj, ...prev]);
+    setMoveNewName("");
+    handleMoveToProject(moveFlow.flowId, proj.id, null);
+  };
+
   const formatDate = (ts) => {
     if (!ts) return "";
     const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -441,38 +487,28 @@ export default function Dashboard() {
               </div>
               {/* Filters */}
               <div className="dash-filters">
-                <select
-                  className={`dash-filter-select${filterProject ? " active" : ""}`}
+                <SearchableSelect
                   value={filterProject}
-                  onChange={(e) => setFilterProject(e.target.value)}
-                >
-                  <option value="">All Projects</option>
-                  <option value="__none__">No Project</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <select
-                  className={`dash-filter-select${filterType ? " active" : ""}`}
+                  onChange={setFilterProject}
+                  placeholder="All Projects"
+                  options={[
+                    { value: "__none__", label: "No Project" },
+                    ...projects.map((p) => ({ value: p.id, label: p.name })),
+                  ]}
+                />
+                <SearchableSelect
                   value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                >
-                  <option value="">All Types</option>
-                  {allDiagramTypes.map((t) => (
-                    <option key={t} value={t}>{formatDiagramType(t)}</option>
-                  ))}
-                </select>
+                  onChange={setFilterType}
+                  placeholder="All Types"
+                  options={allDiagramTypes.map((t) => ({ value: t, label: formatDiagramType(t) }))}
+                />
                 {allTags.length > 0 && (
-                  <select
-                    className={`dash-filter-select${filterTag ? " active" : ""}`}
+                  <SearchableSelect
                     value={filterTag}
-                    onChange={(e) => setFilterTag(e.target.value)}
-                  >
-                    <option value="">All Tags</option>
-                    {allTags.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
+                    onChange={setFilterTag}
+                    placeholder="All Tags"
+                    options={allTags.map((t) => ({ value: t, label: t }))}
+                  />
                 )}
                 {(filterProject || filterType || filterTag) && (
                   <button
@@ -489,6 +525,7 @@ export default function Dashboard() {
                 navigate={navigate}
                 formatDate={formatDate}
                 onDelete={handleDeleteFlow}
+                onMove={(id) => { setMoveFlow({ flowId: id, step: "project" }); setMoveSearch(""); setMoveNewName(""); }}
                 onAddTag={(id) => { setShowTagInput(id); setNewTag(""); }}
                 onRemoveTag={handleRemoveTag}
                 showTagInput={showTagInput}
@@ -616,6 +653,7 @@ export default function Dashboard() {
                 navigate={navigate}
                 formatDate={formatDate}
                 onDelete={handleDeleteFlow}
+                onMove={(id) => { setMoveFlow({ flowId: id, step: "project" }); setMoveSearch(""); setMoveNewName(""); }}
                 onAddTag={(id) => { setShowTagInput(id); setNewTag(""); }}
                 onRemoveTag={handleRemoveTag}
                 showTagInput={showTagInput}
@@ -705,6 +743,87 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ── Move to Project Dialog ────────────────────────── */}
+      {moveFlow && (
+        <div className="modal-backdrop" onClick={() => { setMoveFlow(null); setMoveSearch(""); setMoveNewName(""); }}>
+          <div className="modal-card" style={{ maxWidth: 400, width: "90%" }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 12px" }}>
+              {moveFlow.step === "subproject" ? "Select Subproject" : "Move to Project"}
+            </h3>
+            <input
+              className="modal-input"
+              placeholder={moveFlow.step === "subproject" ? "Search subprojects..." : "Search projects..."}
+              value={moveSearch}
+              onChange={(e) => setMoveSearch(e.target.value)}
+              autoFocus
+            />
+            <div className="dash-move-list">
+              {moveFlow.step === "project" ? (
+                <>
+                  <button
+                    className="dash-move-item"
+                    onClick={() => handleMovePickProject(null)}
+                  >
+                    <span style={{ color: "var(--ink-muted)" }}>No Project</span>
+                  </button>
+                  {projects
+                    .filter((p) => !moveSearch || p.name.toLowerCase().includes(moveSearch.toLowerCase()))
+                    .map((p) => (
+                      <button
+                        key={p.id}
+                        className="dash-move-item"
+                        onClick={() => handleMovePickProject(p.id)}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                        {p.name}
+                      </button>
+                    ))
+                  }
+                  <div className="dash-move-create">
+                    <input
+                      className="modal-input"
+                      placeholder="New project name..."
+                      value={moveNewName}
+                      onChange={(e) => setMoveNewName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleMoveCreateProject()}
+                    />
+                    {moveNewName.trim() && (
+                      <button className="soft-btn primary small" onClick={handleMoveCreateProject}>
+                        Create
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="dash-move-item"
+                    onClick={() => handleMoveToProject(moveFlow.flowId, moveFlow.projectId, null)}
+                  >
+                    <span style={{ color: "var(--ink-muted)" }}>No Subproject</span>
+                  </button>
+                  {(moveFlow.subs || [])
+                    .filter((s) => !moveSearch || s.name.toLowerCase().includes(moveSearch.toLowerCase()))
+                    .map((s) => (
+                      <button
+                        key={s.id}
+                        className="dash-move-item"
+                        onClick={() => handleMoveToProject(moveFlow.flowId, moveFlow.projectId, s.id)}
+                      >
+                        {s.name}
+                      </button>
+                    ))
+                  }
+                </>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="soft-btn" onClick={() => { setMoveFlow(null); setMoveSearch(""); setMoveNewName(""); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Delete Confirmation Dialog ──────────────────── */}
       <ConfirmDialog
         open={!!deleteConfirm}
@@ -780,6 +899,7 @@ function FlowGrid({
   navigate,
   formatDate,
   onDelete,
+  onMove,
   onAddTag,
   onRemoveTag,
   showTagInput,
@@ -828,13 +948,22 @@ function FlowGrid({
                 {getDiagramIcon(f.diagramType)}
                 {formatDiagramType(f.diagramType)}
               </span>
-              <button
-                className="dash-card-delete"
-                onClick={(e) => { e.stopPropagation(); onDelete(f.id); }}
-                aria-label="Delete flow"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-              </button>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button
+                  className="dash-card-action"
+                  onClick={(e) => { e.stopPropagation(); onMove(f.id); }}
+                  aria-label="Move to project"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <button
+                  className="dash-card-delete"
+                  onClick={(e) => { e.stopPropagation(); onDelete(f.id); }}
+                  aria-label="Delete flow"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                </button>
+              </div>
             </div>
             <h4 className="dash-flow-card-title">{f.name || "Untitled"}</h4>
             {project && (
@@ -889,6 +1018,82 @@ function FlowGrid({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ── Searchable Select Component ──────────────────────── */
+function SearchableSelect({ value, onChange, placeholder, options }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setQuery("");
+    requestAnimationFrame(() => inputRef.current?.focus());
+    const handleClick = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    const handleKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
+
+  const filtered = query
+    ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  const currentLabel = value
+    ? options.find((o) => o.value === value)?.label || value
+    : placeholder;
+
+  return (
+    <div className="dash-ss-wrap" ref={wrapRef}>
+      <button
+        className={`dash-filter-select${value ? " active" : ""}`}
+        onClick={() => setOpen(!open)}
+        type="button"
+      >
+        {currentLabel}
+      </button>
+      {open && (
+        <div className="dash-ss-dropdown">
+          <div className="dash-ss-search">
+            <input
+              ref={inputRef}
+              placeholder="Search..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="dash-ss-options">
+            <button
+              className={`dash-ss-option${!value ? " active" : ""}`}
+              onClick={() => { onChange(""); setOpen(false); }}
+            >
+              {placeholder}
+            </button>
+            {filtered.map((o) => (
+              <button
+                key={o.value}
+                className={`dash-ss-option${value === o.value ? " active" : ""}`}
+                onClick={() => { onChange(o.value); setOpen(false); }}
+              >
+                {o.label}
+              </button>
+            ))}
+            {filtered.length === 0 && query && (
+              <div className="dash-ss-empty">No matches</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
