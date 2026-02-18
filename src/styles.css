@@ -2940,6 +2940,7 @@ input:focus {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 8px;
+  padding-bottom: 6px;
 }
 
 .dash-flow-tag {
