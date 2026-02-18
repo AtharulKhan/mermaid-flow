@@ -227,3 +227,29 @@ function triggerDownload(blob, filename) {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Download PNG directly from a data URL (for custom-rendered diagrams captured via html2canvas).
+ */
+export function downloadPngFromDataUrl(dataUrl, filename = "diagram.png") {
+  const [meta, base64] = dataUrl.split(",");
+  const mime = meta.match(/:(.*?);/)[1];
+  const binary = atob(base64);
+  const arr = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  const blob = new Blob([arr], { type: mime });
+  triggerDownload(blob, filename);
+}
+
+/**
+ * Download PDF from a PNG data URL (for custom-rendered diagrams captured via html2canvas).
+ */
+export function downloadPdfFromDataUrl(dataUrl, width, height, filename = "diagram.pdf") {
+  const scale = 3;
+  const pdfW = width / scale;
+  const pdfH = height / scale;
+  const orientation = pdfW > pdfH ? "landscape" : "portrait";
+  const pdf = new jsPDF({ orientation, unit: "px", format: [pdfW, pdfH] });
+  pdf.addImage(dataUrl, "PNG", 0, 0, pdfW, pdfH);
+  pdf.save(filename);
+}
