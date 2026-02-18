@@ -9,6 +9,10 @@ import {
   resolveDependencies,
   addWorkingDays,
   shiftIsoDate,
+  shiftDateTime,
+  isSubDayFormat,
+  dateToMs,
+  msToDateStr,
   updateGanttTask,
   toggleGanttStatus,
   clearGanttStatus,
@@ -2460,8 +2464,7 @@ function getIframeSrcDoc() {
       };
 
       /* ── Custom HTML Gantt Renderer ─────────────────────── */
-      const buildTimelineHeaderRow = (type, minDateMs, totalDays, pxPerDay) => {
-        const dayMs = 86400000;
+      const buildTimelineHeaderRow = (type, minDateMs, totalUnits, pxPerUnit, unitMs) => {
         const row = document.createElement("div");
         row.className = "mf-gh-row " + type;
 
@@ -2469,27 +2472,31 @@ function getIframeSrcDoc() {
         let currentKey = "";
         let groupStart = 0;
 
-        for (let i = 0; i < totalDays; i++) {
-          const ms = minDateMs + i * dayMs;
+        for (let i = 0; i < totalUnits; i++) {
+          const ms = minDateMs + i * unitMs;
           const d = new Date(ms);
           let key;
           if (type === "month") {
             key = d.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+          } else if (type === "day") {
+            key = d.toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+          } else if (type === "hour") {
+            key = String(d.getUTCHours()).padStart(2, "0") + ":00";
           } else {
             key = weekLabelUtc(ms);
           }
           if (key !== currentKey) {
-            if (currentKey) groups.push({ label: currentKey, days: i - groupStart });
+            if (currentKey) groups.push({ label: currentKey, units: i - groupStart });
             currentKey = key;
             groupStart = i;
           }
         }
-        if (currentKey) groups.push({ label: currentKey, days: totalDays - groupStart });
+        if (currentKey) groups.push({ label: currentKey, units: totalUnits - groupStart });
 
         for (const g of groups) {
           const cell = document.createElement("div");
           cell.className = "mf-gh-cell";
-          cell.style.width = Math.round(g.days * pxPerDay) + "px";
+          cell.style.width = Math.round(g.units * pxPerUnit) + "px";
           cell.textContent = g.label;
           row.appendChild(cell);
         }
@@ -2498,9 +2505,14 @@ function getIframeSrcDoc() {
 
       const fmtShort = (iso) => {
         if (!iso) return "";
-        const parts = iso.split("-");
+        const spaceParts = iso.split(" ");
+        const datePart = spaceParts[0];
+        const timePart = spaceParts[1] || "";
+        const parts = datePart.split("-");
         const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-        return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
+        let result = months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
+        if (timePart) result += " " + timePart;
+        return result;
       };
 
       const buildOpenableTaskUrl = (raw) => {
@@ -2535,11 +2547,16 @@ function getIframeSrcDoc() {
         directives = directives || {};
         const excludes = directives.excludes || [];
         const weekend = directives.weekend || "";
+        const subDay = /HH|mm|ss/.test(directives.dateFormat || "");
 
         const dayMs = 86400000;
+        const hourMs = 3600000;
         const isoToMs = (iso) => {
-          if (!iso || !/^\\d{4}-\\d{2}-\\d{2}$/.test(iso)) return null;
-          const val = Date.parse(iso + "T00:00:00Z");
+          if (!iso) return null;
+          const trimmed = iso.trim();
+          const dtMatch = trimmed.match(/^(\\d{4}-\\d{2}-\\d{2})(?:\\s+(\\d{2}:\\d{2}(?::\\d{2})?))?$/);
+          if (!dtMatch) return null;
+          const val = Date.parse(dtMatch[1] + "T" + (dtMatch[2] || "00:00:00") + "Z");
           return Number.isFinite(val) ? val : null;
         };
 
@@ -2588,10 +2605,27 @@ function getIframeSrcDoc() {
         // Enrich tasks with resolved end dates
         const enriched = regularTasks.map((t) => {
           let resolvedEnd = t.endDate || t.computedEnd || "";
-          if (!resolvedEnd && t.startDate && t.durationDays) {
-            const d = new Date(t.startDate + "T00:00:00Z");
-            d.setUTCDate(d.getUTCDate() + t.durationDays);
-            resolvedEnd = d.toISOString().slice(0, 10);
+          if (!resolvedEnd && t.startDate && (t.durationMs || t.durationDays)) {
+            if (t.durationMs && subDay) {
+              const sMs = isoToMs(t.startDate);
+              if (sMs !== null) {
+                const eMs = sMs + t.durationMs;
+                const d = new Date(eMs);
+                const yyyy = d.getUTCFullYear();
+                const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+                const dd = String(d.getUTCDate()).padStart(2, "0");
+                const hh = String(d.getUTCHours()).padStart(2, "0");
+                const mm = String(d.getUTCMinutes()).padStart(2, "0");
+                resolvedEnd = yyyy + "-" + mo + "-" + dd + " " + hh + ":" + mm;
+              }
+            } else if (t.durationDays) {
+              const sMs = isoToMs(t.startDate);
+              if (sMs !== null) {
+                const eMs = sMs + t.durationDays * dayMs;
+                const d = new Date(eMs);
+                resolvedEnd = d.toISOString().slice(0, 10);
+              }
+            }
           }
           return { ...t, resolvedEnd };
         });
@@ -2626,14 +2660,16 @@ function getIframeSrcDoc() {
 
         const minDateMs = Math.min(...allStartMs);
         const maxDateMs = Math.max(...allEndMs);
-        // Pad 2 days on each side so bars don't start at the very edge
-        const paddedMin = minDateMs - 2 * dayMs;
-        const paddedMax = maxDateMs + 2 * dayMs;
-        const totalDays = Math.max(7, Math.ceil((paddedMax - paddedMin) / dayMs) + 1);
+        // Unit-based scaling: hours for sub-day, days for normal
+        const unitMs = subDay ? hourMs : dayMs;
+        const padUnits = subDay ? 1 : 2;
+        const paddedMin = minDateMs - padUnits * unitMs;
+        const paddedMax = maxDateMs + padUnits * unitMs;
+        const totalUnits = Math.max(subDay ? 4 : 7, Math.ceil((paddedMax - paddedMin) / unitMs) + 1);
 
-        const basePxPerDay = scale === "month" ? 12 : 22;
-        const pxPerDay = Math.max(2, Math.round(basePxPerDay * (ganttZoom || 1)));
-        const timelineWidth = totalDays * pxPerDay;
+        const basePxPerUnit = subDay ? 40 : (scale === "month" ? 12 : 22);
+        const pxPerUnit = Math.max(2, Math.round(basePxPerUnit * (ganttZoom || 1)));
+        const timelineWidth = totalUnits * pxPerUnit;
         const roleColWidth = 200;
         const rowHeight = 40;
         const barHeight = 28;
@@ -2708,9 +2744,14 @@ function getIframeSrcDoc() {
         // === Header: Timeline ===
         const timelineHeader = document.createElement("div");
         timelineHeader.className = "mf-gantt-timeline-header";
-        timelineHeader.appendChild(buildTimelineHeaderRow("month", paddedMin, totalDays, pxPerDay));
-        if (scale === "week") {
-          timelineHeader.appendChild(buildTimelineHeaderRow("week", paddedMin, totalDays, pxPerDay));
+        if (subDay) {
+          timelineHeader.appendChild(buildTimelineHeaderRow("day", paddedMin, totalUnits, pxPerUnit, unitMs));
+          timelineHeader.appendChild(buildTimelineHeaderRow("hour", paddedMin, totalUnits, pxPerUnit, unitMs));
+        } else {
+          timelineHeader.appendChild(buildTimelineHeaderRow("month", paddedMin, totalUnits, pxPerUnit, unitMs));
+          if (scale === "week") {
+            timelineHeader.appendChild(buildTimelineHeaderRow("week", paddedMin, totalUnits, pxPerUnit, unitMs));
+          }
         }
         container.appendChild(timelineHeader);
 
@@ -2770,7 +2811,7 @@ function getIframeSrcDoc() {
             rowAssignments = sectionTasks.map((task) => {
               const sMs = isoToMs(task.startDate) || 0;
               const eMs = isoToMs(task.resolvedEnd) || isoToMs(task.startDate) || sMs;
-              const effectiveEnd = Math.max(eMs, sMs + dayMs);
+              const effectiveEnd = Math.max(eMs, sMs + unitMs);
               for (let lane = 0; lane < lanes.length; lane++) {
                 const conflicts = lanes[lane].some(
                   (iv) => sMs < iv.endMs && effectiveEnd > iv.startMs
@@ -2837,18 +2878,18 @@ function getIframeSrcDoc() {
           const track = document.createElement("div");
           track.className = "mf-gantt-track";
           track.style.height = trackHeight + "px";
-          track.style.setProperty("--px-per-day", pxPerDay + "px");
+          track.style.setProperty("--px-per-day", pxPerUnit + "px");
           if (showGrid) track.classList.add("mf-show-grid-lines");
 
-          // Excluded day shading
-          if (excludes.length) {
-            for (let dayIdx = 0; dayIdx < totalDays; dayIdx++) {
-              const dMs = paddedMin + dayIdx * dayMs;
+          // Excluded day shading (only for day-level charts)
+          if (excludes.length && !subDay) {
+            for (let uIdx = 0; uIdx < totalUnits; uIdx++) {
+              const dMs = paddedMin + uIdx * unitMs;
               if (isExcludedDay(dMs)) {
                 const stripe = document.createElement("div");
                 stripe.className = "mf-gantt-excluded-day";
-                stripe.style.left = (dayIdx * pxPerDay) + "px";
-                stripe.style.width = pxPerDay + "px";
+                stripe.style.left = (uIdx * pxPerUnit) + "px";
+                stripe.style.width = pxPerUnit + "px";
                 track.appendChild(stripe);
               }
             }
@@ -2859,8 +2900,8 @@ function getIframeSrcDoc() {
             const endMs = isoToMs(task.resolvedEnd) || startMs;
             if (!Number.isFinite(startMs)) return;
 
-            const left = Math.round(((startMs - paddedMin) / dayMs) * pxPerDay);
-            const width = Math.max(Math.round(pxPerDay), Math.round(((Math.max(endMs, startMs + dayMs) - startMs) / dayMs) * pxPerDay));
+            const left = Math.round(((startMs - paddedMin) / unitMs) * pxPerUnit);
+            const width = Math.max(Math.round(pxPerUnit), Math.round(((Math.max(endMs, startMs + unitMs) - startMs) / unitMs) * pxPerUnit));
             const top = rowAssignments[idx] * rowHeight + barGap;
 
             // Baseline ghost bar
@@ -2869,8 +2910,8 @@ function getIframeSrcDoc() {
               const blStartMs = isoToMs(baselineTask.startDate);
               const blEndMs = isoToMs(baselineTask.computedEnd) || blStartMs;
               if (Number.isFinite(blStartMs)) {
-                const blLeft = Math.round(((blStartMs - paddedMin) / dayMs) * pxPerDay);
-                const blWidth = Math.max(Math.round(pxPerDay), Math.round(((Math.max(blEndMs, blStartMs + dayMs) - blStartMs) / dayMs) * pxPerDay));
+                const blLeft = Math.round(((blStartMs - paddedMin) / unitMs) * pxPerUnit);
+                const blWidth = Math.max(Math.round(pxPerUnit), Math.round(((Math.max(blEndMs, blStartMs + unitMs) - blStartMs) / unitMs) * pxPerUnit));
                 const ghost = document.createElement("div");
                 ghost.className = "mf-gantt-baseline-bar";
                 ghost.style.left = blLeft + "px";
@@ -2886,11 +2927,11 @@ function getIframeSrcDoc() {
             if (baselineTask && task.startDate && baselineTask.startDate) {
               const baselineStartMs = isoToMs(baselineTask.startDate);
               if (Number.isFinite(startMs) && Number.isFinite(baselineStartMs)) {
-                const deltaDays = Math.round((startMs - baselineStartMs) / dayMs);
+                const deltaDays = Math.round((startMs - baselineStartMs) / (subDay ? hourMs : dayMs));
                 if (deltaDays !== 0) {
                   const badge = document.createElement("div");
                   badge.className = "mf-gantt-delta-badge" + (deltaDays > 0 ? " mf-delta-late" : " mf-delta-early");
-                  badge.textContent = (deltaDays > 0 ? "+" : "") + deltaDays + "d";
+                  badge.textContent = (deltaDays > 0 ? "+" : "") + deltaDays + (subDay ? "h" : "d");
                   badge.style.top = (top - 12) + "px";
                   badge.style.left = left + "px";
                   track.appendChild(badge);
@@ -3217,7 +3258,7 @@ function getIframeSrcDoc() {
 
             // Slack indicator bar
             if (typeof task.slackDays === "number" && task.slackDays > 0 && !task.isMilestone && showCriticalPath) {
-              var slackPx = Math.round(task.slackDays * pxPerDay);
+              var slackPx = Math.round(task.slackDays * (subDay ? pxPerUnit * 24 : pxPerUnit));
               var slackBar = document.createElement("div");
               slackBar.className = "mf-gantt-slack";
               slackBar.style.left = (barLeft + barPixelWidth) + "px";
@@ -3500,7 +3541,7 @@ function getIframeSrcDoc() {
         for (const vt of vertTasks) {
           const vtMs = isoToMs(vt.startDate || vt.computedEnd);
           if (vtMs === null || vtMs < paddedMin || vtMs > paddedMax) continue;
-          const vtLeft = roleColWidth + Math.round(((vtMs - paddedMin) / dayMs) * pxPerDay);
+          const vtLeft = roleColWidth + Math.round(((vtMs - paddedMin) / unitMs) * pxPerUnit);
           const vtLine = document.createElement("div");
           vtLine.className = "mf-gantt-vert-marker";
           vtLine.style.left = vtLeft + "px";
@@ -3603,7 +3644,7 @@ function getIframeSrcDoc() {
         if (todayMarkerVal !== "off") {
           const todayMs = isoToMs(today);
           if (todayMs !== null && todayMs >= paddedMin && todayMs <= paddedMax) {
-            const todayLeft = roleColWidth + Math.round(((todayMs - paddedMin) / dayMs) * pxPerDay);
+            const todayLeft = roleColWidth + Math.round(((todayMs - paddedMin) / unitMs) * pxPerUnit);
             const todayLine = document.createElement("div");
             todayLine.className = "mf-gantt-today-line";
             todayLine.style.left = todayLeft + "px";
@@ -3630,7 +3671,7 @@ function getIframeSrcDoc() {
             container.appendChild(todayHeaderLabel);
             container.appendChild(todayLine);
 
-            const autoStartKey = scale + "|" + paddedMin + "|" + paddedMax + "|" + totalDays;
+            const autoStartKey = scale + "|" + paddedMin + "|" + paddedMax + "|" + totalUnits;
             if (autoStartKey !== lastGanttAutoStartKey) {
               lastGanttAutoStartKey = autoStartKey;
               requestAnimationFrame(() => {
@@ -7744,8 +7785,11 @@ function getIframeSrcDoc() {
         const dayMs = 24 * 60 * 60 * 1000;
 
         const isoToMs = (iso) => {
-          if (!iso || !/^\\d{4}-\\d{2}-\\d{2}$/.test(iso)) return null;
-          const value = Date.parse(iso + "T00:00:00Z");
+          if (!iso) return null;
+          const trimmed = iso.trim();
+          const dtMatch = trimmed.match(/^(\\d{4}-\\d{2}-\\d{2})(?:\\s+(\\d{2}:\\d{2}(?::\\d{2})?))?$/);
+          if (!dtMatch) return null;
+          const value = Date.parse(dtMatch[1] + "T" + (dtMatch[2] || "00:00:00") + "Z");
           return Number.isFinite(value) ? value : null;
         };
 
@@ -8512,10 +8556,12 @@ function App() {
   const flowHeaderName = String(flowMeta?.name || "").trim();
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
-  const ganttTasks = useMemo(() => parseGanttTasks(code), [code]);
+  const ganttDateFormat = useMemo(() => parseGanttDirectives(code).dateFormat, [code]);
+  const ganttSubDay = isSubDayFormat(ganttDateFormat);
+  const ganttTasks = useMemo(() => parseGanttTasks(code, ganttDateFormat), [code, ganttDateFormat]);
   const criticalPathLabels = useMemo(() => {
     if (toolsetKey !== "gantt") return [];
-    const resolved = resolveDependencies(ganttTasks.map((t) => ({ ...t })));
+    const resolved = resolveDependencies(ganttTasks.map((t) => ({ ...t })), ganttSubDay);
     const { criticalSet } = computeCriticalPath(resolved);
     // Order critical tasks by dependency chain
     const cpTasks = resolved.filter((t) => criticalSet.has(t.idToken || t.label || ""));
@@ -8545,18 +8591,24 @@ function App() {
   const resolvedGanttTasks = useMemo(() => {
     if (toolsetKey !== "gantt") return [];
     const directives = parseGanttDirectives(code);
-    const tasks = resolveDependencies(parseGanttTasks(code));
+    const subDay = isSubDayFormat(directives.dateFormat);
+    const tasks = resolveDependencies(parseGanttTasks(code, directives.dateFormat), subDay);
     return tasks.map((t) => {
       const effectiveStart = t.startDate || t.resolvedStartDate || "";
       let computedEnd = t.endDate || t.resolvedEndDate || "";
-      if (!computedEnd && effectiveStart && t.durationDays) {
-        computedEnd = directives.excludes.length
-          ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
-          : (() => {
-              const d = new Date(effectiveStart + "T00:00:00Z");
-              d.setUTCDate(d.getUTCDate() + t.durationDays);
-              return d.toISOString().slice(0, 10);
-            })();
+      if (!computedEnd && effectiveStart && (t.durationMs || t.durationDays)) {
+        if (t.durationMs && subDay) {
+          const sMs = dateToMs(effectiveStart);
+          computedEnd = sMs !== null ? msToDateStr(sMs + t.durationMs, true) : "";
+        } else if (t.durationDays) {
+          computedEnd = directives.excludes.length
+            ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
+            : (() => {
+                const sMs = dateToMs(effectiveStart);
+                if (sMs === null) return "";
+                return msToDateStr(sMs + t.durationDays * 86400000, subDay);
+              })();
+        }
       }
       return {
         label: t.label,
@@ -8570,18 +8622,24 @@ function App() {
   const baselineTasks = useMemo(() => {
     if (!baselineCode) return null;
     const dirs = parseGanttDirectives(baselineCode);
-    const raw = resolveDependencies(parseGanttTasks(baselineCode));
+    const blSubDay = isSubDayFormat(dirs.dateFormat);
+    const raw = resolveDependencies(parseGanttTasks(baselineCode, dirs.dateFormat), blSubDay);
     return raw.map((t) => {
       const effectiveStart = t.startDate || t.resolvedStartDate || "";
       let computedEnd = t.endDate || t.resolvedEndDate || "";
-      if (!computedEnd && effectiveStart && t.durationDays) {
-        computedEnd = dirs.excludes.length
-          ? addWorkingDays(effectiveStart, t.durationDays, dirs.excludes, dirs.weekend)
-          : (() => {
-              const d = new Date(effectiveStart + "T00:00:00Z");
-              d.setUTCDate(d.getUTCDate() + t.durationDays);
-              return d.toISOString().slice(0, 10);
-            })();
+      if (!computedEnd && effectiveStart && (t.durationMs || t.durationDays)) {
+        if (t.durationMs && blSubDay) {
+          const sMs = dateToMs(effectiveStart);
+          computedEnd = sMs !== null ? msToDateStr(sMs + t.durationMs, true) : "";
+        } else if (t.durationDays) {
+          computedEnd = dirs.excludes.length
+            ? addWorkingDays(effectiveStart, t.durationDays, dirs.excludes, dirs.weekend)
+            : (() => {
+                const sMs = dateToMs(effectiveStart);
+                if (sMs === null) return "";
+                return msToDateStr(sMs + t.durationDays * 86400000, blSubDay);
+              })();
+        }
       }
       return {
         label: t.label,
@@ -8942,7 +9000,8 @@ function App() {
 
     // Pre-compute gantt data so the iframe can render custom HTML gantt
     const directives = parseGanttDirectives(code);
-    const tasks = resolveDependencies(parseGanttTasks(code));
+    const subDay = isSubDayFormat(directives.dateFormat);
+    const tasks = resolveDependencies(parseGanttTasks(code, directives.dateFormat), subDay);
     const { criticalSet, connectedSet, slackByTask } = computeCriticalPath(tasks);
     const cycles = detectCycles(tasks);
     const allConflicts = detectConflicts(tasks);
@@ -8954,14 +9013,19 @@ function App() {
     const enrichedTasks = tasks.map((t) => {
       const effectiveStart = t.startDate || t.resolvedStartDate || "";
       let computedEnd = t.endDate || t.resolvedEndDate || "";
-      if (!computedEnd && effectiveStart && t.durationDays) {
-        computedEnd = directives.excludes.length
-          ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
-          : (() => {
-              const d = new Date(effectiveStart + "T00:00:00Z");
-              d.setUTCDate(d.getUTCDate() + t.durationDays);
-              return d.toISOString().slice(0, 10);
-            })();
+      if (!computedEnd && effectiveStart && (t.durationMs || t.durationDays)) {
+        if (t.durationMs && subDay) {
+          const sMs = dateToMs(effectiveStart);
+          computedEnd = sMs !== null ? msToDateStr(sMs + t.durationMs, true) : "";
+        } else if (t.durationDays) {
+          computedEnd = directives.excludes.length
+            ? addWorkingDays(effectiveStart, t.durationDays, directives.excludes, directives.weekend)
+            : (() => {
+                const sMs = dateToMs(effectiveStart);
+                if (sMs === null) return "";
+                return msToDateStr(sMs + t.durationDays * 86400000, subDay);
+              })();
+        }
       }
       const taskKey = t.idToken || t.label || "";
       return {
@@ -8969,6 +9033,7 @@ function App() {
         startDate: effectiveStart,
         endDate: t.endDate,
         durationDays: t.durationDays,
+        durationMs: t.durationMs,
         computedEnd,
         assignee: t.assignee || "",
         statusTokens: t.statusTokens || [],
@@ -8991,6 +9056,7 @@ function App() {
     const ganttData = {
       tasks: visibleTasks,
       directives,
+      subDay,
       scale: ganttScale,
       showDates,
       showGrid,
@@ -9735,13 +9801,13 @@ function App() {
           setRenderMessage("Drag captured, but no matching Gantt task found");
           return;
         }
-        if (!task.durationDays || !payload.barWidth) {
+        if (!(task.durationDays || task.durationMs) || !payload.barWidth) {
           setRenderMessage("Cannot resize: task has no duration");
           return;
         }
 
         // Resolve dependencies to get computed start date for after-based tasks
-        const resolved = resolveDependencies(ganttTasks.map((t) => ({ ...t })));
+        const resolved = resolveDependencies(ganttTasks.map((t) => ({ ...t })), ganttSubDay);
         const resolvedTask = findTaskByLabel(resolved, payload.label || "");
         const effectiveStart = task.startDate || (resolvedTask && resolvedTask.resolvedStartDate) || "";
         if (!effectiveStart) {
@@ -9749,30 +9815,64 @@ function App() {
           return;
         }
 
-        const pixelsPerDay = payload.barWidth / task.durationDays;
-        const dayShift = Math.round((payload.deltaX || 0) / pixelsPerDay);
-        if (!dayShift) return;
+        if (ganttSubDay && task.durationMs) {
+          // Sub-day drag: compute in milliseconds, snap to 5-minute increments
+          const pxPerMs = payload.barWidth / task.durationMs;
+          const rawDeltaMs = (payload.deltaX || 0) / pxPerMs;
+          const snapMs = 5 * 60000; // 5 minutes
+          const deltaMs = Math.round(rawDeltaMs / snapMs) * snapMs;
+          if (!deltaMs) return;
 
-        const dragMode = payload.dragMode || "shift";
-        if (dragMode === "resize-end") {
-          // Change duration — works for both explicit-date and after-based tasks
-          const newDays = Math.max(1, task.durationDays + dayShift);
-          setCode((prev) => updateGanttTask(prev, task, { duration: newDays + "d" }));
-          setRenderMessage(`Updated "${task.label}" duration to ${newDays}d`);
-        } else if (dragMode === "resize-start") {
-          const nextStart = shiftIsoDate(effectiveStart, dayShift);
-          setCode((prev) => updateGanttTask(prev, task, { startDate: nextStart }));
-          if (!task.hasExplicitDate) setRenderMessage(`Moved "${task.label}" start to ${nextStart} (replaced dependency)`);
-          else setRenderMessage(`Updated "${task.label}" start to ${nextStart}`);
-        } else {
-          const nextStart = shiftIsoDate(effectiveStart, dayShift);
-          const updates = { startDate: nextStart };
-          if (task.endDate) {
-            updates.endDate = shiftIsoDate(task.endDate, dayShift);
+          const dragMode = payload.dragMode || "shift";
+          if (dragMode === "resize-end") {
+            const newMs = Math.max(snapMs, task.durationMs + deltaMs);
+            const newMins = Math.round(newMs / 60000);
+            const h = Math.floor(newMins / 60);
+            const m = newMins % 60;
+            const durStr = h > 0 && m > 0 ? h + "h" + m + "m" : h > 0 ? h + "h" : m + "m";
+            setCode((prev) => updateGanttTask(prev, task, { duration: durStr }));
+            setRenderMessage(`Updated "${task.label}" duration to ${durStr}`);
+          } else if (dragMode === "resize-start") {
+            const nextStart = shiftDateTime(effectiveStart, deltaMs);
+            setCode((prev) => updateGanttTask(prev, task, { startDate: nextStart }));
+            if (!task.hasExplicitDate) setRenderMessage(`Moved "${task.label}" start to ${nextStart} (replaced dependency)`);
+            else setRenderMessage(`Updated "${task.label}" start to ${nextStart}`);
+          } else {
+            const nextStart = shiftDateTime(effectiveStart, deltaMs);
+            const updates = { startDate: nextStart };
+            if (task.endDate) {
+              updates.endDate = shiftDateTime(task.endDate, deltaMs);
+            }
+            setCode((prev) => updateGanttTask(prev, task, updates));
+            if (!task.hasExplicitDate) setRenderMessage(`Moved "${task.label}" to ${nextStart} (replaced dependency)`);
+            else setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
           }
-          setCode((prev) => updateGanttTask(prev, task, updates));
-          if (!task.hasExplicitDate) setRenderMessage(`Moved "${task.label}" to ${nextStart} (replaced dependency)`);
-          else setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
+        } else {
+          // Day-level drag
+          const pixelsPerDay = payload.barWidth / task.durationDays;
+          const dayShift = Math.round((payload.deltaX || 0) / pixelsPerDay);
+          if (!dayShift) return;
+
+          const dragMode = payload.dragMode || "shift";
+          if (dragMode === "resize-end") {
+            const newDays = Math.max(1, task.durationDays + dayShift);
+            setCode((prev) => updateGanttTask(prev, task, { duration: newDays + "d" }));
+            setRenderMessage(`Updated "${task.label}" duration to ${newDays}d`);
+          } else if (dragMode === "resize-start") {
+            const nextStart = shiftIsoDate(effectiveStart, dayShift);
+            setCode((prev) => updateGanttTask(prev, task, { startDate: nextStart }));
+            if (!task.hasExplicitDate) setRenderMessage(`Moved "${task.label}" start to ${nextStart} (replaced dependency)`);
+            else setRenderMessage(`Updated "${task.label}" start to ${nextStart}`);
+          } else {
+            const nextStart = shiftIsoDate(effectiveStart, dayShift);
+            const updates = { startDate: nextStart };
+            if (task.endDate) {
+              updates.endDate = shiftIsoDate(task.endDate, dayShift);
+            }
+            setCode((prev) => updateGanttTask(prev, task, updates));
+            if (!task.hasExplicitDate) setRenderMessage(`Moved "${task.label}" to ${nextStart} (replaced dependency)`);
+            else setRenderMessage(`Updated "${task.label}" to ${nextStart}`);
+          }
         }
         setHighlightLine(task.lineIndex + 1);
       }

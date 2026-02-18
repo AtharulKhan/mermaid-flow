@@ -1,6 +1,37 @@
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const DURATION = /^(\d+)([dwmy])$/i;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$/;
+const DURATION_DAY = /^(\d+)([dwmy])$/i;
+const DURATION_SUB = /^(?:\d+h)(?:\d+m(?:in)?)?$|^(?:\d+m(?:in)?)$|^(\d+)([dwy])$/i;
 const STATUS_TOKENS = new Set(["done", "active", "crit"]);
+
+/* ── Sub-day detection ───────────────────────────────── */
+
+export function isSubDayFormat(dateFormat) {
+  return /HH|mm|ss/.test(dateFormat || "");
+}
+
+/* ── Centralized date↔ms utilities ───────────────────── */
+
+export function dateToMs(str) {
+  if (!str) return null;
+  const trimmed = str.trim();
+  const dtMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}(?::\d{2})?))?$/);
+  if (!dtMatch) return null;
+  const val = Date.parse(dtMatch[1] + "T" + (dtMatch[2] || "00:00:00") + "Z");
+  return Number.isFinite(val) ? val : null;
+}
+
+export function msToDateStr(ms, includeTime = false) {
+  const d = new Date(ms);
+  const yyyy = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const datePart = `${yyyy}-${mo}-${dd}`;
+  if (!includeTime) return datePart;
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  if (hh === "00" && mm === "00") return datePart;
+  return datePart + " " + hh + ":" + mm;
+}
 
 function isDirectiveLine(trimmed) {
   return (
@@ -19,16 +50,47 @@ function isDirectiveLine(trimmed) {
   );
 }
 
-function durationToDays(token) {
-  const match = token.match(DURATION);
-  if (!match) return null;
-  const value = Number(match[1]);
-  const unit = match[2].toLowerCase();
-  if (unit === "d") return value;
-  if (unit === "w") return value * 7;
-  if (unit === "m") return value * 30;
-  if (unit === "y") return value * 365;
-  return null;
+const DAY_MS = 86400000;
+const HOUR_MS = 3600000;
+const MIN_MS = 60000;
+
+function isDuration(token, subDay) {
+  if (!token) return false;
+  if (DURATION_DAY.test(token)) return true;
+  if (subDay && DURATION_SUB.test(token)) return true;
+  // Also accept compound like "1h30m" in sub-day mode
+  if (subDay && /^\d+h\d+m(?:in)?$/i.test(token)) return true;
+  // Accept standalone h durations even in day mode (converts to fractional days)
+  if (/^\d+h$/i.test(token)) return true;
+  if (/^\d+min$/i.test(token)) return true;
+  return false;
+}
+
+function durationToMs(token, subDay = false) {
+  if (!token) return null;
+  const clean = token.trim().toLowerCase();
+  let totalMs = 0;
+  let matched = false;
+  const re = /(\d+)(h|min|m|d|w|y)/gi;
+  let m;
+  while ((m = re.exec(clean)) !== null) {
+    const value = Number(m[1]);
+    const unit = m[2].toLowerCase();
+    matched = true;
+    if (unit === "h") totalMs += value * HOUR_MS;
+    else if (unit === "min") totalMs += value * MIN_MS;
+    else if (unit === "m" && subDay) totalMs += value * MIN_MS;
+    else if (unit === "m" && !subDay) totalMs += value * 30 * DAY_MS;
+    else if (unit === "d") totalMs += value * DAY_MS;
+    else if (unit === "w") totalMs += value * 7 * DAY_MS;
+    else if (unit === "y") totalMs += value * 365 * DAY_MS;
+  }
+  return matched ? totalMs : null;
+}
+
+function durationToDays(token, subDay = false) {
+  const ms = durationToMs(token, subDay);
+  return ms !== null ? ms / DAY_MS : null;
 }
 
 function findMetadataEndIndex(lines, taskLineIndex) {
@@ -48,6 +110,13 @@ export function shiftIsoDate(isoDate, dayDelta) {
   const mm = String(shifted.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(shifted.getUTCDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+export function shiftDateTime(dateStr, deltaMs) {
+  const ms = dateToMs(dateStr);
+  if (ms === null) return dateStr;
+  const includeTime = dateStr.includes(" ");
+  return msToDateStr(ms + deltaMs, includeTime);
 }
 
 /* ── Directive parser ─────────────────────────────────── */
@@ -94,7 +163,8 @@ const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "frid
 
 export function isExcludedDate(isoDate, excludes, weekend) {
   if (!excludes || !excludes.length) return false;
-  const d = new Date(isoDate + "T00:00:00Z");
+  const datePart = isoDate.includes(" ") ? isoDate.split(" ")[0] : isoDate;
+  const d = new Date(datePart + "T00:00:00Z");
   const dayOfWeek = d.getUTCDay(); // 0=Sun, 6=Sat
 
   for (const excl of excludes) {
@@ -106,7 +176,7 @@ export function isExcludedDate(isoDate, excludes, weekend) {
       }
     } else if (DAY_NAMES.indexOf(excl) === dayOfWeek) {
       return true;
-    } else if (excl === isoDate.toLowerCase()) {
+    } else if (excl === datePart.toLowerCase()) {
       return true;
     }
   }
@@ -130,7 +200,8 @@ export function addWorkingDays(startIso, workingDays, excludes, weekend) {
 
 /* ── Task parser ──────────────────────────────────────── */
 
-export function parseGanttTasks(code) {
+export function parseGanttTasks(code, dateFormat = "YYYY-MM-DD") {
+  const subDay = isSubDayFormat(dateFormat);
   const lines = code.split("\n");
   const tasks = [];
   let currentSection = "";
@@ -203,7 +274,7 @@ export function parseGanttTasks(code) {
     const startDate = dateIndex >= 0 ? tokens[dateIndex] : "";
     const idIndex = dateIndex > 0 ? dateIndex - 1 : -1;
     const idToken =
-      idIndex >= 0 && !ISO_DATE.test(tokens[idIndex]) && !DURATION.test(tokens[idIndex])
+      idIndex >= 0 && !ISO_DATE.test(tokens[idIndex]) && !isDuration(tokens[idIndex], subDay)
         ? tokens[idIndex]
         : "";
 
@@ -212,7 +283,7 @@ export function parseGanttTasks(code) {
       idToken ||
       (afterTokenIndex > 0 &&
         !ISO_DATE.test(tokens[afterTokenIndex - 1]) &&
-        !DURATION.test(tokens[afterTokenIndex - 1]) &&
+        !isDuration(tokens[afterTokenIndex - 1], subDay) &&
         !STATUS_TOKENS.has(tokens[afterTokenIndex - 1].toLowerCase()) &&
         tokens[afterTokenIndex - 1].toLowerCase() !== "milestone" &&
         tokens[afterTokenIndex - 1].toLowerCase() !== "vert"
@@ -229,14 +300,14 @@ export function parseGanttTasks(code) {
     // Duration token: look after start date, or after "after" token, or as last token
     const nextAfterDate = dateIndex >= 0 ? tokens[dateIndex + 1] || "" : "";
     let durationIndex =
-      dateIndex >= 0 && endDateIndex !== dateIndex + 1 && DURATION.test(nextAfterDate)
+      dateIndex >= 0 && endDateIndex !== dateIndex + 1 && isDuration(nextAfterDate, subDay)
         ? dateIndex + 1
         : -1;
 
     // If no date-based duration found, check token after "after" reference
     if (durationIndex < 0 && afterTokenIndex >= 0) {
       const afterNext = tokens[afterTokenIndex + 1] || "";
-      if (DURATION.test(afterNext)) {
+      if (isDuration(afterNext, subDay)) {
         durationIndex = afterTokenIndex + 1;
       }
     }
@@ -244,19 +315,23 @@ export function parseGanttTasks(code) {
     // Fallback: last token is a duration (for tasks with only a duration)
     if (durationIndex < 0 && dateIndex < 0 && afterTokenIndex < 0) {
       const lastToken = tokens[tokens.length - 1] || "";
-      if (DURATION.test(lastToken)) {
+      if (isDuration(lastToken, subDay)) {
         durationIndex = tokens.length - 1;
       }
     }
 
     const durationToken = durationIndex >= 0 ? tokens[durationIndex] : "";
-    let durationDays = durationToken ? durationToDays(durationToken) : null;
+    let durationDays = durationToken ? durationToDays(durationToken, subDay) : null;
+    let durationMs = durationToken ? durationToMs(durationToken, subDay) : null;
 
-    // Compute durationDays from date difference when using end date syntax
+    // Compute durationDays/Ms from date difference when using end date syntax
     if (!durationDays && startDate && endDate) {
-      const s = new Date(startDate + "T00:00:00Z");
-      const e = new Date(endDate + "T00:00:00Z");
-      durationDays = Math.round((e - s) / (1000 * 60 * 60 * 24));
+      const s = dateToMs(startDate);
+      const e = dateToMs(endDate);
+      if (s !== null && e !== null) {
+        durationMs = e - s;
+        durationDays = durationMs / DAY_MS;
+      }
     }
 
     // Check subsequent lines for metadata comments (assignee, notes, link, progress)
@@ -293,6 +368,7 @@ export function parseGanttTasks(code) {
       startDate,
       durationToken,
       durationDays,
+      durationMs,
       endDateIndex,
       endDate,
       section: currentSection,
@@ -315,7 +391,7 @@ export function parseGanttTasks(code) {
 
 /* ── Dependency resolver ──────────────────────────────── */
 
-export function resolveDependencies(tasks) {
+export function resolveDependencies(tasks, subDay = false) {
   // Build lookup maps
   const byId = new Map();
   const byLabel = new Map();
@@ -329,25 +405,28 @@ export function resolveDependencies(tasks) {
   }
 
   const getEndMs = (task) => {
-    if (task.resolvedEndDate) return Date.parse(task.resolvedEndDate + "T00:00:00Z");
-    if (task.endDate) return Date.parse(task.endDate + "T00:00:00Z");
+    if (task.resolvedEndDate) return dateToMs(task.resolvedEndDate);
+    if (task.endDate) return dateToMs(task.endDate);
     const start = task.resolvedStartDate || task.startDate;
-    if (start && task.durationDays) {
-      const d = new Date(start + "T00:00:00Z");
-      d.setUTCDate(d.getUTCDate() + task.durationDays);
-      return d.getTime();
+    if (start && task.durationMs) {
+      const sMs = dateToMs(start);
+      return sMs !== null ? sMs + task.durationMs : null;
     }
-    if (start) return Date.parse(start + "T00:00:00Z");
+    if (start && task.durationDays) {
+      const sMs = dateToMs(start);
+      return sMs !== null ? sMs + task.durationDays * DAY_MS : null;
+    }
+    if (start) return dateToMs(start);
     return null;
   };
 
   const getStartMs = (task) => {
-    if (task.resolvedStartDate) return Date.parse(task.resolvedStartDate + "T00:00:00Z");
-    if (task.startDate) return Date.parse(task.startDate + "T00:00:00Z");
+    if (task.resolvedStartDate) return dateToMs(task.resolvedStartDate);
+    if (task.startDate) return dateToMs(task.startDate);
     return null;
   };
 
-  const msToIso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const toIso = (ms) => msToDateStr(ms, subDay);
 
   // Iterative resolution for "after" dependencies (handles chains)
   let changed = true;
@@ -372,13 +451,13 @@ export function resolveDependencies(tasks) {
       }
 
       if (latestEndMs !== null) {
-        const resolvedStart = msToIso(latestEndMs);
+        const resolvedStart = toIso(latestEndMs);
         if (task.resolvedStartDate !== resolvedStart) {
           task.resolvedStartDate = resolvedStart;
-          if (task.durationDays) {
-            const d = new Date(latestEndMs);
-            d.setUTCDate(d.getUTCDate() + task.durationDays);
-            task.resolvedEndDate = msToIso(d.getTime());
+          if (task.durationMs) {
+            task.resolvedEndDate = toIso(latestEndMs + task.durationMs);
+          } else if (task.durationDays) {
+            task.resolvedEndDate = toIso(latestEndMs + task.durationDays * DAY_MS);
           }
           changed = true;
         }
@@ -395,10 +474,12 @@ export function resolveDependencies(tasks) {
     const depStartMs = getStartMs(dep);
     if (depStartMs === null) continue;
 
-    task.resolvedEndDate = msToIso(depStartMs);
+    task.resolvedEndDate = toIso(depStartMs);
     const taskStartMs = getStartMs(task);
     if (taskStartMs !== null) {
-      task.durationDays = Math.round((depStartMs - taskStartMs) / (1000 * 60 * 60 * 24));
+      const diffMs = depStartMs - taskStartMs;
+      task.durationMs = diffMs;
+      task.durationDays = diffMs / DAY_MS;
     }
   }
 
@@ -407,11 +488,11 @@ export function resolveDependencies(tasks) {
   for (const task of tasks) {
     const hasStart = task.startDate || task.resolvedStartDate;
     if (!hasStart && task.afterDeps.length === 0 && prevEndMs !== null) {
-      task.resolvedStartDate = msToIso(prevEndMs);
-      if (task.durationDays) {
-        const d = new Date(prevEndMs);
-        d.setUTCDate(d.getUTCDate() + task.durationDays);
-        task.resolvedEndDate = msToIso(d.getTime());
+      task.resolvedStartDate = toIso(prevEndMs);
+      if (task.durationMs) {
+        task.resolvedEndDate = toIso(prevEndMs + task.durationMs);
+      } else if (task.durationDays) {
+        task.resolvedEndDate = toIso(prevEndMs + task.durationDays * DAY_MS);
       }
     }
     // Update prevEndMs for sequential chaining
@@ -430,12 +511,13 @@ export function computeCriticalPath(tasks) {
 
   const getStartMs = (t) => {
     const iso = t.resolvedStartDate || t.startDate;
-    return iso ? Date.parse(iso + "T00:00:00Z") : null;
+    return iso ? dateToMs(iso) : null;
   };
   const getEndMs = (t) => {
     const iso = t.resolvedEndDate || t.endDate;
-    if (iso) return Date.parse(iso + "T00:00:00Z");
+    if (iso) return dateToMs(iso);
     const s = getStartMs(t);
+    if (s !== null && t.durationMs) return s + t.durationMs;
     if (s !== null && t.durationDays) return s + t.durationDays * dayMs;
     return s;
   };
@@ -443,6 +525,7 @@ export function computeCriticalPath(tasks) {
     const s = getStartMs(t);
     const e = getEndMs(t);
     if (s !== null && e !== null) return Math.max(0, e - s);
+    if (t.durationMs) return t.durationMs;
     return (t.durationDays || 0) * dayMs;
   };
 
@@ -725,11 +808,7 @@ export function detectConflicts(tasks) {
     }
   }
 
-  const toMs = (iso) => {
-    if (!iso) return null;
-    const v = Date.parse(iso + "T00:00:00Z");
-    return Number.isFinite(v) ? v : null;
-  };
+  const toMs = (iso) => dateToMs(iso);
   const DAY = 86400000;
   const conflicts = [];
 
@@ -819,7 +898,7 @@ export function updateGanttDependency(code, task, depIds) {
     const afterToken = "after " + depIds.join(" ");
     // Insert before duration token if one exists, otherwise append
     // Recalculate duration index after possible splice
-    const durIdx = nextTokens.findIndex((t) => /^\d+[dwmy]$/i.test(t.trim()));
+    const durIdx = nextTokens.findIndex((t) => isDuration(t.trim(), true));
     if (durIdx >= 0) {
       nextTokens.splice(durIdx, 0, afterToken);
     } else {
@@ -1181,11 +1260,7 @@ export function computeRiskFlags(tasks) {
     }
   }
 
-  const isoToMs = (iso) => {
-    if (!iso) return null;
-    const val = Date.parse(iso + "T00:00:00Z");
-    return Number.isFinite(val) ? val : null;
-  };
+  const isoToMs = (iso) => dateToMs(iso);
 
   const getEntry = (label) => {
     if (!result[label]) result[label] = { flags: [], reasons: [] };
@@ -1313,7 +1388,8 @@ export function computeRiskFlags(tasks) {
 /* ── Week key helper ─────────────────────────────────── */
 
 export function getWeekKey(isoDate) {
-  const d = new Date(isoDate + "T00:00:00Z");
+  const datePart = isoDate.includes(" ") ? isoDate.split(" ")[0] : isoDate;
+  const d = new Date(datePart + "T00:00:00Z");
   const dayOfWeek = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayOfWeek);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
@@ -1338,8 +1414,10 @@ export function computeResourceLoad(tasks) {
       if (!assigneeWeeks.has(name)) assigneeWeeks.set(name, new Map());
       const weeks = assigneeWeeks.get(name);
 
-      let current = task.startDate;
-      const endMs = Date.parse(task.computedEnd + "T00:00:00Z");
+      const datePart = task.startDate.includes(" ") ? task.startDate.split(" ")[0] : task.startDate;
+      let current = datePart;
+      const endDatePart = task.computedEnd.includes(" ") ? task.computedEnd.split(" ")[0] : task.computedEnd;
+      const endMs = Date.parse(endDatePart + "T00:00:00Z");
 
       while (Date.parse(current + "T00:00:00Z") < endMs) {
         const wk = getWeekKey(current);
