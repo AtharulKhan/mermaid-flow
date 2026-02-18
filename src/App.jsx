@@ -6343,7 +6343,13 @@ function getIframeSrcDoc() {
 
         container.appendChild(svg);
 
-        // === Actor header boxes (HTML, positioned absolutely above lifelines) ===
+        // === Sticky header row for top actor boxes ===
+        const stickyHeader = document.createElement("div");
+        stickyHeader.className = "mf-seq-sticky-header";
+        stickyHeader.style.cssText = "position:sticky;top:0;height:" + actorHeight + "px;width:" + totalWidth + "px;z-index:5;background:var(--panel,#ffffff);margin-bottom:" + actorPad + "px;";
+        container.appendChild(stickyHeader);
+
+        // === Actor header boxes (inside sticky header) ===
         const actorPositions = [];
         for (let pi = 0; pi < participants.length; pi++) {
           const p = participants[pi];
@@ -6448,7 +6454,7 @@ function getIframeSrcDoc() {
             isDragging = false;
           });
 
-          container.appendChild(topBox);
+          stickyHeader.appendChild(topBox);
 
           // Bottom actor box (mirror)
           const bottomBox = document.createElement("div");
