@@ -193,6 +193,18 @@ export default function Dashboard() {
     );
   }, [projects, searchQuery]);
 
+  // Group flows by projectId for project card previews
+  const flowsByProject = useMemo(() => {
+    const map = {};
+    allFlows.forEach((f) => {
+      if (f.projectId) {
+        if (!map[f.projectId]) map[f.projectId] = [];
+        map[f.projectId].push(f);
+      }
+    });
+    return map;
+  }, [allFlows]);
+
   // Handlers
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
@@ -556,7 +568,9 @@ export default function Dashboard() {
               ) : (
               <div className="dash-project-grid">
                 {filteredProjects.map((p) => {
-                  const flowCount = allFlows.filter((f) => f.projectId === p.id).length;
+                  const pFlows = flowsByProject[p.id] || [];
+                  const previewFlows = pFlows.slice(0, 3);
+                  const overflowCount = pFlows.length - 3;
                   return (
                     <div
                       key={p.id}
@@ -566,7 +580,10 @@ export default function Dashboard() {
                       <div className="dash-project-card-accent" />
                       <div className="dash-project-card-body">
                         <div className="dash-project-card-top">
-                          <h3>{p.name}</h3>
+                          <div className="dash-project-card-header">
+                            <svg className="dash-project-card-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            <h3>{p.name}</h3>
+                          </div>
                           <button
                             className="dash-card-delete"
                             onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }}
@@ -575,10 +592,36 @@ export default function Dashboard() {
                           </button>
                         </div>
                         {p.description && <p className="dash-project-desc">{p.description}</p>}
+
+                        {/* Flow previews */}
+                        {previewFlows.length > 0 ? (
+                          <div className="dash-project-flows">
+                            {previewFlows.map((f) => (
+                              <button
+                                key={f.id}
+                                className="dash-project-flow-item"
+                                onClick={(e) => { e.stopPropagation(); navigate(`/editor/${f.id}`); }}
+                              >
+                                <span className="dash-project-flow-icon">{getDiagramIcon(f.diagramType)}</span>
+                                <span className="dash-project-flow-name">{f.name || "Untitled"}</span>
+                                <svg className="dash-project-flow-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                              </button>
+                            ))}
+                            {overflowCount > 0 && (
+                              <span className="dash-project-flow-more">+{overflowCount} more</span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="dash-project-flows-empty">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4"/><path d="M6.5 10v4"/><path d="M14 17.5h-4"/><path d="M17.5 14v-4"/></svg>
+                            No flows yet
+                          </div>
+                        )}
+
                         <div className="dash-project-card-footer">
                           <span className="dash-project-stat">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-                            {flowCount} {flowCount === 1 ? "flow" : "flows"}
+                            {pFlows.length} {pFlows.length === 1 ? "flow" : "flows"}
                           </span>
                           <span className="dash-card-meta">{formatDate(p.createdAt)}</span>
                         </div>
