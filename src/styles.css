@@ -2886,8 +2886,12 @@ input:focus {
   margin: -16px -18px 12px -18px;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
   overflow: hidden;
-  background: var(--bg);
+  background: #f8f9fb;
   border-bottom: 1px solid var(--line);
+}
+
+[data-theme="dark"] .dash-flow-thumb {
+  background: #1a1d25;
 }
 
 .dash-flow-thumb img {
