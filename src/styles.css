@@ -2469,9 +2469,13 @@ input:focus {
 
 .dashboard {
   min-height: 100vh;
-  background: var(--bg);
+  background: #ffffff;
   display: flex;
   flex-direction: column;
+}
+
+[data-theme="dark"] .dashboard {
+  background: var(--bg);
 }
 
 .dash-header {
@@ -2886,7 +2890,7 @@ input:focus {
   margin: -16px -18px 12px -18px;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
   overflow: hidden;
-  background: #ffffff;
+  background: #eef2ff;
   border-bottom: 1px solid var(--line);
 }
 
