@@ -884,6 +884,49 @@ export function updateGanttTask(code, task, updates) {
   return lines.join("\n");
 }
 
+export function autoAdjustGanttDates(code, targetDate, dateFormat = "YYYY-MM-DD") {
+  const subDay = isSubDayFormat(dateFormat);
+  const tasks = parseGanttTasks(code, dateFormat);
+  const explicit = tasks.filter((t) => t.hasExplicitDate);
+  if (explicit.length === 0) return code;
+
+  const targetMs = dateToMs(targetDate);
+  if (targetMs === null) return code;
+
+  let earliestMs = Infinity;
+  for (const t of explicit) {
+    const ms = dateToMs(t.startDate);
+    if (ms !== null && ms < earliestMs) earliestMs = ms;
+  }
+  if (!Number.isFinite(earliestMs)) return code;
+
+  if (subDay) {
+    const deltaMs = targetMs - earliestMs;
+    if (deltaMs === 0) return code;
+    const sorted = explicit.slice().sort((a, b) => b.lineIndex - a.lineIndex);
+    for (const task of sorted) {
+      const updates = { startDate: shiftDateTime(task.startDate, deltaMs) };
+      if (task.endDate && task.endDateIndex >= 0) {
+        updates.endDate = shiftDateTime(task.endDate, deltaMs);
+      }
+      code = updateGanttTask(code, task, updates);
+    }
+  } else {
+    const deltaDays = Math.round((targetMs - earliestMs) / DAY_MS);
+    if (deltaDays === 0) return code;
+    const sorted = explicit.slice().sort((a, b) => b.lineIndex - a.lineIndex);
+    for (const task of sorted) {
+      const updates = { startDate: shiftIsoDate(task.startDate, deltaDays) };
+      if (task.endDate && task.endDateIndex >= 0) {
+        updates.endDate = shiftIsoDate(task.endDate, deltaDays);
+      }
+      code = updateGanttTask(code, task, updates);
+    }
+  }
+
+  return code;
+}
+
 export function updateGanttDependency(code, task, depIds) {
   if (!task) return code;
   const lines = code.split("\n");

@@ -35,6 +35,7 @@ import {
   detectCycles,
   detectConflicts,
   updateGanttDependency,
+  autoAdjustGanttDates,
 } from "./ganttUtils";
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, addStateDiagramState, addStateDiagramTransition, updateErEntity, updateErRelationship, parseSequenceDiagram, parseSequenceBlocks, parseSequenceExtras, updateSequenceMessageByIndex, removeSequenceMessageByIndex, reorderSequenceParticipants, addSequenceMessage } from "./diagramUtils";
@@ -10556,6 +10557,19 @@ function App() {
       commitSnapshotNow();
       setCode((prev) => renameSubgraph(prev, meta.subgraphId, trimmed));
       setRenderMessage(`Renamed subgraph to "${trimmed}"`);
+    } else if (type === "gantt-auto-adjust-dates") {
+      if (!trimmed) return;
+      const directives = parseGanttDirectives(code);
+      const tasks = parseGanttTasks(code, directives.dateFormat);
+      const explicit = tasks.filter((t) => t.hasExplicitDate);
+      if (explicit.length === 0) {
+        setRenderMessage("No explicit dates to adjust");
+        return;
+      }
+      commitSnapshotNow();
+      const updated = autoAdjustGanttDates(code, trimmed, directives.dateFormat);
+      setCode(updated);
+      setRenderMessage(`Shifted all dates to start from ${trimmed}`);
     }
   }, [promptDialog, code]);
 
@@ -11644,6 +11658,20 @@ function App() {
                   >
                     {executiveView ? "All tasks" : "Executive"}
                   </button>
+                  <button
+                    className="date-toggle-btn"
+                    onClick={() => {
+                      const today = new Date().toISOString().slice(0, 10);
+                      setPromptDialog({
+                        type: "gantt-auto-adjust-dates",
+                        title: "Shift all dates to start from:",
+                        defaultValue: today,
+                        inputType: "date",
+                      });
+                    }}
+                  >
+                    Auto-adjust
+                  </button>
                   {flowId && (
                     <>
                       <span style={{ display: "inline-block", width: 1, height: 16, background: "var(--line)", margin: "0 4px", verticalAlign: "middle" }} />
@@ -12385,6 +12413,7 @@ function App() {
         defaultValue={promptDialog?.defaultValue || ""}
         confirmLabel={promptDialog?.type === "xstate-import" ? "Import" : "OK"}
         multiline={promptDialog?.multiline || false}
+        inputType={promptDialog?.inputType || "text"}
         onConfirm={handlePromptConfirm}
         onCancel={() => setPromptDialog(null)}
       />

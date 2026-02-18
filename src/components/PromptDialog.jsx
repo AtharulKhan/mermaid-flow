@@ -9,6 +9,7 @@ export default function PromptDialog({
   onConfirm,
   onCancel,
   multiline = false,
+  inputType = "text",
 }) {
   const [value, setValue] = useState(defaultValue);
   const inputRef = useRef(null);
@@ -60,6 +61,7 @@ export default function PromptDialog({
           <input
             ref={inputRef}
             className="modal-input"
+            type={inputType}
             placeholder={placeholder}
             value={value}
             onChange={(e) => setValue(e.target.value)}
