@@ -8477,6 +8477,8 @@ function App() {
   });
   const [renamingTabId, setRenamingTabId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
+  const [renamingFlowName, setRenamingFlowName] = useState(false);
+  const [flowRenameValue, setFlowRenameValue] = useState("");
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -11036,6 +11038,30 @@ function App() {
     setRenameValue("");
   };
 
+  const startRenameFlowName = () => {
+    if (!flowId && !editingTemplateId) return;
+    if (flowId && !canEditCurrentFlow) return;
+    setFlowRenameValue(flowHeaderName || "Untitled");
+    setRenamingFlowName(true);
+  };
+
+  const commitRenameFlowName = async () => {
+    const trimmed = flowRenameValue.trim();
+    setRenamingFlowName(false);
+    if (!trimmed || trimmed === flowHeaderName) return;
+    try {
+      if (flowId) {
+        await updateFlow(flowId, { name: trimmed });
+        setFlowMeta((prev) => ({ ...prev, name: trimmed }));
+      } else if (editingTemplateId) {
+        await updateTemplate(editingTemplateId, { name: trimmed });
+        editingTemplateRef.current = { ...editingTemplateRef.current, name: trimmed };
+      }
+    } catch (err) {
+      setRenderMessage(`Rename failed: ${formatFirestoreError(err)}`);
+    }
+  };
+
   const dragTabRef = useRef(null);
   const handleTabDragStart = (e, tabId) => {
     dragTabRef.current = tabId;
@@ -11207,13 +11233,32 @@ function App() {
                 Template
               </span>
             )}
-            {flowHeaderName && (
-              <span className="flow-name-badge" title={flowHeaderName}>
-                · {flowHeaderName}
-              </span>
-            )}
           </div>
         </button>
+        {(flowId || editingTemplateId) && (
+          renamingFlowName ? (
+            <input
+              className="flow-name-rename-input"
+              value={flowRenameValue}
+              onChange={(e) => setFlowRenameValue(e.target.value)}
+              onBlur={commitRenameFlowName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRenameFlowName();
+                if (e.key === "Escape") setRenamingFlowName(false);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+            />
+          ) : (
+            <span
+              className={"flow-name-badge" + ((flowId && canEditCurrentFlow) || editingTemplateId ? " flow-name-badge--editable" : "")}
+              title={(flowId && canEditCurrentFlow) || editingTemplateId ? "Double-click to rename" : (flowHeaderName || "Untitled")}
+              onDoubleClick={(e) => { e.stopPropagation(); startRenameFlowName(); }}
+            >
+              · {flowHeaderName || "Untitled"}
+            </span>
+          )
+        )}
 
         <div className="toolbar">
           <button

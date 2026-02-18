@@ -53,6 +53,8 @@ export default function Dashboard() {
   const [showNewFlow, setShowNewFlow] = useState(false);
   const [showTagInput, setShowTagInput] = useState(null); // flowId
   const [newTag, setNewTag] = useState("");
+  const [renamingFlowId, setRenamingFlowId] = useState(null);
+  const [flowRenameValue, setFlowRenameValue] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [newSubprojectName, setNewSubprojectName] = useState("");
@@ -68,6 +70,8 @@ export default function Dashboard() {
   // Templates
   const [templates, setTemplates] = useState([]);
   const [templateCategory, setTemplateCategory] = useState("");
+  const [renamingTemplateId, setRenamingTemplateId] = useState(null);
+  const [templateRenameValue, setTemplateRenameValue] = useState("");
   const [saveTemplateFlow, setSaveTemplateFlow] = useState(null); // flow object when saving from card
   const [useTemplateDialog, setUseTemplateDialog] = useState(null); // template object when using
   const [useTemplateName, setUseTemplateName] = useState("");
@@ -349,6 +353,36 @@ export default function Dashboard() {
         f.id === flowId ? { ...f, tags: (f.tags || []).filter((t) => t !== tag) } : f
       )
     );
+  };
+
+  const handleRenameFlowCommit = async (fId) => {
+    const trimmed = flowRenameValue.trim();
+    setRenamingFlowId(null);
+    setFlowRenameValue("");
+    if (!trimmed) return;
+    try {
+      await updateFlow(fId, { name: trimmed });
+      const updater = (f) => f.id === fId ? { ...f, name: trimmed } : f;
+      setAllFlows((prev) => prev.map(updater));
+      setProjectFlows((prev) => prev.map(updater));
+    } catch (err) {
+      logDashboardError("handleRenameFlow", err, { flowId: fId });
+    }
+  };
+
+  const handleRenameTemplateCommit = async (tId) => {
+    const trimmed = templateRenameValue.trim();
+    setRenamingTemplateId(null);
+    setTemplateRenameValue("");
+    if (!trimmed) return;
+    try {
+      await updateTemplate(tId, { name: trimmed });
+      setTemplates((prev) =>
+        prev.map((t) => t.id === tId ? { ...t, name: trimmed } : t)
+      );
+    } catch (err) {
+      logDashboardError("handleRenameTemplate", err, { templateId: tId });
+    }
   };
 
   const handleMoveToProject = async (flowId, projectId, subprojectId = null) => {
@@ -648,6 +682,12 @@ export default function Dashboard() {
                 setNewTag={setNewTag}
                 onSubmitTag={handleAddTag}
                 onCancelTag={() => setShowTagInput(null)}
+                renamingFlowId={renamingFlowId}
+                flowRenameValue={flowRenameValue}
+                setFlowRenameValue={setFlowRenameValue}
+                onRenameStart={(id, name) => { setRenamingFlowId(id); setFlowRenameValue(name); }}
+                onRenameCommit={handleRenameFlowCommit}
+                onRenameCancel={() => { setRenamingFlowId(null); setFlowRenameValue(""); }}
               />
             </>
           )}
@@ -809,6 +849,12 @@ export default function Dashboard() {
                 onSubmitTag={handleAddTag}
                 onCancelTag={() => setShowTagInput(null)}
                 hideProject
+                renamingFlowId={renamingFlowId}
+                flowRenameValue={flowRenameValue}
+                setFlowRenameValue={setFlowRenameValue}
+                onRenameStart={(id, name) => { setRenamingFlowId(id); setFlowRenameValue(name); }}
+                onRenameCommit={handleRenameFlowCommit}
+                onRenameCancel={() => { setRenamingFlowId(null); setFlowRenameValue(""); }}
               />
             </>
           )}
@@ -861,13 +907,22 @@ export default function Dashboard() {
                         <div style={{ display: "flex", gap: 4 }}>
                           <button
                             className="dash-card-action"
+                            onClick={(e) => { e.stopPropagation(); setRenamingTemplateId(t.id); setTemplateRenameValue(t.name || "Untitled Template"); }}
+                            aria-label="Rename template"
+                            title="Rename"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                          </button>
+                          <button
+                            className="dash-card-action"
                             onClick={(e) => {
                               e.stopPropagation();
                               navigate(`/editor/template/${t.id}`);
                             }}
-                            aria-label="Edit template"
+                            aria-label="Edit template in editor"
+                            title="Open in editor"
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                           </button>
                           <button
                             className="dash-card-delete"
@@ -878,7 +933,27 @@ export default function Dashboard() {
                           </button>
                         </div>
                       </div>
-                      <h4 className="dash-flow-card-title">{t.name || "Untitled Template"}</h4>
+                      {renamingTemplateId === t.id ? (
+                        <input
+                          className="dash-flow-card-rename-input"
+                          value={templateRenameValue}
+                          onChange={(e) => setTemplateRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleRenameTemplateCommit(t.id);
+                            if (e.key === "Escape") { setRenamingTemplateId(null); setTemplateRenameValue(""); }
+                          }}
+                          onBlur={() => handleRenameTemplateCommit(t.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                        />
+                      ) : (
+                        <h4
+                          className="dash-flow-card-title"
+                          onDoubleClick={(e) => { e.stopPropagation(); setRenamingTemplateId(t.id); setTemplateRenameValue(t.name || "Untitled Template"); }}
+                        >
+                          {t.name || "Untitled Template"}
+                        </h4>
+                      )}
                       {t.description && (
                         <p className="template-description">{t.description}</p>
                       )}
@@ -1257,6 +1332,12 @@ function FlowGrid({
   newTag,
   setNewTag,
   onSubmitTag,
+  renamingFlowId,
+  flowRenameValue,
+  setFlowRenameValue,
+  onRenameStart,
+  onRenameCommit,
+  onRenameCancel,
   onCancelTag,
   hideProject = false,
 }) {
@@ -1300,6 +1381,14 @@ function FlowGrid({
                 {formatDiagramType(f.diagramType)}
               </span>
               <div style={{ display: "flex", gap: 4 }}>
+                <button
+                  className="dash-card-action"
+                  onClick={(e) => { e.stopPropagation(); onRenameStart(f.id, f.name || "Untitled"); }}
+                  aria-label="Rename flow"
+                  title="Rename"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                </button>
                 {onSaveAsTemplate && (
                   <button
                     className="dash-card-action"
@@ -1326,7 +1415,27 @@ function FlowGrid({
                 </button>
               </div>
             </div>
-            <h4 className="dash-flow-card-title">{f.name || "Untitled"}</h4>
+            {renamingFlowId === f.id ? (
+              <input
+                className="dash-flow-card-rename-input"
+                value={flowRenameValue}
+                onChange={(e) => setFlowRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onRenameCommit(f.id);
+                  if (e.key === "Escape") onRenameCancel();
+                }}
+                onBlur={() => onRenameCommit(f.id)}
+                onClick={(e) => e.stopPropagation()}
+                autoFocus
+              />
+            ) : (
+              <h4
+                className="dash-flow-card-title"
+                onDoubleClick={(e) => { e.stopPropagation(); onRenameStart(f.id, f.name || "Untitled"); }}
+              >
+                {f.name || "Untitled"}
+              </h4>
+            )}
             {project && (
               <span className="dash-flow-project-badge">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
