@@ -2224,6 +2224,8 @@ function getIframeSrcDoc() {
       let dragState = null;
       let suppressClick = false;
       let currentDiagramType = "";
+      let lastCode = "";
+      let lastConfig = {};
       let lastGanttAutoStartKey = "";
       const wrap = document.getElementById("wrap");
       const canvas = document.getElementById("canvas");
@@ -8124,10 +8126,27 @@ function getIframeSrcDoc() {
           return;
         }
 
+        if (data.type === "capture:request") {
+          if (!lastCode) { send("capture:response", { svg: "" }); return; }
+          try {
+            mermaid.initialize({ ...lastConfig, startOnLoad: false });
+            const token = "capture_" + Date.now();
+            const { svg } = await mermaid.render(token, lastCode);
+            const tempEl = document.getElementById("d" + token);
+            if (tempEl) tempEl.remove();
+            send("capture:response", { svg });
+          } catch (err) {
+            send("capture:response", { svg: "", error: err.message });
+          }
+          return;
+        }
+
         if (data.type !== "render") return;
 
         const { code, config } = data.payload || {};
         if (!code) return;
+        lastCode = code;
+        lastConfig = config || {};
 
         try {
           resetSelection();
@@ -10431,27 +10450,64 @@ function App() {
     setRenderMessage("Iframe embed snippet copied");
   };
 
-  const downloadSvg = () => {
-    if (!renderSvg) return;
+  const requestCapture = () => {
+    return new Promise((resolve) => {
+      let resolved = false;
+      const handler = (event) => {
+        if (event.data?.channel === CHANNEL && event.data.type === "capture:response") {
+          window.removeEventListener("message", handler);
+          resolved = true;
+          resolve(event.data.payload?.svg || "");
+        }
+      };
+      window.addEventListener("message", handler);
+      const frame = iframeRef.current;
+      if (frame?.contentWindow) {
+        frame.contentWindow.postMessage({ channel: CHANNEL, type: "capture:request" }, "*");
+      } else {
+        resolve("");
+      }
+      setTimeout(() => {
+        if (!resolved) {
+          window.removeEventListener("message", handler);
+          resolve("");
+        }
+      }, 5000);
+    });
+  };
+
+  const getExportSvg = async () => {
+    if (renderSvg) return renderSvg;
+    setRenderMessage("Generating export…");
+    const svg = await requestCapture();
+    if (!svg) setRenderMessage("Export not available for this diagram");
+    return svg;
+  };
+
+  const downloadSvg = async () => {
+    const svg = await getExportSvg();
+    if (!svg) return;
     const name = flowMeta?.name || "diagram";
-    downloadSvgHQ(renderSvg, `${name}.svg`);
+    downloadSvgHQ(svg, `${name}.svg`);
   };
 
   const downloadPng = async () => {
-    if (!renderSvg) return;
+    const svg = await getExportSvg();
+    if (!svg) return;
     const name = flowMeta?.name || "diagram";
     try {
-      await downloadPngHQ(renderSvg, `${name}.png`, 3);
+      await downloadPngHQ(svg, `${name}.png`, 3);
     } catch (err) {
       setRenderMessage("PNG export failed: " + err.message);
     }
   };
 
   const handleDownloadPdf = async () => {
-    if (!renderSvg) return;
+    const svg = await getExportSvg();
+    if (!svg) return;
     const name = flowMeta?.name || "diagram";
     try {
-      await downloadPdf(renderSvg, `${name}.pdf`);
+      await downloadPdf(svg, `${name}.pdf`);
       setRenderMessage("PDF downloaded");
     } catch (err) {
       setRenderMessage("PDF export failed: " + err.message);
