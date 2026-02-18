@@ -39,7 +39,8 @@ import {
 import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, addStateDiagramState, addStateDiagramTransition, updateErEntity, updateErRelationship, parseSequenceDiagram, parseSequenceBlocks, parseSequenceExtras, updateSequenceMessageByIndex, removeSequenceMessageByIndex, reorderSequenceParticipants, addSequenceMessage } from "./diagramUtils";
 import { parseStateDiagramEnhanced, xstateToMermaid, mermaidToXState, generateStateId, toggleStateDiagramDirection } from "./stateUtils";
-import { downloadSvgHQ, downloadPngHQ, downloadPdf, captureHtmlToPng, downloadPngFromDataUrl, downloadPdfFromDataUrl } from "./exportUtils";
+import { downloadSvgHQ, downloadPngHQ, downloadPdf, captureHtmlToPng, downloadPngFromDataUrl, downloadPdfFromDataUrl, svgToPngBlob } from "./exportUtils";
+import { uploadThumbnail } from "./firebase/storage";
 import { useAuth } from "./firebase/AuthContext";
 import { createFlow, getFlow, updateFlow, getUserSettings, saveFlowVersion, formatFirestoreError, setFlowBaseline, clearFlowBaseline } from "./firebase/firestore";
 import { ganttToNotionPages, importFromNotion, syncGanttToNotion } from "./notionSync";
@@ -9174,6 +9175,7 @@ function App() {
   const flowLoadedRef = useRef(false);
   const lastVersionSaveRef = useRef(0);
   const lastVersionCodeRef = useRef("");
+  const lastThumbnailSaveRef = useRef(0);
   useEffect(() => {
     if (!flowId) {
       lastSavedGanttViewStateRef.current = "";
@@ -9265,6 +9267,14 @@ function App() {
           lastVersionCodeRef.current = code;
           const tabsSnapshot = diagramTabs.map((t) => t.id === activeTabId ? { ...t, code } : t);
           saveFlowVersion(flowId, { code, diagramType, tabs: tabsSnapshot }).catch(() => {});
+        }
+        // Generate thumbnail (throttled to once per 60s)
+        if (renderSvg && now - lastThumbnailSaveRef.current >= 60_000) {
+          lastThumbnailSaveRef.current = now;
+          svgToPngBlob(renderSvg, 0.5)
+            .then((blob) => uploadThumbnail(flowId, blob))
+            .then((url) => updateFlow(flowId, { thumbnailUrl: url }))
+            .catch(() => {}); // non-critical, fail silently
         }
       } catch (err) {
         logAppFirestoreError("autoSave/updateFlow", err, {

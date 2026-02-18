@@ -2881,6 +2881,36 @@ input:focus {
   transform: translateY(-1px);
 }
 
+.dash-flow-thumb {
+  height: 120px;
+  margin: -16px -18px 12px -18px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  overflow: hidden;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.dash-flow-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+  display: block;
+}
+
+.dash-flow-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-muted);
+  opacity: 0.35;
+}
+
+.dash-flow-thumb-empty svg {
+  width: 32px;
+  height: 32px;
+}
+
 .dash-flow-card-top {
   display: flex;
   align-items: center;
