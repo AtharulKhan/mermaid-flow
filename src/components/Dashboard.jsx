@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../firebase/AuthContext";
 import logoSvg from "../assets/logo.svg";
@@ -817,15 +817,12 @@ function FlowGrid({
             className="dash-flow-card"
             onClick={() => navigate(`/editor/${f.id}`)}
           >
-            {f.thumbnailUrl ? (
-              <div className="dash-flow-thumb">
-                <img src={f.thumbnailUrl} alt="" loading="lazy" draggable="false" />
-              </div>
-            ) : (
-              <div className="dash-flow-thumb dash-flow-thumb-empty">
-                {getDiagramIcon(f.diagramType)}
-              </div>
-            )}
+            <MermaidThumb
+              thumbnailUrl={f.thumbnailUrl}
+              code={f.code}
+              diagramType={f.diagramType}
+              flowId={f.id}
+            />
             <div className="dash-flow-card-top">
               <span className="dash-flow-type-badge">
                 {getDiagramIcon(f.diagramType)}
@@ -883,6 +880,87 @@ function FlowGrid({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ── Mermaid Thumbnail Component ─────────────────────── */
+let mermaidInstance = null;
+let mermaidLoading = false;
+const mermaidQueue = [];
+
+function loadMermaid() {
+  if (mermaidInstance) return Promise.resolve(mermaidInstance);
+  if (mermaidLoading) {
+    return new Promise((resolve) => mermaidQueue.push(resolve));
+  }
+  mermaidLoading = true;
+  return import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs").then(
+    (mod) => {
+      mermaidInstance = mod.default;
+      mermaidInstance.initialize({
+        startOnLoad: false,
+        theme: "default",
+        securityLevel: "loose",
+        fontFamily: "sans-serif",
+        fontSize: 12,
+      });
+      mermaidQueue.forEach((cb) => cb(mermaidInstance));
+      mermaidQueue.length = 0;
+      return mermaidInstance;
+    }
+  );
+}
+
+let thumbCounter = 0;
+
+function MermaidThumb({ thumbnailUrl, code, diagramType, flowId }) {
+  const containerRef = useRef(null);
+  const [svgHtml, setSvgHtml] = useState("");
+  const [failed, setFailed] = useState(false);
+  const rendered = useRef(false);
+
+  useEffect(() => {
+    if (thumbnailUrl || !code || rendered.current) return;
+    rendered.current = true;
+
+    let cancelled = false;
+    loadMermaid().then(async (mermaid) => {
+      if (cancelled) return;
+      try {
+        const id = `mthumb-${flowId}-${thumbCounter++}`;
+        const { svg } = await mermaid.render(id, code);
+        if (!cancelled) setSvgHtml(svg);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [thumbnailUrl, code, flowId]);
+
+  if (thumbnailUrl) {
+    return (
+      <div className="dash-flow-thumb">
+        <img src={thumbnailUrl} alt="" loading="lazy" draggable="false" />
+      </div>
+    );
+  }
+
+  if (svgHtml) {
+    return (
+      <div
+        className="dash-flow-thumb dash-flow-thumb-rendered"
+        ref={containerRef}
+        dangerouslySetInnerHTML={{ __html: svgHtml }}
+      />
+    );
+  }
+
+  return (
+    <div className="dash-flow-thumb dash-flow-thumb-empty">
+      {failed ? getDiagramIcon(diagramType) : (
+        <div className="dash-flow-thumb-loading" />
+      )}
     </div>
   );
 }
