@@ -16,18 +16,88 @@ function escapeRegExp(value) {
   return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Join multiline quoted bracket labels into single logical lines.
+ * Handles the `["..."]` pattern used in class diagram aliases.
+ * Interior line breaks become `<br/>`.
+ * @param {string[]} lines
+ * @returns {{ text: string, lineIndex: number }[]}
+ */
+function joinMultilineQuotedBrackets(lines) {
+  const result = [];
+  let acc = null; // { before, quote, parts, startLine }
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+
+    if (acc) {
+      const qi = raw.indexOf(acc.quote);
+      if (qi >= 0) {
+        const lastPart = raw.substring(0, qi).trim();
+        if (lastPart) acc.parts.push(lastPart);
+        const rest = raw.substring(qi); // closing quote + rest of line
+        const joined = acc.parts.join("<br/>");
+        result.push({ text: acc.before + acc.quote + joined + rest, lineIndex: acc.startLine });
+        acc = null;
+      } else {
+        const trimmedPart = raw.trim();
+        if (trimmedPart) acc.parts.push(trimmedPart);
+      }
+      continue;
+    }
+
+    // Detect unclosed ["..." or ['...' pattern
+    const bracketIdx = raw.indexOf('["');
+    const bracketIdx2 = raw.indexOf("['");
+    let openIdx = -1;
+    let quote = '"';
+    if (bracketIdx >= 0 && (bracketIdx2 < 0 || bracketIdx <= bracketIdx2)) {
+      openIdx = bracketIdx;
+      quote = '"';
+    } else if (bracketIdx2 >= 0) {
+      openIdx = bracketIdx2;
+      quote = "'";
+    }
+
+    if (openIdx >= 0) {
+      const afterOpen = raw.substring(openIdx + 2); // after ["
+      const closeQuote = afterOpen.indexOf(quote);
+      if (closeQuote < 0) {
+        // Unclosed — start accumulating
+        acc = {
+          before: raw.substring(0, openIdx + 1), // everything up to and including [
+          quote,
+          parts: [afterOpen.trim()].filter(Boolean),
+          startLine: i,
+        };
+        continue;
+      }
+    }
+
+    result.push({ text: raw, lineIndex: i });
+  }
+
+  if (acc) {
+    result.push({ text: acc.parts.join(" "), lineIndex: acc.startLine });
+  }
+
+  return result;
+}
+
 /* ────────────────────────────────────────────────────────  */
 /* ── Class Diagram ─────────────────────────────────────── */
 /* ────────────────────────────────────────────────────────  */
 
 export function parseClassDiagram(code) {
-  const lines = code.split("\n");
+  const rawLines = code.split("\n");
+  const logicalLines = joinMultilineQuotedBrackets(rawLines);
   const classes = [];
   const relationships = [];
   let currentClass = null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
+  for (let li = 0; li < logicalLines.length; li++) {
+    const { text: line, lineIndex: i } = logicalLines[li];
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("%%") || trimmed === "classDiagram") continue;
 
     // Class definition: class ClassName {

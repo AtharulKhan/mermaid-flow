@@ -206,6 +206,106 @@ function extractShapeAnnotation(line) {
   return null;
 }
 
+/* ── Multiline label pre-processing ─────────────────────── */
+
+/**
+ * Detect if a line contains an unclosed quoted label inside a shape delimiter.
+ * E.g. `P1_CALL["Kickoff Onboarding Call` where the closing `"]` is on a later line.
+ * Returns { prefix, openDelim, closeDelim, quote, firstLabelPart } or null.
+ */
+function findUnclosedLabel(line) {
+  for (const { open, close } of SHAPE_TABLE) {
+    let searchFrom = 0;
+    while (true) {
+      const idx = line.indexOf(open, searchFrom);
+      if (idx < 0) break;
+      searchFrom = idx + 1;
+
+      const afterOpen = line.substring(idx + open.length);
+      if (!afterOpen.startsWith('"') && !afterOpen.startsWith("'")) continue;
+
+      const quote = afterOpen[0];
+      const labelContent = afterOpen.substring(1);
+      const endQuote = labelContent.indexOf(quote);
+
+      if (endQuote >= 0) {
+        // Quote closed on this line — check if correct close delimiter follows
+        const afterEndQuote = labelContent.substring(endQuote + 1);
+        if (afterEndQuote.startsWith(close)) continue; // properly closed
+        continue; // wrong closer, keep searching
+      }
+
+      // Quote NOT closed on this line — multiline label
+      return {
+        prefix: line.substring(0, idx),
+        openDelim: open,
+        closeDelim: close,
+        quote,
+        firstLabelPart: labelContent, // text after opening quote to end of line
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Pre-process raw lines to join multiline quoted labels into single logical lines.
+ * Interior line breaks are replaced with `<br/>` so the renderer can split them back.
+ * Each returned entry carries the original first-line index for position tracking.
+ * @param {string[]} lines
+ * @returns {{ text: string, lineIndex: number }[]}
+ */
+function joinMultilineLabels(lines) {
+  const result = [];
+  let acc = null; // { prefix, openDelim, closeDelim, quote, labelParts, startLine }
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+
+    if (acc) {
+      // Inside a multiline label — look for closing quote
+      const qi = raw.indexOf(acc.quote);
+      if (qi >= 0) {
+        // Text before closing quote is the last label segment
+        const lastPart = raw.substring(0, qi).trim();
+        if (lastPart) acc.labelParts.push(lastPart);
+        const rest = raw.substring(qi); // closing quote + delimiter + maybe :::class
+        const joinedLabel = acc.labelParts.join("<br/>");
+        const rebuilt = acc.prefix + acc.openDelim + acc.quote + joinedLabel + rest;
+        result.push({ text: rebuilt, lineIndex: acc.startLine });
+        acc = null;
+      } else {
+        // Still accumulating
+        const trimmedPart = raw.trim();
+        if (trimmedPart) acc.labelParts.push(trimmedPart);
+      }
+      continue;
+    }
+
+    // Check if this line starts a multiline quoted label
+    const info = findUnclosedLabel(raw);
+    if (info) {
+      acc = {
+        prefix: info.prefix,
+        openDelim: info.openDelim,
+        closeDelim: info.closeDelim,
+        quote: info.quote,
+        labelParts: [info.firstLabelPart.trim()].filter(Boolean),
+        startLine: i,
+      };
+    } else {
+      result.push({ text: raw, lineIndex: i });
+    }
+  }
+
+  // Flush any remaining accumulation (unclosed at EOF)
+  if (acc) {
+    result.push({ text: acc.labelParts.join(" "), lineIndex: acc.startLine });
+  }
+
+  return result;
+}
+
 /* ── Parsing ─────────────────────────────────────────────── */
 
 /**
@@ -216,7 +316,8 @@ function extractShapeAnnotation(line) {
 export function parseFlowchart(code) {
   // Strip front matter
   const cleaned = code.replace(FRONT_MATTER_RE, "");
-  const lines = cleaned.split("\n");
+  const rawLines = cleaned.split("\n");
+  const logicalLines = joinMultilineLabels(rawLines);
 
   let direction = "TD";
   const nodesMap = new Map(); // id → node object
@@ -224,8 +325,8 @@ export function parseFlowchart(code) {
   const subgraphs = [];
   const subgraphStack = [];
 
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const rawLine = lines[lineIndex];
+  for (let li = 0; li < logicalLines.length; li++) {
+    const { text: rawLine, lineIndex } = logicalLines[li];
     const trimmed = rawLine.trim();
 
     // Skip empty lines and comments
@@ -242,12 +343,17 @@ export function parseFlowchart(code) {
     if (trimmed === "---") continue;
     if (/^config:/.test(trimmed) || /^layout:/.test(trimmed)) continue;
 
-    // Subgraph open
-    const subgraphMatch = trimmed.match(/^subgraph\s+(\S+)(?:\s*\[([^\]]*)\])?\s*$/);
+    // Subgraph open — use [\w]+ for ID to avoid consuming bracket/label chars
+    const subgraphMatch = trimmed.match(/^subgraph\s+([\w]+)(?:\s*\[([^\]]*)\])?\s*$/);
     if (subgraphMatch) {
+      let sgLabel = subgraphMatch[2] || subgraphMatch[1];
+      // Strip surrounding quotes from label
+      if (sgLabel.length >= 2 && /^["']/.test(sgLabel) && sgLabel.endsWith(sgLabel[0])) {
+        sgLabel = sgLabel.slice(1, -1);
+      }
       const sg = {
         id: subgraphMatch[1],
-        label: subgraphMatch[2] || subgraphMatch[1],
+        label: sgLabel,
         lineIndex,
         endLineIndex: -1,
       };
@@ -381,6 +487,9 @@ function parseLineContent(trimmed, lineIndex, rawLine, nodesMap, edges) {
       const shapeInfo = extractNodeShape(trimmed, pos);
       if (shapeInfo) {
         pos = shapeInfo.endIndex;
+        // Skip :::className suffix (e.g. "]:::crit")
+        const tripleColonMatch = trimmed.slice(pos).match(/^:::(\w+)/);
+        if (tripleColonMatch) pos += tripleColonMatch[0].length;
         const node = {
           id,
           label: shapeInfo.label,
@@ -390,7 +499,20 @@ function parseLineContent(trimmed, lineIndex, rawLine, nodesMap, edges) {
           lineIndex,
           rawLine,
         };
-        if (!nodesMap.has(id)) nodesMap.set(id, node);
+        if (!nodesMap.has(id)) {
+          nodesMap.set(id, node);
+        } else {
+          // Update existing bare-reference node with the actual shape definition
+          const existing = nodesMap.get(id);
+          if (existing.label === existing.id) {
+            existing.label = shapeInfo.label;
+            existing.shape = shapeInfo.shape;
+            existing.shapeOpen = shapeInfo.shapeOpen;
+            existing.shapeClose = shapeInfo.shapeClose;
+            existing.lineIndex = lineIndex;
+            existing.rawLine = rawLine;
+          }
+        }
         tokens.push({ type: "node", id });
       } else {
         // Node reference without shape (just ID) - might be defined elsewhere
@@ -484,8 +606,12 @@ function findNodeTokenRanges(line) {
     pos += id.length;
     const shapeInfo = extractNodeShape(line, pos);
     if (shapeInfo) {
-      ranges.push({ id, start, end: shapeInfo.endIndex, hasShape: true });
-      pos = shapeInfo.endIndex;
+      let endPos = shapeInfo.endIndex;
+      // Skip :::className suffix
+      const tcm = line.slice(endPos).match(/^:::(\w+)/);
+      if (tcm) endPos += tcm[0].length;
+      ranges.push({ id, start, end: endPos, hasShape: true });
+      pos = endPos;
     } else {
       ranges.push({ id, start, end: pos, hasShape: false });
     }
@@ -557,6 +683,9 @@ function findFlowTokensWithRanges(line) {
     const shapeInfo = extractNodeShape(line, pos);
     if (shapeInfo) {
       pos = shapeInfo.endIndex;
+      // Skip :::className suffix
+      const tcm = line.slice(pos).match(/^:::(\w+)/);
+      if (tcm) pos += tcm[0].length;
       tokens.push({ type: "node", id, start: nodeStart, end: pos });
     } else {
       tokens.push({ type: "node", id, start: nodeStart, end: pos });
@@ -992,8 +1121,9 @@ export function parseStyleDirectives(code) {
  */
 export function parseClassAssignments(code) {
   const result = {};
-  const lines = code.split("\n");
-  for (const line of lines) {
+  const rawLines = code.split("\n");
+  const logicalLines = joinMultilineLabels(rawLines);
+  for (const { text: line } of logicalLines) {
     const trimmed = line.trim();
     const m = trimmed.match(/^class\s+(\S+)\s+(\S+)$/);
     if (m) {
@@ -1131,7 +1261,7 @@ export function renameSubgraph(code, subgraphId, newLabel) {
 
   const lines = code.split("\n");
   lines[sg.lineIndex] = lines[sg.lineIndex].replace(
-    /^(\s*subgraph\s+\S+)(?:\s*\[.*?\])?\s*$/,
+    /^(\s*subgraph\s+[\w]+)(?:\s*\[.*?\])?\s*$/,
     `$1 [${newLabel}]`
   );
   return lines.join("\n");
