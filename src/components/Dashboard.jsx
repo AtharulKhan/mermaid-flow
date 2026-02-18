@@ -907,22 +907,22 @@ export default function Dashboard() {
                         <div style={{ display: "flex", gap: 4 }}>
                           <button
                             className="dash-card-action"
-                            onClick={(e) => { e.stopPropagation(); setRenamingTemplateId(t.id); setTemplateRenameValue(t.name || "Untitled Template"); }}
-                            aria-label="Rename template"
-                            title="Rename"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/editor/template/${t.id}`);
+                            }}
+                            aria-label="Edit template"
+                            title="Edit template"
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                           </button>
                           <button
                             className="dash-card-action"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/editor/template/${t.id}`);
-                            }}
-                            aria-label="Edit template in editor"
-                            title="Open in editor"
+                            onClick={(e) => { e.stopPropagation(); setRenamingTemplateId(t.id); setTemplateRenameValue(t.name || "Untitled Template"); }}
+                            aria-label="Rename template"
+                            title="Rename"
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                           </button>
                           <button
                             className="dash-card-delete"

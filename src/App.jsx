@@ -11233,32 +11233,33 @@ function App() {
                 Template
               </span>
             )}
+            {(flowId || editingTemplateId) && (
+              renamingFlowName ? (
+                <input
+                  className="flow-name-rename-input"
+                  value={flowRenameValue}
+                  onChange={(e) => setFlowRenameValue(e.target.value)}
+                  onBlur={commitRenameFlowName}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitRenameFlowName();
+                    if (e.key === "Escape") setRenamingFlowName(false);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className={"flow-name-badge" + ((flowId && canEditCurrentFlow) || editingTemplateId ? " flow-name-badge--editable" : "")}
+                  title={(flowId && canEditCurrentFlow) || editingTemplateId ? "Double-click to rename" : (flowHeaderName || "Untitled")}
+                  onDoubleClick={(e) => { e.stopPropagation(); e.preventDefault(); startRenameFlowName(); }}
+                >
+                  · {flowHeaderName || "Untitled"}
+                </span>
+              )
+            )}
           </div>
         </button>
-        {(flowId || editingTemplateId) && (
-          renamingFlowName ? (
-            <input
-              className="flow-name-rename-input"
-              value={flowRenameValue}
-              onChange={(e) => setFlowRenameValue(e.target.value)}
-              onBlur={commitRenameFlowName}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitRenameFlowName();
-                if (e.key === "Escape") setRenamingFlowName(false);
-              }}
-              onClick={(e) => e.stopPropagation()}
-              autoFocus
-            />
-          ) : (
-            <span
-              className={"flow-name-badge" + ((flowId && canEditCurrentFlow) || editingTemplateId ? " flow-name-badge--editable" : "")}
-              title={(flowId && canEditCurrentFlow) || editingTemplateId ? "Double-click to rename" : (flowHeaderName || "Untitled")}
-              onDoubleClick={(e) => { e.stopPropagation(); startRenameFlowName(); }}
-            >
-              · {flowHeaderName || "Untitled"}
-            </span>
-          )
-        )}
 
         <div className="toolbar">
           <button
