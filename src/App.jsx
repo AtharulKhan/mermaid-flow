@@ -8387,6 +8387,7 @@ function App() {
   const navigate = useNavigate();
   const flowId = params?.flowId || null;
   const editingTemplateId = params?.templateId || null;
+  const editingTemplateRef = useRef(null);
 
   // Auth context
   const { user: currentUser } = useAuth();
@@ -9255,7 +9256,6 @@ function App() {
   }, [flowId]);
 
   /* ── Load template for editing ─────────────────────── */
-  const editingTemplateRef = useRef(null);
   useEffect(() => {
     if (!editingTemplateId) {
       editingTemplateRef.current = null;
