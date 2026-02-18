@@ -181,6 +181,9 @@ body {
 }
 
 .brand-home-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   border: none;
   background: transparent;
   padding: 0;
@@ -231,8 +234,8 @@ body {
   max-width: min(44vw, 460px);
 }
 
-.brand-home-btn:hover .flow-name-badge {
-  color: var(--accent);
+.brand:hover > .flow-name-badge {
+  color: var(--ink-soft);
 }
 
 .flow-name-badge--editable {

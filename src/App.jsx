@@ -11220,46 +11220,46 @@ function App() {
     <main className="app-shell">
       {/* ── Header ──────────────────────────────────────── */}
       <header className="top-strip">
-        <button
-          className="brand brand-home-btn"
-          title="Go to home"
-          onClick={() => navigate(currentUser ? "/dashboard" : "/")}
-        >
-          <img src={logoSvg} alt="MF" className="brand-mark" />
-          <div className="brand-text">
-            <h1>Mermaid Flow</h1>
-            {editingTemplateId && (
-              <span className="flow-name-badge" style={{ background: "var(--accent)", color: "#fff", borderRadius: 4, padding: "1px 6px", fontSize: "0.7rem" }}>
-                Template
-              </span>
-            )}
-            {(flowId || editingTemplateId) && (
-              renamingFlowName ? (
-                <input
-                  className="flow-name-rename-input"
-                  value={flowRenameValue}
-                  onChange={(e) => setFlowRenameValue(e.target.value)}
-                  onBlur={commitRenameFlowName}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitRenameFlowName();
-                    if (e.key === "Escape") setRenamingFlowName(false);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  autoFocus
-                />
-              ) : (
-                <span
-                  className={"flow-name-badge" + ((flowId && canEditCurrentFlow) || editingTemplateId ? " flow-name-badge--editable" : "")}
-                  title={(flowId && canEditCurrentFlow) || editingTemplateId ? "Double-click to rename" : (flowHeaderName || "Untitled")}
-                  onDoubleClick={(e) => { e.stopPropagation(); e.preventDefault(); startRenameFlowName(); }}
-                >
-                  · {flowHeaderName || "Untitled"}
+        <div className="brand">
+          <button
+            className="brand-home-btn"
+            title="Go to home"
+            onClick={() => navigate(currentUser ? "/dashboard" : "/")}
+          >
+            <img src={logoSvg} alt="MF" className="brand-mark" />
+            <div className="brand-text">
+              <h1>Mermaid Flow</h1>
+              {editingTemplateId && (
+                <span className="flow-name-badge" style={{ background: "var(--accent)", color: "#fff", borderRadius: 4, padding: "1px 6px", fontSize: "0.7rem" }}>
+                  Template
                 </span>
-              )
-            )}
-          </div>
-        </button>
+              )}
+            </div>
+          </button>
+          {(flowId || editingTemplateId) && (
+            renamingFlowName ? (
+              <input
+                className="flow-name-rename-input"
+                value={flowRenameValue}
+                onChange={(e) => setFlowRenameValue(e.target.value)}
+                onBlur={commitRenameFlowName}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRenameFlowName();
+                  if (e.key === "Escape") setRenamingFlowName(false);
+                }}
+                autoFocus
+              />
+            ) : (
+              <span
+                className={"flow-name-badge" + ((flowId && canEditCurrentFlow) || editingTemplateId ? " flow-name-badge--editable" : "")}
+                title={(flowId && canEditCurrentFlow) || editingTemplateId ? "Double-click to rename" : (flowHeaderName || "Untitled")}
+                onDoubleClick={startRenameFlowName}
+              >
+                · {flowHeaderName || "Untitled"}
+              </span>
+            )
+          )}
+        </div>
 
         <div className="toolbar">
           <button
