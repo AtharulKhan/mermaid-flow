@@ -47,6 +47,7 @@ import ShareDialog from "./components/ShareDialog";
 import CommentPanel from "./components/CommentPanel";
 import VersionHistoryPanel from "./components/VersionHistoryPanel";
 import ResourceLoadPanel from "./components/ResourceLoadPanel";
+import PromptDialog from "./components/PromptDialog";
 import { getStoredTheme, getResolvedTheme, cycleTheme, THEME_LABELS, IconSun, IconMoon, IconMonitor } from "./themeUtils";
 
 const CHANNEL = "mermaid-flow";
@@ -8500,6 +8501,7 @@ function App() {
     dependsOn: [],
   });
   const [ganttDeleteConfirm, setGanttDeleteConfirm] = useState(null);
+  const [promptDialog, setPromptDialog] = useState(null); // { type, title, placeholder, defaultValue, multiline, meta }
   const ganttDraftLockedRef = useRef(false);
 
   // UI state
@@ -9784,31 +9786,21 @@ function App() {
       if (data.type === "gantt:edit-section") {
         const currentSection = String(data.payload?.section || "").trim();
         if (!currentSection) return;
-        const nextSection = window.prompt("Rename category / phase", currentSection);
-        if (nextSection == null) return;
-        const normalized = nextSection.trim();
-        if (!normalized || normalized === currentSection) return;
-        commitSnapshotNow();
-        setCode((prev) => renameGanttSection(prev, currentSection, normalized));
-        setRenderMessage(`Renamed "${currentSection}" to "${normalized}"`);
+        setPromptDialog({
+          type: "gantt-rename-section",
+          title: "Rename category / phase",
+          defaultValue: currentSection,
+          meta: { currentSection },
+        });
         return;
       }
 
       if (data.type === "gantt:add-section") {
-        const nextSection = window.prompt("New category / phase name");
-        if (nextSection == null) return;
-        const normalized = nextSection.trim();
-        if (!normalized) return;
-        const exists = getGanttSections(code).some(
-          (section) => section.name.toLowerCase() === normalized.toLowerCase()
-        );
-        if (exists) {
-          setRenderMessage(`Category "${normalized}" already exists`);
-          return;
-        }
-        commitSnapshotNow();
-        setCode((prev) => addGanttSection(prev, normalized));
-        setRenderMessage(`Added category "${normalized}"`);
+        setPromptDialog({
+          type: "gantt-add-section",
+          title: "New category / phase name",
+          placeholder: "Category name",
+        });
         return;
       }
 
@@ -9993,11 +9985,12 @@ function App() {
       if (data.type === "subgraph:rename-intent") {
         const { subgraphId, currentLabel } = data.payload || {};
         if (!subgraphId) return;
-        const newLabel = window.prompt("Rename subgraph", currentLabel || subgraphId);
-        if (newLabel == null || !newLabel.trim() || newLabel.trim() === currentLabel) return;
-        commitSnapshotNow();
-        setCode((prev) => renameSubgraph(prev, subgraphId, newLabel.trim()));
-        setRenderMessage(`Renamed subgraph to "${newLabel.trim()}"`);
+        setPromptDialog({
+          type: "rename-subgraph",
+          title: "Rename subgraph",
+          defaultValue: currentLabel || subgraphId,
+          meta: { subgraphId, currentLabel },
+        });
         return;
       }
 
@@ -10504,6 +10497,57 @@ function App() {
     }
     setGanttDeleteConfirm(null);
   };
+
+  const handlePromptConfirm = useCallback((value) => {
+    if (!promptDialog) return;
+    const { type, meta } = promptDialog;
+    setPromptDialog(null);
+    const trimmed = (value || "").trim();
+    if (!trimmed) return;
+
+    if (type === "gantt-rename-section") {
+      if (trimmed === meta.currentSection) return;
+      commitSnapshotNow();
+      setCode((prev) => renameGanttSection(prev, meta.currentSection, trimmed));
+      setRenderMessage(`Renamed "${meta.currentSection}" to "${trimmed}"`);
+    } else if (type === "gantt-add-section") {
+      const exists = getGanttSections(code).some(
+        (section) => section.name.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (exists) {
+        setRenderMessage(`Category "${trimmed}" already exists`);
+        return;
+      }
+      commitSnapshotNow();
+      setCode((prev) => addGanttSection(prev, trimmed));
+      setRenderMessage(`Added category "${trimmed}"`);
+    } else if (type === "rename-subgraph") {
+      if (trimmed === meta.currentLabel) return;
+      commitSnapshotNow();
+      setCode((prev) => renameSubgraph(prev, meta.subgraphId, trimmed));
+      setRenderMessage(`Renamed subgraph to "${trimmed}"`);
+    } else if (type === "xstate-import") {
+      try {
+        const config = JSON.parse(trimmed);
+        const mermaidCode = xstateToMermaid(config);
+        setCode(mermaidCode);
+        setRenderMessage("Imported XState machine");
+      } catch (e) {
+        setRenderMessage("Invalid JSON: " + e.message);
+      }
+    } else if (type === "create-subgraph") {
+      commitSnapshotNow();
+      setCode((prev) => createSubgraph(prev, meta.nodeIds, trimmed));
+      setPositionOverrides({});
+      setSelectedNodeIds(new Set());
+      setRenderMessage(`Grouped ${meta.nodeIds.length} nodes into "${trimmed}"`);
+    } else if (type === "rename-subgraph-ctx") {
+      if (trimmed === meta.currentLabel) return;
+      commitSnapshotNow();
+      setCode((prev) => renameSubgraph(prev, meta.subgraphId, trimmed));
+      setRenderMessage(`Renamed subgraph to "${trimmed}"`);
+    }
+  }, [promptDialog, code]);
 
   const handleStatusToggle = (flag) => {
     commitSnapshotNow();
@@ -11704,16 +11748,12 @@ function App() {
                     </button>
                     <div className={`dropdown-menu${stateDropdown === "xstate" ? " open" : ""}`}>
                       <button className="dropdown-item" onClick={() => {
-                        const json = window.prompt("Paste XState machine JSON");
-                        if (!json) return;
-                        try {
-                          const config = JSON.parse(json);
-                          const mermaidCode = xstateToMermaid(config);
-                          setCode(mermaidCode);
-                          setRenderMessage("Imported XState machine");
-                        } catch (e) {
-                          setRenderMessage("Invalid JSON: " + e.message);
-                        }
+                        setPromptDialog({
+                          type: "xstate-import",
+                          title: "Import XState JSON",
+                          placeholder: "Paste XState machine JSON here…",
+                          multiline: true,
+                        });
                         setStateDropdown(null);
                       }}>
                         Import XState JSON
@@ -12326,6 +12366,18 @@ function App() {
           </div>
         );
       })()}
+
+      {/* ── Prompt Dialog ────────────────────────────────── */}
+      <PromptDialog
+        open={!!promptDialog}
+        title={promptDialog?.title || ""}
+        placeholder={promptDialog?.placeholder || ""}
+        defaultValue={promptDialog?.defaultValue || ""}
+        confirmLabel={promptDialog?.type === "xstate-import" ? "Import" : "OK"}
+        multiline={promptDialog?.multiline || false}
+        onConfirm={handlePromptConfirm}
+        onCancel={() => setPromptDialog(null)}
+      />
 
       {/* ── Node Edit Modal (right-click on node) ──────── */}
       {nodeEditModal?.type === "node" && (() => {
@@ -13173,14 +13225,12 @@ function App() {
               )}
               {isFlowchart && selectedNodeIds.size > 1 && (
                 <button className="context-menu-item" onClick={() => {
-                  const label = window.prompt("Subgraph name");
-                  if (label && label.trim()) {
-                    commitSnapshotNow();
-                    setCode((prev) => createSubgraph(prev, [...selectedNodeIds], label.trim()));
-                    setPositionOverrides({});
-                    setSelectedNodeIds(new Set());
-                    setRenderMessage(`Grouped ${selectedNodeIds.size} nodes into "${label.trim()}"`);
-                  }
+                  setPromptDialog({
+                    type: "create-subgraph",
+                    title: "Subgraph name",
+                    placeholder: "Enter subgraph name",
+                    meta: { nodeIds: [...selectedNodeIds] },
+                  });
                   setContextMenu(null);
                 }}>
                   Group into subgraph
@@ -13208,12 +13258,12 @@ function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <button className="context-menu-item" onClick={() => {
-              const newLabel = window.prompt("Rename subgraph", contextMenu.label);
-              if (newLabel && newLabel.trim() && newLabel.trim() !== contextMenu.label) {
-                commitSnapshotNow();
-                setCode((prev) => renameSubgraph(prev, contextMenu.subgraphId, newLabel.trim()));
-                setRenderMessage(`Renamed subgraph to "${newLabel.trim()}"`);
-              }
+              setPromptDialog({
+                type: "rename-subgraph-ctx",
+                title: "Rename subgraph",
+                defaultValue: contextMenu.label,
+                meta: { subgraphId: contextMenu.subgraphId, currentLabel: contextMenu.label },
+              });
               setContextMenu(null);
             }}>
               Rename
