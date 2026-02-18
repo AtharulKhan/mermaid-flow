@@ -72,6 +72,7 @@ export default function Dashboard() {
   const [useTemplateDialog, setUseTemplateDialog] = useState(null); // template object when using
   const [useTemplateName, setUseTemplateName] = useState("");
   const [useTemplateProject, setUseTemplateProject] = useState("");
+  const [useTemplateNewProject, setUseTemplateNewProject] = useState("");
   const [editTemplateDialog, setEditTemplateDialog] = useState(null); // template for editing details
   const [editTemplateName, setEditTemplateName] = useState("");
   const [editTemplateDesc, setEditTemplateDesc] = useState("");
@@ -411,11 +412,18 @@ export default function Dashboard() {
     const t = useTemplateDialog;
     const name = useTemplateName.trim() || t.name || "Untitled";
     try {
+      let projectId = useTemplateProject || null;
+      // Create new project if user typed a name
+      if (!projectId && useTemplateNewProject.trim()) {
+        const proj = await createProject(user.uid, useTemplateNewProject.trim());
+        setProjects((prev) => [proj, ...prev]);
+        projectId = proj.id;
+      }
       const flow = await createFlow(user.uid, {
         name,
         code: t.code || "",
         diagramType: t.diagramType || "flowchart",
-        projectId: useTemplateProject || null,
+        projectId,
         subprojectId: null,
         tags: [],
         ganttViewState: t.ganttViewState || null,
@@ -429,6 +437,7 @@ export default function Dashboard() {
       setUseTemplateDialog(null);
       setUseTemplateName("");
       setUseTemplateProject("");
+      setUseTemplateNewProject("");
       navigate(`/editor/${flow.id}`);
     } catch (err) {
       logDashboardError("handleUseTemplate", err, { templateId: t.id });
@@ -930,6 +939,7 @@ export default function Dashboard() {
                             setUseTemplateDialog(t);
                             setUseTemplateName(t.name || "");
                             setUseTemplateProject("");
+                            setUseTemplateNewProject("");
                           }}
                         >
                           Use Template
@@ -1121,20 +1131,31 @@ export default function Dashboard() {
                   onKeyDown={(e) => { if (e.key === "Enter") handleUseTemplate(); }}
                 />
               </label>
-              {projects.length > 0 && (
+              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
+                Project (optional)
+                <select
+                  className="modal-input"
+                  value={useTemplateProject}
+                  onChange={(e) => { setUseTemplateProject(e.target.value); if (e.target.value) setUseTemplateNewProject(""); }}
+                  style={{ marginTop: 4 }}
+                >
+                  <option value="">No Project</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </label>
+              {!useTemplateProject && (
                 <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink-soft)" }}>
-                  Project (optional)
-                  <select
+                  Or create new project
+                  <input
                     className="modal-input"
-                    value={useTemplateProject}
-                    onChange={(e) => setUseTemplateProject(e.target.value)}
+                    value={useTemplateNewProject}
+                    onChange={(e) => setUseTemplateNewProject(e.target.value)}
+                    placeholder="New project name..."
                     style={{ marginTop: 4 }}
-                  >
-                    <option value="">No Project</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
+                    onKeyDown={(e) => { if (e.key === "Enter") handleUseTemplate(); }}
+                  />
                 </label>
               )}
             </div>
