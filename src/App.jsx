@@ -8479,6 +8479,7 @@ function App() {
   const [renameValue, setRenameValue] = useState("");
   const [renamingFlowName, setRenamingFlowName] = useState(false);
   const [flowRenameValue, setFlowRenameValue] = useState("");
+  const [templateDisplayName, setTemplateDisplayName] = useState("");
   const [notionDbId, setNotionDbId] = useState("");
   const [notionToken, setNotionToken] = useState("");
   const [securityLevel, setSecurityLevel] = useState("strict");
@@ -8579,7 +8580,7 @@ function App() {
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
   const lineCount = code.split("\n").length;
   const flowHeaderName = editingTemplateId
-    ? String(editingTemplateRef.current?.name || "Template").trim()
+    ? String(templateDisplayName || editingTemplateRef.current?.name || "Template").trim()
     : String(flowMeta?.name || "").trim();
   const toolsetKey = classifyDiagramType(diagramType);
   const activeTemplate = DIAGRAM_LIBRARY.find((entry) => entry.id === templateId);
@@ -9261,6 +9262,7 @@ function App() {
   useEffect(() => {
     if (!editingTemplateId) {
       editingTemplateRef.current = null;
+      setTemplateDisplayName("");
       return;
     }
     flowLoadedRef.current = false;
@@ -9269,6 +9271,7 @@ function App() {
         const tmpl = await getTemplate(editingTemplateId);
         if (tmpl) {
           editingTemplateRef.current = tmpl;
+          setTemplateDisplayName(tmpl.name || "");
           const tmplCode = tmpl.code || DEFAULT_CODE;
           clearHistory();
           if (tmpl.tabs && tmpl.tabs.length > 0) {
@@ -11056,6 +11059,7 @@ function App() {
       } else if (editingTemplateId) {
         await updateTemplate(editingTemplateId, { name: trimmed });
         editingTemplateRef.current = { ...editingTemplateRef.current, name: trimmed };
+        setTemplateDisplayName(trimmed);
       }
     } catch (err) {
       setRenderMessage(`Rename failed: ${formatFirestoreError(err)}`);
