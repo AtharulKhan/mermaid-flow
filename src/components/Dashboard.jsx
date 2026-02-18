@@ -462,6 +462,18 @@ export default function Dashboard() {
                     <option key={t} value={t}>{formatDiagramType(t)}</option>
                   ))}
                 </select>
+                {allTags.length > 0 && (
+                  <select
+                    className={`dash-filter-select${filterTag ? " active" : ""}`}
+                    value={filterTag}
+                    onChange={(e) => setFilterTag(e.target.value)}
+                  >
+                    <option value="">All Tags</option>
+                    {allTags.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
                 {(filterProject || filterType || filterTag) && (
                   <button
                     className="dash-filter-clear"
@@ -805,6 +817,15 @@ function FlowGrid({
             className="dash-flow-card"
             onClick={() => navigate(`/editor/${f.id}`)}
           >
+            {f.thumbnailUrl ? (
+              <div className="dash-flow-thumb">
+                <img src={f.thumbnailUrl} alt="" loading="lazy" draggable="false" />
+              </div>
+            ) : (
+              <div className="dash-flow-thumb dash-flow-thumb-empty">
+                {getDiagramIcon(f.diagramType)}
+              </div>
+            )}
             <div className="dash-flow-card-top">
               <span className="dash-flow-type-badge">
                 {getDiagramIcon(f.diagramType)}
