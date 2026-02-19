@@ -8485,6 +8485,7 @@ function App() {
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [diffBaselineCode, setDiffBaselineCode] = useState(null); // code at last load/save — baseline for live diff
   const [editorDiffOpen, setEditorDiffOpen] = useState(false);
+  const [editorDiffModalOpen, setEditorDiffModalOpen] = useState(false);
   const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
   const [userTemplates, setUserTemplates] = useState([]);
   const [resourcePanelOpen, setResourcePanelOpen] = useState(false);
@@ -11648,7 +11649,12 @@ function App() {
             <div className="editor-diff-panel">
               <div className="editor-diff-header">
                 <span>Diff vs last saved</span>
-                <button className="editor-diff-close" onClick={() => setEditorDiffOpen(false)} title="Close diff">×</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button className="editor-diff-close" onClick={() => { setEditorDiffModalOpen(true); setEditorDiffOpen(false); }} title="Pop out diff">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                  </button>
+                  <button className="editor-diff-close" onClick={() => setEditorDiffOpen(false)} title="Close diff">×</button>
+                </div>
               </div>
               <div className="editor-diff-body">
                 {(() => {
@@ -13893,6 +13899,57 @@ function App() {
           allowAnonymous={!currentUser && hasPublicCommentAccess}
           onClose={() => setCommentPanelOpen(false)}
         />
+      )}
+
+      {/* ── Editor Diff Modal ──────────────────────────── */}
+      {editorDiffModalOpen && editorDiffHunks && (
+        <div className="modal-overlay editor-diff-modal-overlay" onClick={() => setEditorDiffModalOpen(false)}>
+          <div className="editor-diff-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="editor-diff-modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="editor-diff-modal-title">Diff vs last saved</span>
+                {editorDiffStats && (
+                  <span className="editor-diff-modal-stats">
+                    <span className="diff-stat-add">+{editorDiffStats.added}</span>
+                    {" / "}
+                    <span className="diff-stat-remove">-{editorDiffStats.removed}</span>
+                  </span>
+                )}
+              </div>
+              <button className="editor-diff-close" onClick={() => setEditorDiffModalOpen(false)} title="Close">×</button>
+            </div>
+            <div className="editor-diff-modal-body">
+              {(() => {
+                const CONTEXT = 3;
+                const hunks = editorDiffHunks;
+                const visible = new Array(hunks.length).fill(false);
+                hunks.forEach((h, idx) => {
+                  if (h.type !== "equal") {
+                    for (let k = Math.max(0, idx - CONTEXT); k <= Math.min(hunks.length - 1, idx + CONTEXT); k++) {
+                      visible[k] = true;
+                    }
+                  }
+                });
+                const rows = [];
+                let skipping = false;
+                hunks.forEach((h, idx) => {
+                  if (!visible[idx]) {
+                    if (!skipping) { skipping = true; rows.push(<div key={`skip-${idx}`} className="diff-skip">...</div>); }
+                    return;
+                  }
+                  skipping = false;
+                  rows.push(
+                    <div key={idx} className={`diff-line diff-${h.type}`}>
+                      <span className="diff-sign">{h.type === "add" ? "+" : h.type === "remove" ? "-" : " "}</span>
+                      <span className="diff-text">{h.text || " "}</span>
+                    </div>
+                  );
+                });
+                return rows;
+              })()}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Version History Panel ──────────────────────── */}
