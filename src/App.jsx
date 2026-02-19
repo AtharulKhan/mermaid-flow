@@ -8546,6 +8546,7 @@ function App() {
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
+  const [mobileCodeView, setMobileCodeView] = useState(false); // toggle code/preview on mobile
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presentMode, setPresentMode] = useState(false);
   const [editorWidth, setEditorWidth] = useState(30);
@@ -11499,7 +11500,7 @@ function App() {
       </header>
 
       {/* ── Workspace ───────────────────────────────────── */}
-      <section className="workspace">
+      <section className={`workspace${mobileCodeView ? " mobile-code-view" : ""}`}>
         {/* Editor Panel */}
         <article
           className={`editor-panel ${editorCollapsed ? "collapsed" : ""}`}
@@ -12081,6 +12082,24 @@ function App() {
             }} style={{ fontSize: 12 }}>Fit</button>
           </div>
         </article>
+
+        {/* ── Mobile Code/Preview Tab Bar ─────────────────── */}
+        <nav className="mobile-tab-bar" aria-label="View mode">
+          <button
+            className={`mobile-tab-btn${!mobileCodeView ? " active" : ""}`}
+            onClick={() => setMobileCodeView(false)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            Preview
+          </button>
+          <button
+            className={`mobile-tab-btn${mobileCodeView ? " active" : ""}`}
+            onClick={() => setMobileCodeView(true)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Code
+          </button>
+        </nav>
       </section>
 
       {/* ── Tools Drawer (Right Overlay) ────────────────── */}
