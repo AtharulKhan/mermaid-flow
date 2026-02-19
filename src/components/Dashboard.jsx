@@ -188,7 +188,8 @@ export default function Dashboard() {
           f.name?.toLowerCase().includes(q) ||
           f.diagramType?.toLowerCase().includes(q) ||
           f.tags?.some((t) => t.toLowerCase().includes(q)) ||
-          (f.projectId && projectMap[f.projectId]?.name?.toLowerCase().includes(q))
+          (f.projectId && projectMap[f.projectId]?.name?.toLowerCase().includes(q)) ||
+          (searchQuery.length > 1 && f.code?.toLowerCase().includes(q))
       );
     }
     if (filterTag) {
@@ -688,6 +689,7 @@ export default function Dashboard() {
                 onRenameStart={(id, name) => { setRenamingFlowId(id); setFlowRenameValue(name); }}
                 onRenameCommit={handleRenameFlowCommit}
                 onRenameCancel={() => { setRenamingFlowId(null); setFlowRenameValue(""); }}
+                searchQuery={searchQuery}
               />
             </>
           )}
@@ -855,6 +857,7 @@ export default function Dashboard() {
                 onRenameStart={(id, name) => { setRenamingFlowId(id); setFlowRenameValue(name); }}
                 onRenameCommit={handleRenameFlowCommit}
                 onRenameCancel={() => { setRenamingFlowId(null); setFlowRenameValue(""); }}
+                searchQuery={searchQuery}
               />
             </>
           )}
@@ -1317,6 +1320,26 @@ function formatDiagramType(type) {
   return type.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/* ── Code match snippet helper ────────────────────────── */
+function getCodeMatchSnippet(code, query) {
+  if (!code || !query) return null;
+  const q = query.toLowerCase();
+  const lines = code.split("\n");
+  const idx = lines.findIndex((l) => l.toLowerCase().includes(q));
+  if (idx === -1) return null;
+  const line = lines[idx].trim();
+  // Highlight the matched portion
+  const lower = line.toLowerCase();
+  const start = lower.indexOf(q);
+  if (start === -1) return { line, highlighted: null };
+  return {
+    before: line.slice(0, start),
+    match: line.slice(start, start + q.length),
+    after: line.slice(start + q.length),
+    lineNum: idx + 1,
+  };
+}
+
 /* ── Flow Grid Sub-component ──────────────────────────── */
 function FlowGrid({
   flows,
@@ -1340,6 +1363,7 @@ function FlowGrid({
   onRenameCancel,
   onCancelTag,
   hideProject = false,
+  searchQuery = "",
 }) {
   const projectMap = useMemo(() => {
     const map = {};
@@ -1451,6 +1475,26 @@ function FlowGrid({
                 </span>
               </div>
             )}
+            {(() => {
+              if (!searchQuery || searchQuery.length < 2) return null;
+              const q = searchQuery.toLowerCase();
+              const nameMatch = f.name?.toLowerCase().includes(q);
+              const tagMatch = f.tags?.some((t) => t.toLowerCase().includes(q));
+              const typeMatch = f.diagramType?.toLowerCase().includes(q);
+              if (nameMatch && !tagMatch && !typeMatch) return null;
+              const snippet = getCodeMatchSnippet(f.code, searchQuery);
+              if (!snippet) return null;
+              return (
+                <div className="dash-flow-code-match">
+                  <span className="dash-flow-code-match-line">L{snippet.lineNum}</span>
+                  <code className="dash-flow-code-match-text">
+                    {snippet.before}
+                    <mark className="dash-flow-code-match-highlight">{snippet.match}</mark>
+                    {snippet.after}
+                  </code>
+                </div>
+              );
+            })()}
             <div className="dash-flow-tags" onClick={(e) => e.stopPropagation()}>
               {(f.tags || []).map((t) => (
                 <span key={t} className="dash-flow-tag">
