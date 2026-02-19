@@ -2693,6 +2693,7 @@ function getIframeSrcDoc() {
         const basePxPerUnit = subDay ? 40 : (scale === "month" ? 12 : 22);
         const pxPerUnit = Math.max(2, Math.round(basePxPerUnit * (ganttZoom || 1)));
         const timelineWidth = totalUnits * pxPerUnit;
+        let effectiveTimelineWidth = timelineWidth;
         const roleColWidth = 200;
         const rowHeight = 40;
         const barHeight = 28;
@@ -3181,6 +3182,11 @@ function getIframeSrcDoc() {
               if (labelWidth > innerLabelWidth) {
                 // Keep task title outside-right when it doesn't fit in the bar.
                 bar.classList.add("mf-label-outside");
+                // Track how far this outside label extends beyond the timeline
+                const rightExtent = barLeft + barPixelWidth + 8 + labelWidth + (dateSuffixWidth ? 8 + dateSuffixWidth : 0) + 16;
+                if (rightExtent > effectiveTimelineWidth) {
+                  effectiveTimelineWidth = rightExtent;
+                }
               }
             }
 
@@ -3551,6 +3557,12 @@ function getIframeSrcDoc() {
           cumulativeTop += trackHeight;
         }
 
+        // Extend container width if outside labels overflow the timeline
+        if (effectiveTimelineWidth > timelineWidth) {
+          container.style.gridTemplateColumns = roleColWidth + "px " + effectiveTimelineWidth + "px";
+          container.style.width = (roleColWidth + effectiveTimelineWidth) + "px";
+        }
+
         // Click on empty canvas area to clear dependency highlighting
         container.addEventListener("click", (e) => {
           if (e.target === container || e.target.classList.contains("mf-gantt-track")) {
@@ -3579,7 +3591,7 @@ function getIframeSrcDoc() {
         if (showDepLines) {
           const svgNS = "http://www.w3.org/2000/svg";
           const totalHeight = cumulativeTop;
-          const totalWidth = roleColWidth + timelineWidth;
+          const totalWidth = roleColWidth + effectiveTimelineWidth;
           const svg = document.createElementNS(svgNS, "svg");
           svg.setAttribute("class", "mf-dep-lines-svg");
           svg.setAttribute("width", totalWidth);
