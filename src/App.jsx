@@ -8550,7 +8550,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presentMode, setPresentMode] = useState(false);
   const [editorWidth, setEditorWidth] = useState(30);
-  const initialPinCategories = !isMobileViewport();
+  const initialPinCategories = true;
   const [showDates, setShowDates] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [ganttScale, setGanttScale] = useState("week"); // "week" | "month"
@@ -11610,6 +11610,16 @@ function App() {
         <article className="preview-panel">
           <div className="panel-header">
             <h2>Preview</h2>
+            {toolsetKey === "gantt" && (
+              <button
+                className={`date-toggle-btn mobile-menu-btn mobile-only mobile-pin-toggle${pinCategories ? " active" : ""}`}
+                onClick={() => setPinCategories((prev) => !prev)}
+                title={pinCategories ? "Unpin labels" : "Pin labels"}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 3 }}><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
+                {pinCategories ? "Pinned" : "Pin labels"}
+              </button>
+            )}
             {toolsetKey === "gantt" && (
               <div className="dropdown-wrap mobile-only" ref={mobileViewMenuRef}>
                 <button

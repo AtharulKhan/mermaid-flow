@@ -288,6 +288,19 @@ body {
   padding: 5px 11px;
 }
 
+.mobile-pin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mobile-pin-toggle.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .mobile-dropdown {
   min-width: 210px;
   max-width: min(88vw, 320px);
