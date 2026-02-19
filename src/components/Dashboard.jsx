@@ -77,6 +77,8 @@ export default function Dashboard() {
   const [useTemplateName, setUseTemplateName] = useState("");
   const [useTemplateProject, setUseTemplateProject] = useState("");
   const [useTemplateNewProject, setUseTemplateNewProject] = useState("");
+  const [showNewTemplate, setShowNewTemplate] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState("");
 
   const logDashboardError = (operation, err, context = {}) => {
     console.error(`[Dashboard] ${operation} failed`, {
@@ -288,6 +290,31 @@ export default function Dashboard() {
         subprojectId: selectedSubproject?.id || null,
       });
       setLoadError(`Create flow failed: ${formatFirestoreError(err)}`);
+    }
+  };
+
+  const handleCreateTemplate = async () => {
+    const name = newTemplateName.trim() || "Untitled Template";
+    try {
+      const template = await createTemplate(user.uid, {
+        name,
+        description: "",
+        category: "flowchart",
+        code: DEFAULT_CODE,
+        diagramType: "flowchart",
+        tabs: [],
+        tags: [],
+        ganttViewState: null,
+      });
+      setNewTemplateName("");
+      setShowNewTemplate(false);
+      setLoadError("");
+      navigate(`/editor/template/${template.id}`);
+    } catch (err) {
+      logDashboardError("handleCreateTemplate/createTemplate", err, {
+        uid: user.uid,
+      });
+      setLoadError(`Create template failed: ${formatFirestoreError(err)}`);
     }
   };
 
@@ -594,9 +621,15 @@ export default function Dashboard() {
           )}
 
           <div className="dash-sidebar-bottom">
-            <button className="soft-btn primary full-width" onClick={() => setShowNewFlow(true)}>
-              + New Flow
-            </button>
+            {view === "templates" ? (
+              <button className="soft-btn primary full-width" onClick={() => setShowNewTemplate(true)}>
+                + New Template
+              </button>
+            ) : (
+              <button className="soft-btn primary full-width" onClick={() => setShowNewFlow(true)}>
+                + New Flow
+              </button>
+            )}
           </div>
         </aside>
 
@@ -890,7 +923,7 @@ export default function Dashboard() {
                     <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v6"/>
                   </svg>
                   <p>No templates yet</p>
-                  <p style={{ fontSize: 13, marginTop: 4 }}>Save a flow as a template from the editor or flow cards</p>
+                  <p style={{ fontSize: 13, marginTop: 4 }}>Create a new template or save a flow as a template from the editor</p>
                 </div>
               ) : (
                 <div className="dash-flow-grid">
@@ -1070,6 +1103,27 @@ export default function Dashboard() {
             <div className="modal-actions">
               <button className="soft-btn" onClick={() => setShowNewFlow(false)}>Cancel</button>
               <button className="soft-btn primary" onClick={handleCreateFlow}>Create</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── New Template Dialog ────────────────────────────── */}
+      {showNewTemplate && (
+        <div className="modal-overlay" onClick={() => setShowNewTemplate(false)}>
+          <div className="modal save-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>New Template</h3>
+            <input
+              className="modal-input"
+              placeholder="Template name"
+              value={newTemplateName}
+              onChange={(e) => setNewTemplateName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateTemplate()}
+              autoFocus
+            />
+            <div className="modal-actions">
+              <button className="soft-btn" onClick={() => setShowNewTemplate(false)}>Cancel</button>
+              <button className="soft-btn primary" onClick={handleCreateTemplate}>Create</button>
             </div>
           </div>
         </div>
