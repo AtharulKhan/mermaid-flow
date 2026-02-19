@@ -257,6 +257,25 @@ function AssigneeTagInput({ value, onChange, suggestions }) {
   );
 }
 
+// LCS-based line diff — returns array of { type: "equal"|"add"|"remove", text }
+function computeLineDiff(oldStr, newStr) {
+  const a = (oldStr || "").split("\n");
+  const b = (newStr || "").split("\n");
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+  const hunks = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) { hunks.unshift({ type: "equal", text: a[i - 1] }); i--; j--; }
+    else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) { hunks.unshift({ type: "add", text: b[j - 1] }); j--; }
+    else { hunks.unshift({ type: "remove", text: a[i - 1] }); i--; }
+  }
+  return hunks;
+}
+
 function isMobileViewport() {
   if (typeof window === "undefined") return false;
   return window.matchMedia("(max-width: 768px)").matches;
@@ -8464,6 +8483,8 @@ function App() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
+  const [diffBaselineCode, setDiffBaselineCode] = useState(null); // code at last load/save — baseline for live diff
+  const [editorDiffOpen, setEditorDiffOpen] = useState(false);
   const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
   const [userTemplates, setUserTemplates] = useState([]);
   const [resourcePanelOpen, setResourcePanelOpen] = useState(false);
@@ -8602,6 +8623,19 @@ function App() {
   // Derived
   const srcDoc = useMemo(() => getIframeSrcDoc(), []);
   const lineCount = code.split("\n").length;
+  const editorDiffHunks = useMemo(() => {
+    if (!diffBaselineCode || diffBaselineCode === code) return null;
+    return computeLineDiff(diffBaselineCode, code);
+  }, [diffBaselineCode, code]);
+  const editorDiffStats = useMemo(() => {
+    if (!editorDiffHunks) return null;
+    let added = 0, removed = 0;
+    for (const h of editorDiffHunks) {
+      if (h.type === "add") added++;
+      else if (h.type === "remove") removed++;
+    }
+    return { added, removed };
+  }, [editorDiffHunks]);
   const flowHeaderName = editingTemplateId
     ? String(templateDisplayName || editingTemplateRef.current?.name || "Template").trim()
     : String(flowMeta?.name || "").trim();
@@ -9247,11 +9281,13 @@ function App() {
             setActiveTabId(restoredTabId);
             setCode(restoredTab.code);
             lastVersionCodeRef.current = restoredTab.code;
+            setDiffBaselineCode(restoredTab.code);
           } else {
             setDiagramTabs([{ id: "tab-0", label: "Main", code: flowCode }]);
             setActiveTabId("tab-0");
             setCode(flowCode);
             lastVersionCodeRef.current = flowCode;
+            setDiffBaselineCode(flowCode);
           }
           if (flow.diagramType) setDiagramType(flow.diagramType);
           setFlowMeta(flow);
@@ -11187,6 +11223,8 @@ function App() {
           ganttViewState,
         });
         lastSavedGanttViewStateRef.current = JSON.stringify(ganttViewState);
+        setDiffBaselineCode(code);
+        setEditorDiffOpen(false);
         setRenderMessage("Saved to Firebase");
       } catch (err) {
         logAppFirestoreError("manualSave/updateFlow", err, {
@@ -11521,6 +11559,17 @@ function App() {
               >
                 Convert
               </button>
+              {editorDiffStats && (
+                <button
+                  className={`soft-btn small editor-diff-toggle${editorDiffOpen ? " active" : ""}`}
+                  onClick={() => setEditorDiffOpen((prev) => !prev)}
+                  title={editorDiffOpen ? "Hide diff" : "Show diff vs last saved"}
+                >
+                  <span className="diff-stat-add">+{editorDiffStats.added}</span>
+                  {" / "}
+                  <span className="diff-stat-remove">-{editorDiffStats.removed}</span>
+                </button>
+              )}
               <span>{lineCount} lines &middot; {diagramType || "unknown"}</span>
             </div>
           </div>
@@ -11595,6 +11644,44 @@ function App() {
               className="code-area"
             />
           </div>
+          {editorDiffOpen && editorDiffHunks && (
+            <div className="editor-diff-panel">
+              <div className="editor-diff-header">
+                <span>Diff vs last saved</span>
+                <button className="editor-diff-close" onClick={() => setEditorDiffOpen(false)} title="Close diff">×</button>
+              </div>
+              <div className="editor-diff-body">
+                {(() => {
+                  const CONTEXT = 3;
+                  const hunks = editorDiffHunks;
+                  const visible = new Array(hunks.length).fill(false);
+                  hunks.forEach((h, idx) => {
+                    if (h.type !== "equal") {
+                      for (let k = Math.max(0, idx - CONTEXT); k <= Math.min(hunks.length - 1, idx + CONTEXT); k++) {
+                        visible[k] = true;
+                      }
+                    }
+                  });
+                  const rows = [];
+                  let skipping = false;
+                  hunks.forEach((h, idx) => {
+                    if (!visible[idx]) {
+                      if (!skipping) { skipping = true; rows.push(<div key={`skip-${idx}`} className="diff-skip">...</div>); }
+                      return;
+                    }
+                    skipping = false;
+                    rows.push(
+                      <div key={idx} className={`diff-line diff-${h.type}`}>
+                        <span className="diff-sign">{h.type === "add" ? "+" : h.type === "remove" ? "-" : " "}</span>
+                        <span className="diff-text">{h.text || " "}</span>
+                      </div>
+                    );
+                  });
+                  return rows;
+                })()}
+              </div>
+            </div>
+          )}
           <div className="panel-footer">
             <p className={`status-${renderStatus}`}>{renderMessage}</p>
             {dragFeedback && <p className="drag-note">{dragFeedback}</p>}
@@ -13814,6 +13901,7 @@ function App() {
           flowId={flowId}
           currentCode={code}
           onRestore={(restoredCode, restoredType, restoredTabs) => {
+            const baseCode = (restoredTabs && restoredTabs.length > 0) ? restoredTabs[0].code : restoredCode;
             if (restoredTabs && restoredTabs.length > 0) {
               setDiagramTabs(restoredTabs);
               setActiveTabId(restoredTabs[0].id);
@@ -13824,6 +13912,8 @@ function App() {
               setCode(restoredCode);
             }
             clearHistory();
+            setDiffBaselineCode(baseCode);
+            setEditorDiffOpen(false);
             if (restoredType) setDiagramType(restoredType);
             setVersionPanelOpen(false);
             setRenderMessage("Version restored");
