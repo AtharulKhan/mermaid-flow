@@ -304,6 +304,9 @@ body {
 .mobile-dropdown {
   min-width: 210px;
   max-width: min(88vw, 320px);
+  max-height: 70vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .mobile-preview-tip {

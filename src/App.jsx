@@ -11646,9 +11646,6 @@ function App() {
                   <button className="dropdown-item" onClick={() => { setGanttScale("month"); setMobileViewMenuOpen(false); }}>
                     Month view
                   </button>
-                  <button className="dropdown-item" onClick={() => { setPinCategories((prev) => !prev); setMobileViewMenuOpen(false); }}>
-                    {pinCategories ? "Unpin labels" : "Pin labels"}
-                  </button>
                   <button className="dropdown-item" onClick={() => { setShowCriticalPath((prev) => !prev); setMobileViewMenuOpen(false); }}>
                     {showCriticalPath ? "Hide critical path" : "Critical path"}
                   </button>
