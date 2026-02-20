@@ -642,56 +642,58 @@ export default function Dashboard() {
       <div className="dash-body">
         {/* ── Sidebar ──────────────────────────────────── */}
         <aside className="dash-sidebar">
-          <nav className="dash-nav">
-            <button
-              className={`dash-nav-item ${view === "all" ? "active" : ""}`}
-              onClick={() => { setView("all"); setSelectedProject(null); setSelectedSubproject(null); }}
-            >
-              All Flows
-            </button>
-            <button
-              className={`dash-nav-item ${view === "projects" || view === "project-detail" ? "active" : ""}`}
-              onClick={() => { setView("projects"); setSelectedProject(null); setSelectedSubproject(null); }}
-            >
-              Projects
-            </button>
-            <button
-              className={`dash-nav-item ${view === "templates" ? "active" : ""}`}
-              onClick={() => { setView("templates"); setSelectedProject(null); setSelectedSubproject(null); }}
-            >
-              Templates
-            </button>
-            <button
-              className="dash-nav-item"
-              onClick={() => navigate("/settings")}
-            >
-              Settings
-            </button>
-          </nav>
+          <div className="dash-sidebar-scroll">
+            <nav className="dash-nav">
+              <button
+                className={`dash-nav-item ${view === "all" ? "active" : ""}`}
+                onClick={() => { setView("all"); setSelectedProject(null); setSelectedSubproject(null); }}
+              >
+                All Flows
+              </button>
+              <button
+                className={`dash-nav-item ${view === "projects" || view === "project-detail" ? "active" : ""}`}
+                onClick={() => { setView("projects"); setSelectedProject(null); setSelectedSubproject(null); }}
+              >
+                Projects
+              </button>
+              <button
+                className={`dash-nav-item ${view === "templates" ? "active" : ""}`}
+                onClick={() => { setView("templates"); setSelectedProject(null); setSelectedSubproject(null); }}
+              >
+                Templates
+              </button>
+              <button
+                className="dash-nav-item"
+                onClick={() => navigate("/settings")}
+              >
+                Settings
+              </button>
+            </nav>
 
-          {/* Tag filter */}
-          {allTags.length > 0 && (
-            <div className="dash-tags-section">
-              <h4>Tags</h4>
-              <div className="dash-tag-list">
-                <button
-                  className={`dash-tag ${!filterTag ? "active" : ""}`}
-                  onClick={() => setFilterTag("")}
-                >
-                  All
-                </button>
-                {allTags.map((t) => (
+            {/* Tag filter */}
+            {allTags.length > 0 && (
+              <div className="dash-tags-section">
+                <h4>Tags</h4>
+                <div className="dash-tag-list">
                   <button
-                    key={t}
-                    className={`dash-tag ${filterTag === t ? "active" : ""}`}
-                    onClick={() => setFilterTag(filterTag === t ? "" : t)}
+                    className={`dash-tag ${!filterTag ? "active" : ""}`}
+                    onClick={() => setFilterTag("")}
                   >
-                    {t}
+                    All
                   </button>
-                ))}
+                  {allTags.map((t) => (
+                    <button
+                      key={t}
+                      className={`dash-tag ${filterTag === t ? "active" : ""}`}
+                      onClick={() => setFilterTag(filterTag === t ? "" : t)}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="dash-sidebar-bottom">
             {view === "templates" ? (
