@@ -621,3 +621,17 @@ export async function deleteTemplate(templateId) {
     await deleteDoc(doc(db, "templates", templateId));
   });
 }
+
+export async function addTemplateTag(templateId, tag) {
+  await updateDoc(doc(db, "templates", templateId), {
+    tags: arrayUnion(tag),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function removeTemplateTag(templateId, tag) {
+  await updateDoc(doc(db, "templates", templateId), {
+    tags: arrayRemove(tag),
+    updatedAt: serverTimestamp(),
+  });
+}

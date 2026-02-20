@@ -23,6 +23,8 @@ import {
   createTemplate,
   updateTemplate,
   deleteTemplate,
+  addTemplateTag,
+  removeTemplateTag,
 } from "../firebase/firestore";
 import { DEFAULT_CODE } from "../diagramData";
 import ConfirmDialog from "./ConfirmDialog";
@@ -79,6 +81,11 @@ export default function Dashboard() {
   const [useTemplateNewProject, setUseTemplateNewProject] = useState("");
   const [showNewTemplate, setShowNewTemplate] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState("");
+  const [showTemplateTagInput, setShowTemplateTagInput] = useState(null);
+  const [newTemplateTag, setNewTemplateTag] = useState("");
+  const [templateTagFilter, setTemplateTagFilter] = useState("");
+  const [templateSort, setTemplateSort] = useState("updated");
+  const [templateGrouping, setTemplateGrouping] = useState("none");
 
   const logDashboardError = (operation, err, context = {}) => {
     console.error(`[Dashboard] ${operation} failed`, {
@@ -383,6 +390,28 @@ export default function Dashboard() {
     );
   };
 
+  const handleAddTemplateTag = async (templateId) => {
+    if (!newTemplateTag.trim()) return;
+    const tag = newTemplateTag.trim();
+    await addTemplateTag(templateId, tag);
+    setTemplates((prev) =>
+      prev.map((t) =>
+        t.id === templateId ? { ...t, tags: [...(t.tags || []), tag] } : t
+      )
+    );
+    setNewTemplateTag("");
+    setShowTemplateTagInput(null);
+  };
+
+  const handleRemoveTemplateTag = async (templateId, tag) => {
+    await removeTemplateTag(templateId, tag);
+    setTemplates((prev) =>
+      prev.map((t) =>
+        t.id === templateId ? { ...t, tags: (t.tags || []).filter((tg) => tg !== tag) } : t
+      )
+    );
+  };
+
   const handleRenameFlowCommit = async (fId) => {
     const trimmed = flowRenameValue.trim();
     setRenamingFlowId(null);
@@ -508,6 +537,9 @@ export default function Dashboard() {
     if (templateCategory) {
       list = list.filter((t) => t.category === templateCategory);
     }
+    if (templateTagFilter) {
+      list = list.filter((t) => t.tags?.includes(templateTagFilter));
+    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -518,8 +550,22 @@ export default function Dashboard() {
           t.tags?.some((tag) => tag.toLowerCase().includes(q))
       );
     }
+    // Sort
+    const getTs = (v) => {
+      if (!v) return 0;
+      if (v.toDate) return v.toDate().getTime();
+      if (v.seconds) return v.seconds * 1000;
+      return new Date(v).getTime();
+    };
+    if (templateSort === "name") {
+      list = [...list].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    } else if (templateSort === "created") {
+      list = [...list].sort((a, b) => getTs(b.createdAt) - getTs(a.createdAt));
+    } else {
+      list = [...list].sort((a, b) => getTs(b.updatedAt) - getTs(a.updatedAt));
+    }
     return list;
-  }, [templates, templateCategory, searchQuery]);
+  }, [templates, templateCategory, templateTagFilter, searchQuery, templateSort]);
 
   // Template categories
   const templateCategories = useMemo(() => {
@@ -527,6 +573,33 @@ export default function Dashboard() {
     templates.forEach((t) => { if (t.category) cats.add(t.category); });
     return [...cats].sort();
   }, [templates]);
+
+  // Template tags
+  const templateTags = useMemo(() => {
+    const tags = new Set();
+    templates.forEach((t) => t.tags?.forEach((tag) => tags.add(tag)));
+    return [...tags].sort();
+  }, [templates]);
+
+  // Grouped templates
+  const groupedTemplates = useMemo(() => {
+    if (templateGrouping === "none") return null;
+    const groups = {};
+    filteredTemplates.forEach((t) => {
+      if (templateGrouping === "type") {
+        const key = t.diagramType || t.category || "Other";
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(t);
+      } else if (templateGrouping === "tag") {
+        const tags = t.tags && t.tags.length > 0 ? t.tags : ["Untagged"];
+        tags.forEach((tag) => {
+          if (!groups[tag]) groups[tag] = [];
+          groups[tag].push(t);
+        });
+      }
+    });
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  }, [filteredTemplates, templateGrouping]);
 
   const formatDate = (ts) => {
     if (!ts) return "";
@@ -902,21 +975,47 @@ export default function Dashboard() {
                 <h2>My Templates</h2>
                 <span className="dash-count">{filteredTemplates.length} {filteredTemplates.length === 1 ? "template" : "templates"}</span>
               </div>
-              {templateCategories.length > 0 && (
-                <div className="dash-filters">
+              <div className="dash-filters">
+                <SearchableSelect
+                  value={templateCategory}
+                  onChange={setTemplateCategory}
+                  placeholder="All Types"
+                  options={templateCategories.map((c) => ({ value: c, label: formatDiagramType(c) }))}
+                />
+                {templateTags.length > 0 && (
                   <SearchableSelect
-                    value={templateCategory}
-                    onChange={setTemplateCategory}
-                    placeholder="All Types"
-                    options={templateCategories.map((c) => ({ value: c, label: formatDiagramType(c) }))}
+                    value={templateTagFilter}
+                    onChange={setTemplateTagFilter}
+                    placeholder="All Tags"
+                    options={templateTags.map((t) => ({ value: t, label: t }))}
                   />
-                  {templateCategory && (
-                    <button className="dash-filter-clear" onClick={() => setTemplateCategory("")}>
-                      Clear filter
-                    </button>
-                  )}
-                </div>
-              )}
+                )}
+                <SearchableSelect
+                  value={templateSort}
+                  onChange={setTemplateSort}
+                  placeholder="Sort"
+                  options={[
+                    { value: "updated", label: "Last Updated" },
+                    { value: "created", label: "Date Created" },
+                    { value: "name", label: "Name (A-Z)" },
+                  ]}
+                />
+                <SearchableSelect
+                  value={templateGrouping}
+                  onChange={setTemplateGrouping}
+                  placeholder="Group"
+                  options={[
+                    { value: "none", label: "No Grouping" },
+                    { value: "type", label: "Group by Type" },
+                    { value: "tag", label: "Group by Tag" },
+                  ]}
+                />
+                {(templateCategory || templateTagFilter) && (
+                  <button className="dash-filter-clear" onClick={() => { setTemplateCategory(""); setTemplateTagFilter(""); }}>
+                    Clear filters
+                  </button>
+                )}
+              </div>
               {filteredTemplates.length === 0 ? (
                 <div className="dash-empty">
                   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--ink-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4, marginBottom: 12 }}>
@@ -925,106 +1024,66 @@ export default function Dashboard() {
                   <p>No templates yet</p>
                   <p style={{ fontSize: 13, marginTop: 4 }}>Create a new template or save a flow as a template from the editor</p>
                 </div>
+              ) : groupedTemplates ? (
+                groupedTemplates.map(([groupLabel, groupItems]) => (
+                  <div key={groupLabel} style={{ marginBottom: 24 }}>
+                    <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 10, color: "var(--ink-muted)" }}>
+                      {templateGrouping === "type" ? formatDiagramType(groupLabel) : groupLabel}
+                      <span style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>({groupItems.length})</span>
+                    </h3>
+                    <div className="dash-flow-grid">
+                      {groupItems.map((t) => (
+                        <TemplateCard
+                          key={t.id}
+                          t={t}
+                          navigate={navigate}
+                          renamingTemplateId={renamingTemplateId}
+                          templateRenameValue={templateRenameValue}
+                          setRenamingTemplateId={setRenamingTemplateId}
+                          setTemplateRenameValue={setTemplateRenameValue}
+                          handleRenameTemplateCommit={handleRenameTemplateCommit}
+                          handleDeleteTemplate={handleDeleteTemplate}
+                          showTemplateTagInput={showTemplateTagInput}
+                          setShowTemplateTagInput={setShowTemplateTagInput}
+                          newTemplateTag={newTemplateTag}
+                          setNewTemplateTag={setNewTemplateTag}
+                          handleAddTemplateTag={handleAddTemplateTag}
+                          handleRemoveTemplateTag={handleRemoveTemplateTag}
+                          setUseTemplateDialog={setUseTemplateDialog}
+                          setUseTemplateName={setUseTemplateName}
+                          setUseTemplateProject={setUseTemplateProject}
+                          setUseTemplateNewProject={setUseTemplateNewProject}
+                          formatDate={formatDate}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))
               ) : (
                 <div className="dash-flow-grid">
                   {filteredTemplates.map((t) => (
-                    <div key={t.id} className="dash-flow-card template-card">
-                      <MermaidThumb
-                        thumbnailUrl={t.thumbnailUrl}
-                        code={t.code}
-                        diagramType={t.diagramType}
-                        flowId={t.id}
-                      />
-                      <div className="dash-flow-card-top">
-                        <span className="dash-flow-type-badge">
-                          {getDiagramIcon(t.diagramType || t.category)}
-                          {formatDiagramType(t.diagramType || t.category)}
-                        </span>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button
-                            className="dash-card-action"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/editor/template/${t.id}`);
-                            }}
-                            aria-label="Edit template"
-                            title="Edit template"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                          </button>
-                          <button
-                            className="dash-card-action"
-                            onClick={(e) => { e.stopPropagation(); setRenamingTemplateId(t.id); setTemplateRenameValue(t.name || "Untitled Template"); }}
-                            aria-label="Rename template"
-                            title="Rename"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                          <button
-                            className="dash-card-delete"
-                            onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t.id); }}
-                            aria-label="Delete template"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                          </button>
-                        </div>
-                      </div>
-                      {renamingTemplateId === t.id ? (
-                        <input
-                          className="dash-flow-card-rename-input"
-                          value={templateRenameValue}
-                          onChange={(e) => setTemplateRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleRenameTemplateCommit(t.id);
-                            if (e.key === "Escape") { setRenamingTemplateId(null); setTemplateRenameValue(""); }
-                          }}
-                          onBlur={() => handleRenameTemplateCommit(t.id)}
-                          onClick={(e) => e.stopPropagation()}
-                          autoFocus
-                        />
-                      ) : (
-                        <h4
-                          className="dash-flow-card-title"
-                          onDoubleClick={(e) => { e.stopPropagation(); setRenamingTemplateId(t.id); setTemplateRenameValue(t.name || "Untitled Template"); }}
-                        >
-                          {t.name || "Untitled Template"}
-                        </h4>
-                      )}
-                      {t.description && (
-                        <p className="template-description">{t.description}</p>
-                      )}
-                      {t.tabs && t.tabs.length > 1 && (
-                        <div className="dash-flow-tabs-info">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v6"/></svg>
-                          <span>{t.tabs.length} tabs</span>
-                        </div>
-                      )}
-                      {(t.tags || []).length > 0 && (
-                        <div className="dash-flow-tags">
-                          {t.tags.map((tag) => (
-                            <span key={tag} className="dash-flow-tag">{tag}</span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="dash-flow-card-footer">
-                        <span className="dash-card-meta">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                          {formatDate(t.updatedAt)}
-                        </span>
-                        <button
-                          className="template-use-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setUseTemplateDialog(t);
-                            setUseTemplateName(t.name || "");
-                            setUseTemplateProject("");
-                            setUseTemplateNewProject("");
-                          }}
-                        >
-                          Use Template
-                        </button>
-                      </div>
-                    </div>
+                    <TemplateCard
+                      key={t.id}
+                      t={t}
+                      navigate={navigate}
+                      renamingTemplateId={renamingTemplateId}
+                      templateRenameValue={templateRenameValue}
+                      setRenamingTemplateId={setRenamingTemplateId}
+                      setTemplateRenameValue={setTemplateRenameValue}
+                      handleRenameTemplateCommit={handleRenameTemplateCommit}
+                      handleDeleteTemplate={handleDeleteTemplate}
+                      showTemplateTagInput={showTemplateTagInput}
+                      setShowTemplateTagInput={setShowTemplateTagInput}
+                      newTemplateTag={newTemplateTag}
+                      setNewTemplateTag={setNewTemplateTag}
+                      handleAddTemplateTag={handleAddTemplateTag}
+                      handleRemoveTemplateTag={handleRemoveTemplateTag}
+                      setUseTemplateDialog={setUseTemplateDialog}
+                      setUseTemplateName={setUseTemplateName}
+                      setUseTemplateProject={setUseTemplateProject}
+                      setUseTemplateNewProject={setUseTemplateNewProject}
+                      formatDate={formatDate}
+                    />
                   ))}
                 </div>
               )}
@@ -1392,6 +1451,149 @@ function getCodeMatchSnippet(code, query) {
     after: line.slice(start + q.length),
     lineNum: idx + 1,
   };
+}
+
+/* ── Template Card Sub-component ─────────────────────── */
+function TemplateCard({
+  t,
+  navigate,
+  renamingTemplateId,
+  templateRenameValue,
+  setRenamingTemplateId,
+  setTemplateRenameValue,
+  handleRenameTemplateCommit,
+  handleDeleteTemplate,
+  showTemplateTagInput,
+  setShowTemplateTagInput,
+  newTemplateTag,
+  setNewTemplateTag,
+  handleAddTemplateTag,
+  handleRemoveTemplateTag,
+  setUseTemplateDialog,
+  setUseTemplateName,
+  setUseTemplateProject,
+  setUseTemplateNewProject,
+  formatDate,
+}) {
+  return (
+    <div
+      className="dash-flow-card template-card"
+      onClick={() => navigate(`/editor/template/${t.id}`)}
+    >
+      <MermaidThumb
+        thumbnailUrl={t.thumbnailUrl}
+        code={t.code}
+        diagramType={t.diagramType}
+        flowId={t.id}
+      />
+      <div className="dash-flow-card-top">
+        <span className="dash-flow-type-badge">
+          {getDiagramIcon(t.diagramType || t.category)}
+          {formatDiagramType(t.diagramType || t.category)}
+        </span>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            className="dash-card-action"
+            onClick={(e) => { e.stopPropagation(); navigate(`/editor/template/${t.id}`); }}
+            aria-label="Edit template"
+            title="Edit template"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+          </button>
+          <button
+            className="dash-card-action"
+            onClick={(e) => { e.stopPropagation(); setRenamingTemplateId(t.id); setTemplateRenameValue(t.name || "Untitled Template"); }}
+            aria-label="Rename template"
+            title="Rename"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button
+            className="dash-card-delete"
+            onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t.id); }}
+            aria-label="Delete template"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+      {renamingTemplateId === t.id ? (
+        <input
+          className="dash-flow-card-rename-input"
+          value={templateRenameValue}
+          onChange={(e) => setTemplateRenameValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleRenameTemplateCommit(t.id);
+            if (e.key === "Escape") { setRenamingTemplateId(null); setTemplateRenameValue(""); }
+          }}
+          onBlur={() => handleRenameTemplateCommit(t.id)}
+          onClick={(e) => e.stopPropagation()}
+          autoFocus
+        />
+      ) : (
+        <h4
+          className="dash-flow-card-title"
+          onDoubleClick={(e) => { e.stopPropagation(); setRenamingTemplateId(t.id); setTemplateRenameValue(t.name || "Untitled Template"); }}
+        >
+          {t.name || "Untitled Template"}
+        </h4>
+      )}
+      {t.description && (
+        <p className="template-description">{t.description}</p>
+      )}
+      {t.tabs && t.tabs.length > 1 && (
+        <div className="dash-flow-tabs-info">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v6"/></svg>
+          <span>{t.tabs.length} tabs</span>
+        </div>
+      )}
+      <div className="dash-flow-tags" onClick={(e) => e.stopPropagation()}>
+        {(t.tags || []).map((tag) => (
+          <span key={tag} className="dash-flow-tag">
+            {tag}
+            <button onClick={() => handleRemoveTemplateTag(t.id, tag)} aria-label={`Remove tag ${tag}`}>×</button>
+          </span>
+        ))}
+        {showTemplateTagInput === t.id ? (
+          <span className="dash-tag-input-wrap">
+            <input
+              className="dash-tag-input"
+              value={newTemplateTag}
+              onChange={(e) => setNewTemplateTag(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAddTemplateTag(t.id);
+                if (e.key === "Escape") { setShowTemplateTagInput(null); setNewTemplateTag(""); }
+              }}
+              placeholder="tag"
+              autoFocus
+            />
+          </span>
+        ) : (
+          <button className="dash-tag-add" onClick={() => { setShowTemplateTagInput(t.id); setNewTemplateTag(""); }} aria-label="Add tag">
+            +
+          </button>
+        )}
+      </div>
+      <div className="dash-flow-card-footer">
+        <span className="dash-card-meta">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          {formatDate(t.updatedAt)}
+        </span>
+        <button
+          className="template-use-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            setUseTemplateDialog(t);
+            setUseTemplateName(t.name || "");
+            setUseTemplateProject("");
+            setUseTemplateNewProject("");
+          }}
+        >
+          Use Template
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /* ── Flow Grid Sub-component ──────────────────────────── */
