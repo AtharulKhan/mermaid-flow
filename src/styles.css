@@ -2522,10 +2522,11 @@ input:focus {
 }
 
 .dashboard {
-  min-height: 100vh;
+  height: 100vh;
   background: #ffffff;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 [data-theme="dark"] .dashboard {
@@ -2538,6 +2539,7 @@ input:focus {
   justify-content: space-between;
   padding: 0 24px;
   height: 56px;
+  flex-shrink: 0;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
