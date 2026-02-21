@@ -119,6 +119,15 @@ function normalizeAssigneeArray(value) {
   return names;
 }
 
+function hasDoneStatus(status) {
+  return Array.isArray(status) && status.some((token) => String(token || "").toLowerCase() === "done");
+}
+
+function coerceProgressForStatus(status, progress) {
+  if (hasDoneStatus(status)) return "100";
+  return progress;
+}
+
 function normalizeGanttViewState(raw, fallback) {
   const state = raw && typeof raw === "object" ? raw : {};
   const nextScale = state.ganttScale === "month" ? "month" : state.ganttScale === "week" ? "week" : fallback.ganttScale;
@@ -9582,7 +9591,10 @@ function App() {
       notes: selectedGanttTask.notes || "",
       link: selectedGanttTask.link || "",
       section: selectedGanttTask.section || "",
-      progress: selectedGanttTask.progress !== null && selectedGanttTask.progress !== undefined ? String(selectedGanttTask.progress) : "",
+      progress: coerceProgressForStatus(
+        selectedGanttTask.statusTokens || [],
+        selectedGanttTask.progress !== null && selectedGanttTask.progress !== undefined ? String(selectedGanttTask.progress) : ""
+      ),
       dependsOn: selectedGanttTask.afterDeps || [],
     });
     // Lock the draft while the modal is open to prevent future syncs
@@ -10596,7 +10608,8 @@ function App() {
     const progressTasks = parseGanttTasks(updated);
     const progressTask = findTaskByLabel(progressTasks, nextLabel);
     if (progressTask) {
-      updated = updateGanttProgress(updated, progressTask, ganttDraft.progress);
+      const normalizedProgress = coerceProgressForStatus(ganttDraft.status, ganttDraft.progress);
+      updated = updateGanttProgress(updated, progressTask, normalizedProgress);
     }
 
     // Apply dependency changes
@@ -10736,7 +10749,14 @@ function App() {
     const label = contextMenu?.label || selectedElement?.label;
     const task = findTaskByLabel(ganttTasks, label);
     if (!task) return;
-    const updated = toggleGanttStatus(code, task, flag);
+    let updated = toggleGanttStatus(code, task, flag);
+    if (flag === "done") {
+      const updatedTasks = parseGanttTasks(updated);
+      const updatedTask = findTaskByLabel(updatedTasks, task.label);
+      if (updatedTask && (updatedTask.statusTokens || []).includes("done")) {
+        updated = updateGanttProgress(updated, updatedTask, 100);
+      }
+    }
     setCode(updated);
     setRenderMessage(`Toggled "${flag}" on "${task.label}"`);
     setHighlightLine(task.lineIndex + 1);
@@ -12336,12 +12356,15 @@ function App() {
                       min="0"
                       max="100"
                       step="5"
-                      value={ganttDraft.progress || 0}
-                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, progress: e.target.value }))}
+                      value={coerceProgressForStatus(ganttDraft.status, ganttDraft.progress) || 0}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, progress: coerceProgressForStatus(prev.status, e.target.value) }))}
+                      disabled={ganttDraft.status.includes("done")}
                       style={{ flex: 1 }}
                     />
                     <span style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: "36px", textAlign: "right" }}>
-                      {ganttDraft.progress ? ganttDraft.progress + "%" : "--"}
+                      {coerceProgressForStatus(ganttDraft.status, ganttDraft.progress)
+                        ? coerceProgressForStatus(ganttDraft.status, ganttDraft.progress) + "%"
+                        : "--"}
                     </span>
                   </div>
                 </label>
@@ -12357,6 +12380,7 @@ function App() {
                           setGanttDraft((prev) => ({
                             ...prev,
                             status: prev.status.includes(flag) ? [] : [flag],
+                            progress: coerceProgressForStatus(prev.status.includes(flag) ? [] : [flag], prev.progress),
                           }));
                         }}
                       >
@@ -12473,6 +12497,7 @@ function App() {
                           setGanttDraft((prev) => ({
                             ...prev,
                             status: prev.status.includes(flag) ? [] : [flag],
+                            progress: coerceProgressForStatus(prev.status.includes(flag) ? [] : [flag], prev.progress),
                           }));
                         }}
                       >
@@ -12647,12 +12672,15 @@ function App() {
                       min="0"
                       max="100"
                       step="5"
-                      value={ganttDraft.progress || 0}
-                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, progress: e.target.value }))}
+                      value={coerceProgressForStatus(ganttDraft.status, ganttDraft.progress) || 0}
+                      onChange={(e) => setGanttDraft((prev) => ({ ...prev, progress: coerceProgressForStatus(prev.status, e.target.value) }))}
+                      disabled={ganttDraft.status.includes("done")}
                       style={{ flex: 1 }}
                     />
                     <span style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: "36px", textAlign: "right" }}>
-                      {ganttDraft.progress ? ganttDraft.progress + "%" : "--"}
+                      {coerceProgressForStatus(ganttDraft.status, ganttDraft.progress)
+                        ? coerceProgressForStatus(ganttDraft.status, ganttDraft.progress) + "%"
+                        : "--"}
                     </span>
                   </div>
                 </label>
