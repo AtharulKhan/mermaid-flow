@@ -717,6 +717,135 @@ function findEdgeTokenRanges(line) {
   return edges;
 }
 
+function isFlowchartSource(code) {
+  if (!code || typeof code !== "string") return false;
+  const cleaned = code.replace(FRONT_MATTER_RE, "");
+  const firstMeaningful = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("%%"));
+  return !!firstMeaningful && /^\s*(?:flowchart|graph)\b/i.test(firstMeaningful);
+}
+
+/**
+ * Normalize invalid edges that point to subgraph IDs.
+ * Mermaid can crash on these with "Cannot set properties of undefined (setting 'rank')".
+ * We rewrite such edges to point to a concrete anchor node inside the subgraph.
+ */
+export function normalizeFlowchartSubgraphEdges(code) {
+  if (typeof code !== "string" || !code.trim()) {
+    return { code: code || "", changed: false, replacements: 0 };
+  }
+  if (!isFlowchartSource(code)) {
+    return { code, changed: false, replacements: 0 };
+  }
+
+  const lines = code.split("\n");
+  const stack = [];
+  const anchorBySubgraph = new Map();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("%%")) continue;
+
+    const subgraphMatch = trimmed.match(/^subgraph\s+([\w]+)(?:\s*\[[^\]]*\])?\s*$/);
+    if (subgraphMatch) {
+      stack.push(subgraphMatch[1]);
+      continue;
+    }
+
+    if (trimmed === "end") {
+      stack.pop();
+      continue;
+    }
+
+    if (!stack.length) continue;
+
+    const nodeRanges = findNodeTokenRanges(line);
+    if (!nodeRanges.length) continue;
+
+    const openSubgraphs = new Set(stack);
+    const preferredNode =
+      nodeRanges.find((n) => n.hasShape && !openSubgraphs.has(n.id)) ||
+      nodeRanges.find((n) => !openSubgraphs.has(n.id));
+    if (!preferredNode) continue;
+
+    for (const subgraphId of stack) {
+      if (!anchorBySubgraph.has(subgraphId)) {
+        anchorBySubgraph.set(subgraphId, preferredNode.id);
+      }
+    }
+  }
+
+  if (!anchorBySubgraph.size) {
+    return { code, changed: false, replacements: 0 };
+  }
+
+  const rewritten = [...lines];
+  let replacements = 0;
+
+  for (let i = 0; i < rewritten.length; i++) {
+    const line = rewritten[i];
+    const edgeRanges = findEdgeTokenRanges(line);
+    if (!edgeRanges.length) continue;
+
+    const edits = [];
+    const seen = new Set();
+
+    for (const edge of edgeRanges) {
+      const sourceAnchor = anchorBySubgraph.get(edge.source);
+      if (sourceAnchor && sourceAnchor !== edge.source) {
+        const key = `${edge.sourceRange.start}:${edge.sourceRange.end}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          edits.push({
+            start: edge.sourceRange.start,
+            end: edge.sourceRange.end,
+            replacement: sourceAnchor,
+          });
+        }
+      }
+
+      const targetAnchor = anchorBySubgraph.get(edge.target);
+      if (targetAnchor && targetAnchor !== edge.target) {
+        const key = `${edge.targetRange.start}:${edge.targetRange.end}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          edits.push({
+            start: edge.targetRange.start,
+            end: edge.targetRange.end,
+            replacement: targetAnchor,
+          });
+        }
+      }
+    }
+
+    if (!edits.length) continue;
+    edits.sort((a, b) => b.start - a.start);
+
+    let nextLine = line;
+    for (const edit of edits) {
+      nextLine =
+        nextLine.slice(0, edit.start) +
+        edit.replacement +
+        nextLine.slice(edit.end);
+      replacements += 1;
+    }
+    rewritten[i] = nextLine;
+  }
+
+  if (!replacements) {
+    return { code, changed: false, replacements: 0 };
+  }
+
+  return {
+    code: rewritten.join("\n"),
+    changed: true,
+    replacements,
+  };
+}
+
 /* ── Find ────────────────────────────────────────────────── */
 
 export function findNodeById(nodes, id) {
