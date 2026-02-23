@@ -310,17 +310,22 @@ function getIframeSrcDoc() {
       #wrap {
         width: 100%;
         height: 100%;
-        overflow: auto;
+        overflow-y: auto;
+        overflow-x: scroll;
         padding: 16px;
         box-sizing: border-box;
         position: relative;
         overscroll-behavior: contain;
+        scrollbar-gutter: stable both-edges;
+        scrollbar-width: thin;
       }
       #wrap.mf-gantt-mode {
         padding: 2px;
       }
       #canvas {
         min-height: 100%;
+        min-width: 100%;
+        width: max-content;
         padding: 16px;
         box-sizing: border-box;
         display: flex;
@@ -329,11 +334,14 @@ function getIframeSrcDoc() {
       }
       #canvas.mf-gantt-mode {
         padding: 0;
+        min-width: max-content;
       }
       #canvas > svg {
-        width: 100%;
+        width: auto;
         height: auto;
-        max-width: 100%;
+        max-width: none;
+        min-width: 100%;
+        display: block;
       }
       #mf-gantt-grid-header {
         position: absolute;
@@ -7080,6 +7088,19 @@ function getIframeSrcDoc() {
       let zoomLevel = 1;
       let panX = 0, panY = 0;
       let isPanning = false, panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0;
+      let panModeEnabled = false;
+
+      const updateWrapCursor = () => {
+        if (isPanning) {
+          wrap.style.cursor = "grabbing";
+          return;
+        }
+        if (connectMode) {
+          wrap.style.cursor = "";
+          return;
+        }
+        wrap.style.cursor = panModeEnabled ? "grab" : "";
+      };
 
       const applyCanvasTransform = () => {
         canvas.style.transformOrigin = "0 0";
@@ -7366,6 +7387,10 @@ function getIframeSrcDoc() {
         });
 
         svg.addEventListener("click", (event) => {
+          if (panModeEnabled && !connectMode) {
+            suppressClick = false;
+            return;
+          }
           const target = event.target;
           if (!target || target.nodeName === "svg" || suppressClick) {
             suppressClick = false;
@@ -7481,6 +7506,10 @@ function getIframeSrcDoc() {
               svg.style.cursor = "";
               svg.querySelectorAll(".mf-connect-source").forEach(el => el.classList.remove("mf-connect-source"));
             }
+            event.preventDefault();
+            return;
+          }
+          if (panModeEnabled) {
             event.preventDefault();
             return;
           }
@@ -7749,7 +7778,7 @@ function getIframeSrcDoc() {
         const nodeGroups = svg.querySelectorAll("g.node, g.entity, g.classGroup");
         nodeGroups.forEach(nodeEl => {
           nodeEl.addEventListener("mouseenter", () => {
-            if (dragState || isPanning || reconnectState) return;
+            if (dragState || isPanning || reconnectState || panModeEnabled) return;
             // Only show ports for flowcharts (other diagram types generate invalid syntax)
             const dtype = classifyForDrag(currentDiagramType);
             if (dtype !== "flowchart") return;
@@ -7787,15 +7816,16 @@ function getIframeSrcDoc() {
       }, { passive: false });
 
       wrap.addEventListener("pointerdown", (e) => {
-        if (e.button === 1) {
-          // Middle mouse: pan
+        const shouldStartPan = e.button === 1 || (panModeEnabled && e.button === 0 && !connectMode);
+        if (shouldStartPan) {
+          // Middle mouse always pans; left mouse pans when hand mode is enabled.
           e.preventDefault();
           isPanning = true;
           panStartX = e.clientX;
           panStartY = e.clientY;
           panOrigX = panX;
           panOrigY = panY;
-          wrap.style.cursor = "grabbing";
+          updateWrapCursor();
           wrap.setPointerCapture(e.pointerId);
         }
       });
@@ -7808,9 +7838,15 @@ function getIframeSrcDoc() {
       wrap.addEventListener("pointerup", (e) => {
         if (isPanning) {
           isPanning = false;
-          wrap.style.cursor = "";
+          updateWrapCursor();
           wrap.releasePointerCapture(e.pointerId);
         }
+      });
+      wrap.addEventListener("pointercancel", (e) => {
+        if (!isPanning) return;
+        isPanning = false;
+        updateWrapCursor();
+        wrap.releasePointerCapture(e.pointerId);
       });
       wrap.addEventListener("scroll", queueGanttOverlaySync, { passive: true });
 
@@ -8174,6 +8210,7 @@ function getIframeSrcDoc() {
         if (data.type === "mode:connect") {
           const sourceId = data.payload?.sourceId || "";
           connectMode = { sourceId };
+          updateWrapCursor();
           const svgEl = canvas.querySelector("svg");
           if (svgEl) {
             svgEl.style.cursor = "crosshair";
@@ -8186,11 +8223,18 @@ function getIframeSrcDoc() {
 
         if (data.type === "mode:normal") {
           connectMode = null;
+          updateWrapCursor();
           const svgEl = canvas.querySelector("svg");
           if (svgEl) {
             svgEl.style.cursor = "";
             svgEl.querySelectorAll(".mf-connect-source").forEach(el => el.classList.remove("mf-connect-source"));
           }
+          return;
+        }
+
+        if (data.type === "pan:mode") {
+          panModeEnabled = !!data.payload?.enabled;
+          updateWrapCursor();
           return;
         }
 
@@ -8250,8 +8294,12 @@ function getIframeSrcDoc() {
 
         if (data.type !== "render") return;
 
-        const { code, config } = data.payload || {};
+        const { code, config, panModeEnabled: nextPanModeEnabled } = data.payload || {};
         if (!code) return;
+        if (typeof nextPanModeEnabled === "boolean") {
+          panModeEnabled = nextPanModeEnabled;
+          updateWrapCursor();
+        }
 
         try {
           resetSelection();
@@ -8644,6 +8692,7 @@ function App() {
   const [sqlExportContent, setSqlExportContent] = useState(null);
   const [erLayoutDir, setErLayoutDir] = useState("LR"); // "LR" or "TB"
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [panModeEnabled, setPanModeEnabled] = useState(false);
   const [styleToolbar, setStyleToolbar] = useState(null); // { nodeId, x, y, yBottom, activeDropdown }
   const contextMenuRef = useRef(null);
 
@@ -9231,6 +9280,7 @@ function App() {
         payload: {
           code: renderCode,
           config: mermaidRenderConfig,
+          panModeEnabled,
           ganttData,
           flowchartData: flowchartPayload,
           erData: erPayload,
@@ -9259,6 +9309,16 @@ function App() {
       "*"
     );
   }, [themeMode]);
+
+  /* ── Sync pan mode to iframe ──────────────────────────── */
+  useEffect(() => {
+    const frame = iframeRef.current;
+    if (!frame?.contentWindow) return;
+    frame.contentWindow.postMessage(
+      { channel: CHANNEL, type: "pan:mode", payload: { enabled: panModeEnabled } },
+      "*"
+    );
+  }, [panModeEnabled]);
 
   /* ── Load user's Notion settings when sync panel opens ── */
   useEffect(() => {
@@ -12195,6 +12255,14 @@ function App() {
             </div>
           )}
           <div className="zoom-controls">
+            <button
+              className={`zoom-pan-toggle${panModeEnabled ? " active" : ""}`}
+              title={panModeEnabled ? "Hand pan mode is on" : "Enable hand pan mode"}
+              aria-pressed={panModeEnabled}
+              onClick={() => setPanModeEnabled((prev) => !prev)}
+            >
+              Pan
+            </button>
             <button title="Zoom out" onClick={() => {
               if (toolsetKey === "gantt") {
                 setGanttZoom((prev) => Math.max(0.2, +(prev - 0.2).toFixed(1)));
