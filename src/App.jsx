@@ -325,6 +325,12 @@ function getIframeSrcDoc() {
         -webkit-user-select: none !important;
         -webkit-touch-callout: none;
       }
+      body.mf-pan-mode,
+      body.mf-pan-mode * {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -webkit-touch-callout: none;
+      }
       #wrap.mf-gantt-mode {
         padding: 2px;
       }
@@ -341,6 +347,10 @@ function getIframeSrcDoc() {
       #canvas.mf-gantt-mode {
         padding: 0;
         min-width: max-content;
+      }
+      #canvas.mf-pan-passive,
+      #canvas.mf-pan-passive * {
+        pointer-events: none !important;
       }
       #canvas > svg {
         width: auto;
@@ -7104,7 +7114,10 @@ function getIframeSrcDoc() {
       };
 
       const updateWrapCursor = () => {
-        wrap.classList.toggle("mf-pan-mode", !!panModeEnabled);
+        const panPassive = !!panModeEnabled && !connectMode;
+        wrap.classList.toggle("mf-pan-mode", panPassive);
+        canvas.classList.toggle("mf-pan-passive", panPassive);
+        document.body.classList.toggle("mf-pan-mode", panPassive || isPanning);
         if (isPanning) {
           wrap.style.cursor = "grabbing";
           return;
@@ -7851,6 +7864,15 @@ function getIframeSrcDoc() {
         panX = panOrigX + (e.clientX - panStartX);
         panY = panOrigY + (e.clientY - panStartY);
         applyCanvasTransform();
+      });
+      wrap.addEventListener("selectstart", (e) => {
+        if (!(panModeEnabled || isPanning)) return;
+        e.preventDefault();
+        clearTextSelection();
+      });
+      wrap.addEventListener("dragstart", (e) => {
+        if (!(panModeEnabled || isPanning)) return;
+        e.preventDefault();
       });
       wrap.addEventListener("pointerup", (e) => {
         if (isPanning) {
