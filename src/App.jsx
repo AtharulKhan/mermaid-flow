@@ -37,7 +37,7 @@ import {
   updateGanttDependency,
   autoAdjustGanttDates,
 } from "./ganttUtils";
-import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph } from "./flowchartUtils";
+import { parseFlowchart, findNodeById, generateNodeId, addFlowchartNode, removeFlowchartNode, updateFlowchartNode, addFlowchartEdge, removeFlowchartEdge, updateFlowchartEdge, parseClassDefs, parseClassAssignments, parseStyleDirectives, createSubgraph, removeSubgraph, renameSubgraph, moveNodeToSubgraph, normalizeFlowchartSubgraphEdges } from "./flowchartUtils";
 import { getDiagramAdapter, parseErDiagram, parseErAttribute, parseCardinality, sqlToErDiagram, erDiagramToSql, parseClassDiagram, parseStateDiagram, addStateDiagramState, addStateDiagramTransition, updateErEntity, updateErRelationship, parseSequenceDiagram, parseSequenceBlocks, parseSequenceExtras, updateSequenceMessageByIndex, removeSequenceMessageByIndex, reorderSequenceParticipants, addSequenceMessage } from "./diagramUtils";
 import { parseStateDiagramEnhanced, xstateToMermaid, mermaidToXState, generateStateId, toggleStateDiagramDirection } from "./stateUtils";
 import { downloadSvgHQ, downloadPngHQ, downloadPdf, captureHtmlToPng, downloadPngFromDataUrl, downloadPdfFromDataUrl, svgToPngBlob } from "./exportUtils";
@@ -8311,6 +8311,18 @@ function getIframeSrcDoc() {
         } catch (err) {
           setGanttMode(false);
           const message = (err && err.message) ? err.message : String(err);
+          const isRankCrash = /setting 'rank'/i.test(message);
+          if (isRankCrash) {
+            try {
+              const fd = data.payload?.flowchartData || {};
+              renderCustomFlowchart(fd.parsed || {}, fd.classDefs || [], fd.classAssignments || {}, fd.styleOverrides || {}, fd.styleDirectives || {});
+              currentDiagramType = "flowchart";
+              send("render:success", { diagramType: currentDiagramType, svg: "", isCustomFlowchart: true, autoFixed: true });
+              return;
+            } catch (_) {
+              // Fall through to normal error handling.
+            }
+          }
           error.textContent = message;
           send("render:error", { message });
         }
@@ -9104,6 +9116,7 @@ function App() {
     if (!frame?.contentWindow) return;
 
     setRenderStatus("rendering");
+    const { code: renderCode } = normalizeFlowchartSubgraphEdges(code);
 
     // Pre-compute gantt data so the iframe can render custom HTML gantt
     const directives = parseGanttDirectives(code);
@@ -9182,10 +9195,10 @@ function App() {
 
     // Pre-compute flowchart data so the iframe can render custom HTML flowchart
     const flowchartPayload = {
-      parsed: parseFlowchart(code),
-      classDefs: parseClassDefs(code),
-      classAssignments: parseClassAssignments(code),
-      styleDirectives: parseStyleDirectives(code),
+      parsed: parseFlowchart(renderCode),
+      classDefs: parseClassDefs(renderCode),
+      classAssignments: parseClassAssignments(renderCode),
+      styleDirectives: parseStyleDirectives(renderCode),
       styleOverrides,
     };
 
@@ -9216,7 +9229,7 @@ function App() {
         channel: CHANNEL,
         type: "render",
         payload: {
-          code,
+          code: renderCode,
           config: mermaidRenderConfig,
           ganttData,
           flowchartData: flowchartPayload,
@@ -13837,7 +13850,7 @@ function App() {
                     channel: CHANNEL,
                     type: "render",
                     payload: {
-                      code,
+                      code: normalizeFlowchartSubgraphEdges(code).code,
                       config: mermaidRenderConfig,
                     },
                   },
