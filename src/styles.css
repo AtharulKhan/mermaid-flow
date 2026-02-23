@@ -1843,6 +1843,19 @@ input:focus {
   color: var(--ink);
 }
 
+.zoom-controls button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.zoom-controls .zoom-pan-toggle {
+  width: auto;
+  min-width: 40px;
+  padding: 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
 .zoom-pct {
   font-size: 11px;
   font-family: var(--font-mono);
