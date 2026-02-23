@@ -319,6 +319,12 @@ function getIframeSrcDoc() {
         scrollbar-gutter: stable both-edges;
         scrollbar-width: thin;
       }
+      #wrap.mf-pan-mode,
+      #wrap.mf-pan-mode * {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -webkit-touch-callout: none;
+      }
       #wrap.mf-gantt-mode {
         padding: 2px;
       }
@@ -7090,7 +7096,15 @@ function getIframeSrcDoc() {
       let isPanning = false, panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0;
       let panModeEnabled = false;
 
+      const clearTextSelection = () => {
+        try {
+          const sel = window.getSelection && window.getSelection();
+          if (sel && sel.rangeCount > 0) sel.removeAllRanges();
+        } catch (_) {}
+      };
+
       const updateWrapCursor = () => {
+        wrap.classList.toggle("mf-pan-mode", !!panModeEnabled);
         if (isPanning) {
           wrap.style.cursor = "grabbing";
           return;
@@ -7820,6 +7834,7 @@ function getIframeSrcDoc() {
         if (shouldStartPan) {
           // Middle mouse always pans; left mouse pans when hand mode is enabled.
           e.preventDefault();
+          clearTextSelection();
           isPanning = true;
           panStartX = e.clientX;
           panStartY = e.clientY;
@@ -7831,6 +7846,8 @@ function getIframeSrcDoc() {
       });
       wrap.addEventListener("pointermove", (e) => {
         if (!isPanning) return;
+        e.preventDefault();
+        clearTextSelection();
         panX = panOrigX + (e.clientX - panStartX);
         panY = panOrigY + (e.clientY - panStartY);
         applyCanvasTransform();
@@ -7838,6 +7855,7 @@ function getIframeSrcDoc() {
       wrap.addEventListener("pointerup", (e) => {
         if (isPanning) {
           isPanning = false;
+          clearTextSelection();
           updateWrapCursor();
           wrap.releasePointerCapture(e.pointerId);
         }
@@ -7845,6 +7863,7 @@ function getIframeSrcDoc() {
       wrap.addEventListener("pointercancel", (e) => {
         if (!isPanning) return;
         isPanning = false;
+        clearTextSelection();
         updateWrapCursor();
         wrap.releasePointerCapture(e.pointerId);
       });
